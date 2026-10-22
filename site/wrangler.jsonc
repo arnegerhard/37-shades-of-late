@@ -5,6 +5,9 @@
   "name": "37shadesoflate-site",
   "compatibility_date": "2026-09-01",
   "assets": { "directory": "./public" },
+  // Keep the original workers.dev address serving too; custom domains turn it off by default.
+  "workers_dev": true,
+  "preview_urls": false,
   // Custom domains: Cloudflare creates the DNS records and certificates for these.
   "routes": [
     { "pattern": "37shadesoflate.com", "custom_domain": true },

@@ -39,9 +39,11 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
     const { pathname } = new URL(request.url);
-    // These pages now live on the website; keep the old addresses working.
-    if (pathname === "/privacy" || pathname === "/support") return Response.redirect(`${SITE}${pathname}`, 301);
-    if (pathname === "/") return Response.redirect(SITE, 301);
+    // These pages now live on the website; keep the old addresses (and their /privacy/,
+    // /privacy.html spellings) working, since App Store Connect may still link here.
+    const page = pathname.replace(/\/+$/, "").replace(/\.html$/, "");
+    if (page === "/privacy" || page === "/support") return Response.redirect(`${SITE}${page}`, 301);
+    if (page === "") return Response.redirect(SITE, 301);
     recordUsage(request, env);
     if (pathname === "/v1/city") return json({ city: nearestCity(request) });
     // "-v3": the shared-snapshot version runs in a fresh instance (the old per-stop one kept
