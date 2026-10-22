@@ -1,17 +1,20 @@
 # 37 Shades of Late
 
-**37 Shades of Late** is an iOS app with Home Screen and Lock Screen widgets showing the next Muni departures for a line
-and stop you pick in the app. Defaults to the inbound 37 Corbett toward the Haight at
-14th St & Church St (stop 13254), one block from Market & Church.
+**37 Shades of Late** is an iOS app with Home Screen and Lock Screen widgets showing the next departures for a line
+and stop you pick in the app, in San Francisco (Muni) or Seattle (King County Metro, Sound Transit, Seattle
+Streetcar). A new install starts in the nearer city: the inbound 37 Corbett at 14th St & Church St (stop 13254)
+in SF, or the 8 toward Mount Baker at Denny Way & Fairview Ave (stop 1_2260) in Seattle.
 
 ## How it fits together
 
-- **App** (`App/`): pick a line, direction and stop. The choice is saved to the
-  `group.info.jetsons.bus37` App Group so the widgets use it too.
+- **App** (`App/`): pick a city, line, direction and stop. The choice (including its `City`) is saved
+  to the `group.info.jetsons.bus37` App Group so the widgets use it too. On first launch the app asks
+  the proxy's `/v1/city` for the nearer supported city; there's no location permission.
 - **Favorites**: save the current line and stop with Save; tap one to show it in the app and on
   the widgets; swipe to delete, Edit to reorder. Stored in the same App Group.
-- **Map** (`App/RouteMap.swift`): the route in the chosen direction (stops joined in order),
-  the chosen stop, and live buses headed to it, refreshed every 30 seconds.
+- **Map** (`App/RouteMap.swift`): the route in the chosen direction (Seattle's real street shapes;
+  in SF the stops joined in order), the chosen stop, and live buses on the route headed to it,
+  refreshed whenever the proxy has newer data.
 - **Widget** (`Widget/`): small/medium Home Screen and rectangular/circular/inline Lock Screen.
 - **Proxy** (`proxy/`): Cloudflare Worker at https://bus37-proxy.arne-5c1.workers.dev that
   holds the 511.org API key so all installs share one key. A single Durable Object fetches
@@ -26,6 +29,15 @@ and stop you pick in the app. Defaults to the inbound 37 Corbett toward the Haig
   | `GET /v1/lines` | all Muni lines (cached 24h) |
   | `GET /v1/lines/:line` | directions and their stops in order, with coordinates (cached 24h) |
   | `GET /v1/departures?stop=&line=&direction=` | upcoming departures and live bus positions, plus `fetchedAt`/`nextRefreshAt` of the shared snapshot |
+  | `GET /v1/city` | `sf` or `seattle`, whichever is nearer Cloudflare's rough IP location of the caller (not stored) |
+
+  **Seattle** (`proxy/src/seattle.ts`) uses OneBusAway Puget Sound under `/v1/seattle/lines`,
+  `/v1/seattle/lines/:line` (adds `shapes`, the real route polylines) and `/v1/seattle/departures`.
+  OneBusAway has no all-stops call, so departures are cached per stop for 60s. Line ids are rider-facing
+  codes ("8", "E Line", "SLU"); the proxy maps them to OneBusAway route ids. A bus only counts as live,
+  and shows on the map, once it's running that trip (`activeTripId`). The key is the `OBA_API_KEY`
+  secret (`npx wrangler secret put OBA_API_KEY`); until it's set the public, heavily rate-limited
+  `TEST` key is used.
 
 ## Website
 
@@ -38,7 +50,8 @@ Church & 14th via the proxy (requests tagged `client=web`). Deploy with `site/bu
 ## Usage statistics
 
 Each request carries a random install ID the app generates (`AppGroup.installID`), the part of
-the app that made it (`X-Client`: app, widget or map), the favorites count and app version.
+the app that made it (`X-Client`: app, widget or map), the favorites count and app version. The city
+(blob8: sf or seattle) comes from the request path.
 The proxy writes one anonymous event per request to the Workers Analytics Engine dataset
 `37ShadesOfLate` (columns documented at `recordUsage` in `proxy/src/index.ts`); no IPs or
 locations. Query it with the Analytics Engine SQL API (the name starts with a digit, so quote

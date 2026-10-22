@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Pick a line, then a direction and stop. Calls `onPick` with the finished selection.
+/// Pick a city and line, then a direction and stop. Calls `onPick` with the finished selection.
 struct LinePicker: View {
     let onPick: (Selection) -> Void
 
+    @State private var city = Selection.current.city
     @State private var lines: [Line] = []
     @State private var error: String?
     @State private var search = ""
@@ -14,12 +15,22 @@ struct LinePicker: View {
     }
 
     var body: some View {
-        List(filtered) { line in
-            NavigationLink(value: line) {
-                HStack(spacing: 10) {
-                    LineBadge(line: line.id, font: .system(.body, design: .rounded).weight(.heavy))
-                        .frame(minWidth: 52, alignment: .leading)
-                    Text(line.name)
+        List {
+            Section {
+                Picker("City", selection: $city) {
+                    ForEach(City.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
+            ForEach(filtered) { line in
+                NavigationLink(value: line) {
+                    HStack(spacing: 10) {
+                        LineBadge(line: line.id, font: .system(.body, design: .rounded).weight(.heavy))
+                            .frame(minWidth: 52, alignment: .leading)
+                        Text(line.name)
+                    }
                 }
             }
         }
@@ -33,16 +44,19 @@ struct LinePicker: View {
         .searchable(text: $search, prompt: "Line number or name")
         .navigationTitle("Choose a line")
         .navigationDestination(for: Line.self) { line in
-            StopPicker(line: line, onPick: onPick)
+            StopPicker(line: line, city: city, onPick: onPick)
         }
-        .task {
-            do { lines = try await TransitService.lines() } catch { self.error = error.localizedDescription }
+        .task(id: city) {
+            lines = []
+            error = nil
+            do { lines = try await TransitService.lines(in: city) } catch { self.error = error.localizedDescription }
         }
     }
 }
 
 struct StopPicker: View {
     let line: Line
+    let city: City
     let onPick: (Selection) -> Void
 
     @State private var directions: [Direction] = []
@@ -73,7 +87,8 @@ struct StopPicker: View {
                         guard let direction else { return }
                         onPick(Selection(
                             lineID: line.id, lineName: line.name, directionID: direction.id,
-                            destination: direction.destination, stopCode: stop.code, stopName: stop.name))
+                            destination: direction.destination, stopCode: stop.code, stopName: stop.name,
+                            city: city))
                     } label: {
                         Text(stop.name)
                     }
@@ -92,10 +107,10 @@ struct StopPicker: View {
         .navigationTitle("\(line.id) \(line.name)")
         .task {
             do {
-                directions = try await TransitService.directions(for: line)
+                directions = try await TransitService.directions(for: line, in: city)
                 // Reopening the current line starts on the direction you already ride.
                 let current = Selection.current
-                if directionID == nil, current.lineID == line.id {
+                if directionID == nil, current.city == city, current.lineID == line.id {
                     directionID = directions.first { $0.id == current.directionID }?.id
                 }
             } catch {

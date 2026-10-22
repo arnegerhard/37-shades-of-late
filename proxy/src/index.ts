@@ -1,7 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
+import { handleSeattle } from "./seattle";
 
 /**
- * Caching proxy in front of 511.org for SF Muni.
+ * Caching proxy for live transit data: 511.org for SF Muni (below) and OneBusAway for Seattle
+ * (see seattle.ts, served under /v1/seattle/...).
  *
  * Every request goes through a single Durable Object, so all users share one cache and
  * one rate budget for the 511 API key (60 requests/hour by default). Departures come from a
@@ -15,6 +17,8 @@ import { DurableObject } from "cloudflare:workers";
  *   GET /v1/lines/:line                    a line's directions and their stops (with coordinates) in order
  *   GET /v1/departures?stop=13254&line=37  upcoming departures at a stop for one line, with each
  *                                          live bus's current position
+ *   GET /v1/city                           the supported city nearest the caller ("sf" or "seattle"),
+ *                                          from Cloudflare's rough IP location; nothing is stored
  */
 
 interface Env {
@@ -24,6 +28,8 @@ interface Env {
   SNAPSHOT_TTL_SECONDS: string;
   STATIC_TTL_SECONDS: string;
   ANALYTICS_ENGINE?: AnalyticsEngineDataset;
+  /** OneBusAway Puget Sound key; the public, heavily rate-limited "TEST" key until it's set. */
+  OBA_API_KEY?: string;
 }
 
 const AGENCY = "SF";
@@ -37,6 +43,7 @@ export default {
     if (pathname === "/privacy" || pathname === "/support") return Response.redirect(`${SITE}${pathname}`, 301);
     if (pathname === "/") return Response.redirect(SITE, 301);
     recordUsage(request, env);
+    if (pathname === "/v1/city") return json({ city: nearestCity(request) });
     // "-v3": the shared-snapshot version runs in a fresh instance (the old per-stop one kept
     // serving stale code while busy). Bump the suffix again for a clean cache if ever needed.
     const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v3`));
@@ -126,6 +133,17 @@ export class TransitCache extends DurableObject<Env> {
     const parts = url.pathname.split("/").filter(Boolean);
     try {
       if (parts[0] !== "v1") return json({ error: "not found" }, 404);
+
+      if (parts[1] === "seattle") {
+        const result = await handleSeattle(parts.slice(2), url, {
+          cached: (key, ttl, load) => this.cached(key, ttl, load),
+          apiKey: this.env.OBA_API_KEY || "TEST",
+          staticTTL: this.staticTTL,
+          rateLimited: () => new BudgetExhausted(),
+          upstream: (status) => new UpstreamError(status),
+        });
+        return json(result.body, result.status ?? 200, result.maxAge ?? 0);
+      }
 
       if (parts[1] === "lines" && parts.length === 2) {
         const { data, fetchedAt } = await this.cached("lines", this.staticTTL, () => this.fetchLines());
@@ -391,7 +409,7 @@ const CLIENTS = new Set(["app", "widget", "map", "web"]);
  * counted per install; IP addresses and locations are never recorded.
  *
  * Columns: blob1 event (departures | lines | line), blob2 client (app | widget | map | web),
- * blob3 line, blob4 stop, blob5 direction, blob6 install ID, blob7 app version,
+ * blob3 line, blob4 stop, blob5 direction, blob6 install ID, blob7 app version, blob8 city (sf | seattle),
  * double1 number of favorites; index1 install ID (keeps sampling per install).
  */
 function recordUsage(request: Request, env: Env) {
@@ -399,6 +417,8 @@ function recordUsage(request: Request, env: Env) {
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts[0] !== "v1") return;
+  const city = parts[1] === "seattle" ? "seattle" : "sf";
+  if (city === "seattle") parts.splice(1, 1);
   const event = parts[1] === "departures" ? "departures" : parts.length > 2 ? "line" : parts[1] ?? "";
   const header = (name: string) => (request.headers.get(name) ?? "").slice(0, 64);
   const install = UUID.test(header("X-Install-ID")) ? header("X-Install-ID").toLowerCase() : "unknown";
@@ -416,6 +436,7 @@ function recordUsage(request: Request, env: Env) {
       (url.searchParams.get("direction") ?? "").slice(0, 8),
       install,
       header("X-App-Version").slice(0, 16),
+      city,
     ],
     doubles: [Number.isFinite(favorites) ? Math.max(0, Math.min(favorites, 1000)) : 0],
     indexes: [install],
@@ -423,6 +444,17 @@ function recordUsage(request: Request, env: Env) {
 }
 
 // MARK: - Helpers
+
+const CITIES = { sf: [37.7749, -122.4194], seattle: [47.6062, -122.3321] } as const;
+
+/** The closest supported city to Cloudflare's IP-based guess; good to a few dozen km at best. */
+function nearestCity(request: Request): keyof typeof CITIES {
+  const lat = Number(request.cf?.latitude);
+  const lon = Number(request.cf?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "sf";
+  const distance = ([cLat, cLon]: readonly [number, number]) => (lat - cLat) ** 2 + ((lon - cLon) * Math.cos((lat * Math.PI) / 180)) ** 2;
+  return distance(CITIES.seattle) < distance(CITIES.sf) ? "seattle" : "sf";
+}
 
 function vehiclePosition(journey: any): Vehicle | undefined {
   const lat = Number(journey.VehicleLocation?.Latitude);

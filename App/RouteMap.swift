@@ -2,13 +2,15 @@ import MapKit
 import SwiftUI
 
 /// The selected line's route in the selected direction, the chosen stop, and the live buses
-/// headed to it. Bus positions refresh as soon as the proxy can have newer 511 data,
-/// which the bar along the bottom counts down to.
+/// headed to it. Bus positions refresh as soon as the proxy can have newer data, which the bar
+/// along the bottom counts down to.
 struct RouteMap: View {
     let selection: Selection
     var interactive = true
 
     @State private var stops: [Stop] = []
+    /// The real street route where the city provides one (Seattle); empty otherwise.
+    @State private var shapes: [[CLLocationCoordinate2D]] = []
     @State private var departures: [Departure] = []
     @State private var position: MapCameraPosition = .automatic
     @State private var now = Date.now
@@ -16,7 +18,10 @@ struct RouteMap: View {
     /// A live bus that was still on its way vanished from the latest data.
     @State private var busVanished = false
 
-    private var route: [CLLocationCoordinate2D] { stops.compactMap(\.coordinate) }
+    /// The line to draw: the real route shape if there is one, else the stops joined in order.
+    private var route: [[CLLocationCoordinate2D]] {
+        shapes.isEmpty ? [stops.compactMap(\.coordinate)] : shapes
+    }
     private var selectedStop: Stop? { stops.first { $0.code == selection.stopCode } }
     /// Live buses on the route. 511 reports a trip's assigned bus wherever it is, so a bus still
     /// at the yard or finishing another trip would otherwise appear far off the line.
@@ -27,23 +32,25 @@ struct RouteMap: View {
         }
     }
 
-    /// Within 200 m of the line drawn between the route's stops.
+    /// Within 200 m of the drawn route.
     private func isOnRoute(_ vehicle: Vehicle) -> Bool {
-        let points = route
-        guard points.count > 1 else { return false }
+        let segments = route.filter { $0.count > 1 }
+        guard !segments.isEmpty else { return false }
         // Flat-earth meters around the bus; plenty accurate at city scale.
         let metersPerDegree = 111_320.0
         let lonScale = cos(vehicle.lat * .pi / 180)
         func local(_ c: CLLocationCoordinate2D) -> (x: Double, y: Double) {
             ((c.longitude - vehicle.lon) * metersPerDegree * lonScale, (c.latitude - vehicle.lat) * metersPerDegree)
         }
-        for (a, b) in zip(points, points.dropFirst()) {
-            let (p, q) = (local(a), local(b))
-            let (dx, dy) = (q.x - p.x, q.y - p.y)
-            let length = dx * dx + dy * dy
-            let t = length > 0 ? max(0, min(1, -(p.x * dx + p.y * dy) / length)) : 0
-            let (x, y) = (p.x + t * dx, p.y + t * dy)
-            if x * x + y * y < 200 * 200 { return true }
+        for points in segments {
+            for (a, b) in zip(points, points.dropFirst()) {
+                let (p, q) = (local(a), local(b))
+                let (dx, dy) = (q.x - p.x, q.y - p.y)
+                let length = dx * dx + dy * dy
+                let t = length > 0 ? max(0, min(1, -(p.x * dx + p.y * dy) / length)) : 0
+                let (x, y) = (p.x + t * dx, p.y + t * dy)
+                if x * x + y * y < 200 * 200 { return true }
+            }
         }
         return false
     }
@@ -51,9 +58,11 @@ struct RouteMap: View {
     var body: some View {
         Map(position: $position, interactionModes: interactive ? .all : []) {
             // Skip the line until the route has loaded.
-            if route.count > 1 {
-                MapPolyline(coordinates: route)
-                    .stroke(LineBadge.red, style: StrokeStyle(lineWidth: interactive ? 5 : 4, lineCap: .round, lineJoin: .round))
+            ForEach(Array(route.enumerated()), id: \.offset) { _, segment in
+                if segment.count > 1 {
+                    MapPolyline(coordinates: segment)
+                        .stroke(LineBadge.red, style: StrokeStyle(lineWidth: interactive ? 5 : 4, lineCap: .round, lineJoin: .round))
+                }
             }
 
             if interactive {
@@ -90,6 +99,7 @@ struct RouteMap: View {
         }
         .task(id: selection) {
             stops = []
+            shapes = []
             departures = []
             refresh = nil
             busVanished = false
@@ -140,8 +150,13 @@ struct RouteMap: View {
 
     private func loadRoute() async {
         let line = Line(id: selection.lineID, name: selection.lineName, mode: "bus")
-        guard let directions = try? await TransitService.directions(for: line, client: interactive ? .map : .app) else { return }
-        stops = (directions.first { $0.id == selection.directionID } ?? directions.first)?.stops ?? []
+        guard let directions = try? await TransitService.directions(for: line, in: selection.city, client: interactive ? .map : .app)
+        else { return }
+        let direction = directions.first { $0.id == selection.directionID } ?? directions.first
+        stops = direction?.stops ?? []
+        shapes = (direction?.shapes ?? []).map { segment in
+            segment.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil }
+        }
     }
 
     private func loadDepartures() async {

@@ -150,6 +150,7 @@ struct ContentView: View {
                     .toolbarBackground(.visible, for: .navigationBar)
             }
             .task(id: selection) { await load() }
+            .task { await startInNearestCity() }
             .onChange(of: favorites) { Selection.favorites = favorites }
             #if DEBUG
             .onAppear {
@@ -200,6 +201,18 @@ struct ContentView: View {
             .overlay {
                 if isSelected { SelectedFavoriteFrame(isFirst: isFirst, isLast: isLast) }
             }
+    }
+
+    /// On a fresh install, start with the default stop of whichever supported city the proxy
+    /// thinks we're in (a rough IP-based guess: no location permission, nothing stored).
+    private func startInNearestCity() async {
+        guard !Selection.hasSavedChoice else { return }
+        let start = (await TransitService.nearestCity() ?? .sf).defaultSelection
+        Selection.current = start
+        if start.id != selection.id {
+            withAnimation(Self.switchAnimation) { selection = start }
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     /// Makes `picked` the line and stop shown in the app and on the widgets.

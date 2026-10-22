@@ -33,6 +33,9 @@ for line in [cols] + [[str(r[c]) for c in cols] for r in rows]:
 query "Installs and requests per day" \
   "SELECT toDate(timestamp) AS day, count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
    FROM \"37ShadesOfLate\" WHERE $where GROUP BY day ORDER BY day"
+query "By city" \
+  "SELECT if(blob8 = '', 'sf', blob8) AS city, count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
+   FROM \"37ShadesOfLate\" WHERE $where GROUP BY city ORDER BY requests DESC"
 query "App vs. widget vs. map" \
   "SELECT blob2 AS client, count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
    FROM \"37ShadesOfLate\" WHERE $where GROUP BY client ORDER BY requests DESC"
@@ -42,10 +45,10 @@ query "Active days per install" \
      FROM \"37ShadesOfLate\" WHERE $where GROUP BY blob6)
    GROUP BY active_days ORDER BY active_days"
 query "Top lines and stops" \
-  "SELECT blob3 AS line, blob4 AS stop, blob5 AS direction, count(DISTINCT blob6) AS installs,
+  "SELECT if(blob8 = '', 'sf', blob8) AS city, blob3 AS line, blob4 AS stop, blob5 AS direction, count(DISTINCT blob6) AS installs,
           SUM(_sample_interval) AS requests
    FROM \"37ShadesOfLate\" WHERE $where AND blob1 = 'departures'
-   GROUP BY line, stop, direction ORDER BY installs DESC, requests DESC LIMIT 15"
+   GROUP BY city, line, stop, direction ORDER BY installs DESC, requests DESC LIMIT 15"
 query "Requests by hour of day (UTC)" \
   "SELECT toHour(timestamp) AS hour, SUM(_sample_interval) AS requests
    FROM \"37ShadesOfLate\" WHERE $where GROUP BY hour ORDER BY hour"

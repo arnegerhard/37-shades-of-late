@@ -7,7 +7,7 @@ Paste these into App Store Connect → your app → App Information / the 1.0 ve
 | Field | Value |
 | --- | --- |
 | Name (≤30) | 37 Shades of Late |
-| Subtitle (≤30) | Muni times on your Lock Screen |
+| Subtitle (≤30) | SF & Seattle bus times, live |
 | Bundle ID | info.jetsons.bus37 |
 | SKU | 37shadesoflate-1 |
 | Primary category | Navigation |
@@ -46,30 +46,33 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 
 **Promotional text (≤170)**
 
-> Your bus, at a glance. Pick any Muni line and stop, then see the next departures right on your Home Screen and Lock Screen — live from the bus's GPS.
+> Your bus, at a glance. Pick any line and stop in San Francisco or Seattle, then see the next departures right on your Home Screen and Lock Screen, live.
 
 **Description (≤4000)**
 
-> 37 Shades of Late puts the next San Francisco Muni departures where you'll actually see them: on your Home Screen and Lock Screen.
+> 37 Shades of Late puts the next San Francisco Muni and Seattle transit departures where you'll actually see them: on your Home Screen and Lock Screen.
 >
 > Pick your line, direction and stop once. The widgets then show when the next buses leave — as clock times and minutes away — so you know whether to walk or run without opening an app.
 >
-> • Every Muni bus, rapid, express, streetcar and Metro line
+> • San Francisco: every Muni bus, rapid, express, streetcar and Metro line
+> • Seattle: King County Metro (including RapidRide), Sound Transit Link, Sounder and ST Express, and the Seattle Streetcar
+> • Starts in the city you're closest to, no location permission needed
 > • Search lines by number or name, and stops by street
-> • Live GPS predictions, shown in green, with scheduled times for buses that haven't left yet
+> • Live predictions, shown in green, with scheduled times for buses that haven't started their trip yet
+> • Live map with the route and where your bus is right now
 > • Home Screen widgets in small and medium sizes, with a refresh button
 > • Lock Screen widgets: next two departures, minutes to the next bus, or a one-line summary above the clock
 > • No account, no ads, no tracking
 >
-> Departure data from 511.org. 37 Shades of Late is an independent app and is not affiliated with or endorsed by SFMTA or the Metropolitan Transportation Commission.
+> Departure data from 511.org and OneBusAway. 37 Shades of Late is an independent app and is not affiliated with or endorsed by SFMTA, the Metropolitan Transportation Commission, King County Metro or Sound Transit.
 
 **Keywords (≤100, comma-separated, no space after commas)**
 
-> muni,bus,sf,san francisco,transit,widget,lock screen,arrival,departure,streetcar,commute,metro
+> muni,seattle,bus,sf,san francisco,transit,king county metro,sound transit,link,widget,arrival
 
 **What's New**
 
-> First release.
+> First release. Now with Seattle.
 
 **Copyright**
 
@@ -77,7 +80,7 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 
 ## App Review notes
 
-> The app needs no login. Open it, tap the line at the top to choose any Muni line, direction and stop; the departure list and the widgets update to that stop. Default is line 37 at 14th St & Church St. Departure times come from our caching server in front of the 511.org public transit API.
+> The app needs no login. Open it, tap the line at the top, pick San Francisco or Seattle, then any line, direction and stop; the departure list and the widgets update to that stop. On first launch it starts in the city nearest to the device's rough network location (from our server, no location permission): line 37 at 14th St & Church St in San Francisco, or route 8 at Denny Way & Fairview Ave in Seattle. Departure times come from our caching server in front of 511.org (San Francisco) and OneBusAway (Seattle).
 
 ## Screenshots
 
