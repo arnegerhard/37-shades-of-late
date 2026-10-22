@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bus37-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [{ "name": "CACHE", "class_name": "TransitCache" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TransitCache"] }],
+  // Anonymous usage events (see recordUsage in src/index.ts); query with the Analytics Engine SQL API.
+  "analytics_engine_datasets": [{ "binding": "ANALYTICS_ENGINE", "dataset": "37ShadesOfLate" }],
+  "vars": {
+    // 511.org's default token limit is 60 requests/hour; keep a little headroom.
+    "HOURLY_BUDGET": "55",
+    // One all-stops 511 call per refresh: 70s is ~51 calls/hour, leaving room for line/stop lists.
+    "SNAPSHOT_TTL_SECONDS": "70",
+    "STATIC_TTL_SECONDS": "86400"
+  }
+  // Secret (set with `wrangler secret put API_KEY_511`): API_KEY_511
+}

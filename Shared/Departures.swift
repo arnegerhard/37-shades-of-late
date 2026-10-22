@@ -1,0 +1,189 @@
+import Foundation
+
+/// The line, direction and stop the user picked in the app. The widgets read it from the
+/// shared App Group so they always show the same stop as the app.
+struct Selection: Codable, Hashable, Identifiable {
+    var lineID: String
+    var lineName: String
+    var directionID: String
+    var destination: String
+    var stopCode: String
+    var stopName: String
+
+    /// The same line, direction and stop count as one place, whatever the display names say.
+    var id: String { "\(lineID)|\(directionID)|\(stopCode)" }
+
+    /// Inbound 37 Corbett toward the Haight at 14th St & Church St, one block from Market & Church.
+    static let defaultSelection = Selection(
+        lineID: "37", lineName: "Corbett", directionID: "IB", destination: "Masonic + Haight",
+        stopCode: "13254", stopName: "14th St & Church St")
+
+    private static let key = "selection"
+    private static let favoritesKey = "favorites"
+    private static var defaults: UserDefaults { AppGroup.defaults }
+
+    static var current: Selection {
+        get {
+            guard let data = defaults.data(forKey: key),
+                  let selection = try? JSONDecoder().decode(Selection.self, from: data)
+            else { return defaultSelection }
+            return selection
+        }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: key) }
+    }
+
+    /// Saved lines and stops, in the order the user arranged them.
+    static var favorites: [Selection] {
+        get {
+            guard let data = defaults.data(forKey: favoritesKey),
+                  let favorites = try? JSONDecoder().decode([Selection].self, from: data)
+            else { return [] }
+            return favorites
+        }
+        set { defaults.set(try? JSONEncoder().encode(newValue), forKey: favoritesKey) }
+    }
+}
+
+/// Settings shared between the app and its widgets.
+enum AppGroup {
+    static var defaults: UserDefaults { UserDefaults(suiteName: "group.info.jetsons.bus37") ?? .standard }
+
+    /// A random ID this install made for itself, sent with requests so the proxy can count
+    /// usage per install. It isn't tied to an account, Apple ID or any device identifier.
+    static var installID: String {
+        if let id = defaults.string(forKey: "installID") { return id }
+        let id = UUID().uuidString.lowercased()
+        defaults.set(id, forKey: "installID")
+        return id
+    }
+}
+
+/// Which part of the app made a request, for the proxy's usage statistics.
+enum Client: String {
+    case app, widget, map
+}
+
+struct Departure: Hashable, Codable {
+    let time: Date
+    let isLive: Bool  // false when there's no bus assigned yet and the time is schedule-based
+    var vehicle: Vehicle? = nil
+}
+
+/// Where a live bus is right now, from its GPS.
+struct Vehicle: Hashable, Codable {
+    let lat: Double
+    let lon: Double
+    let bearing: Double?
+}
+
+struct Line: Hashable, Decodable, Identifiable {
+    let id: String
+    let name: String
+    let mode: String
+}
+
+struct Direction: Hashable, Decodable, Identifiable {
+    let id: String
+    let name: String
+    let destination: String
+    let stops: [Stop]
+}
+
+struct Stop: Hashable, Decodable, Identifiable {
+    let code: String
+    let name: String
+    let lat: Double?
+    let lon: Double?
+    var id: String { code }
+}
+
+enum TransitError: LocalizedError {
+    case badResponse(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .badResponse(503): return "Muni data busy, retrying soon"
+        case .badResponse(let code): return "Muni data unavailable (\(code))"
+        }
+    }
+}
+
+/// When the proxy's 511 snapshot was taken and when a newer one will be ready.
+struct Refresh: Equatable {
+    let fetchedAt: Date
+    let nextRefreshAt: Date
+
+    /// Share of the wait left at `date`: 1 just after a refresh, 0 once newer data is ready.
+    func remaining(at date: Date) -> Double {
+        let total = nextRefreshAt.timeIntervalSince(fetchedAt)
+        guard total > 0 else { return 0 }
+        return min(1, max(0, nextRefreshAt.timeIntervalSince(date) / total))
+    }
+}
+
+/// Client for the bus37-proxy Cloudflare Worker (see /proxy), which caches 511.org data
+/// for every stop users have picked so all installs share one API key.
+enum TransitService {
+    static let baseURL = URL(string: "https://bus37-proxy.arne-5c1.workers.dev/v1/")!
+
+    static func departures(for selection: Selection = .current, client: Client) async throws -> [Departure] {
+        try await snapshot(for: selection, client: client).departures
+    }
+
+    /// Departures plus the proxy's refresh schedule. The proxy fetches every Muni stop from 511
+    /// in one shared snapshot, so every stop has the same `fetchedAt` and `nextRefreshAt`.
+    static func snapshot(for selection: Selection = .current, client: Client) async throws -> (departures: [Departure], refresh: Refresh) {
+        struct Response: Decodable {
+            struct Item: Decodable {
+                let time: Date
+                let live: Bool
+                let vehicle: Vehicle?
+            }
+            let departures: [Item]
+            let fetchedAt: Date
+            let nextRefreshAt: Date
+        }
+        var components = URLComponents(url: baseURL.appending(path: "departures"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "stop", value: selection.stopCode),
+            URLQueryItem(name: "line", value: selection.lineID),
+            URLQueryItem(name: "direction", value: selection.directionID),
+        ]
+        let response: Response = try await get(components.url!, client: client)
+        let departures = response.departures.map { Departure(time: $0.time, isLive: $0.live, vehicle: $0.vehicle) }
+        return (departures, Refresh(fetchedAt: response.fetchedAt, nextRefreshAt: response.nextRefreshAt))
+    }
+
+    static func lines() async throws -> [Line] {
+        struct Response: Decodable { let lines: [Line] }
+        let response: Response = try await get(baseURL.appending(path: "lines"), client: .app)
+        return response.lines
+    }
+
+    static func directions(for line: Line, client: Client = .app) async throws -> [Direction] {
+        struct Response: Decodable { let directions: [Direction] }
+        let response: Response = try await get(baseURL.appending(path: "lines").appending(path: line.id), client: client)
+        return response.directions
+    }
+
+    private static func get<T: Decodable>(_ url: URL, client: Client) async throws -> T {
+        var request = URLRequest(url: url)
+        // Anonymous usage statistics; see recordUsage in the proxy.
+        request.setValue(AppGroup.installID, forHTTPHeaderField: "X-Install-ID")
+        request.setValue(client.rawValue, forHTTPHeaderField: "X-Client")
+        request.setValue(String(Selection.favorites.count), forHTTPHeaderField: "X-Favorites")
+        request.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                         forHTTPHeaderField: "X-App-Version")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw TransitError.badResponse(http.statusCode)
+        }
+        let decoder = JSONDecoder()
+        // The proxy sends JavaScript ISO dates, which include milliseconds.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let string = try decoder.singleValueContainer().decode(String.self)
+            return try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(string)
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+}

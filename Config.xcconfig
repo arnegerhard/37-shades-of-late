@@ -1,0 +1,2 @@
+// Shared build settings. The 511.org API key no longer ships in the app: it lives in the
+// bus37-proxy Cloudflare Worker as the API_KEY_511 secret (see proxy/).

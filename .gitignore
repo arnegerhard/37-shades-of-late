@@ -1,0 +1,10 @@
+Secrets.xcconfig
+build/
+proxy/node_modules/
+proxy/.wrangler/
+AppStore/build/
+proxy/.analytics-token
+.DS_Store
+xcuserdata/
+*.xcuserstate
+proxy/.dev.vars
