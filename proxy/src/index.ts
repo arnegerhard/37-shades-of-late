@@ -114,7 +114,7 @@ class BudgetExhausted extends Error {}
 
 class UpstreamError extends Error {
   constructor(readonly status: number) {
-    super(`511.org returned ${status}`);
+    super(`transit data source returned ${status}`);
   }
 }
 
