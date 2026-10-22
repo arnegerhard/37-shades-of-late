@@ -20,15 +20,14 @@ struct Bus37App: App {
 
 struct ContentView: View {
     @State private var selection = Selection.current
-    @State private var departures: [Departure] = []
-    @State private var error: String?
+    @State private var feed = DepartureFeed()
     @State private var choosing = false
     @State private var pickerPath: [Line] = []
     @State private var showingMap = false
     @State private var favorites = Selection.favorites
-    /// Which selection `departures` belong to; they dim while the next stop's times load.
-    @State private var loaded: Selection?
 
+    private var departures: [Departure] { feed.departures }
+    private var loaded: Selection? { feed.loaded }
     private var isStale: Bool { loaded?.id != selection.id }
 
     private var isFavorite: Bool { favorites.contains { $0.id == selection.id } }
@@ -54,7 +53,7 @@ struct ContentView: View {
                 }
 
                 Section {
-                    if let error {
+                    if let error = feed.error {
                         Text(error).foregroundStyle(.secondary)
                     } else if departures.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
@@ -98,7 +97,7 @@ struct ContentView: View {
 
                 Section {
                     Button { showingMap = true } label: {
-                        RouteMap(selection: selection, interactive: false)
+                        RouteMap(selection: selection, feed: feed, interactive: false)
                             .frame(height: 200)
                             .allowsHitTesting(false)
                             .overlay(alignment: .bottomTrailing) {
@@ -142,14 +141,14 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("37 Shades of Late")
-            .refreshable { await load() }
+            .refreshable { await feed.reload() }
             .navigationDestination(isPresented: $showingMap) {
-                RouteMap(selection: selection)
+                RouteMap(selection: selection, feed: feed)
                     .navigationTitle("\(selection.lineID) \(selection.lineName)")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbarBackground(.visible, for: .navigationBar)
             }
-            .task(id: selection) { await load() }
+            .task(id: selection) { await feed.follow(selection) }
             .task { await startInNearestCity() }
             .onChange(of: favorites) { Selection.favorites = favorites }
             #if DEBUG
@@ -233,27 +232,7 @@ struct ContentView: View {
         }
     }
 
-    private static let switchAnimation = Animation.snappy(duration: 0.3)
-
-    private func load() async {
-        let target = selection
-        do {
-            let latest = try await TransitService.departures(for: selection, client: .app)
-            withAnimation(Self.switchAnimation) {
-                departures = latest
-                error = nil
-                loaded = target
-            }
-        } catch {
-            // Switching stops cancels the previous load; that's not an error to show.
-            guard !Task.isCancelled else { return }
-            withAnimation(Self.switchAnimation) {
-                self.error = error.localizedDescription
-                loaded = target
-            }
-        }
-        WidgetCenter.shared.reloadAllTimelines()
-    }
+    private static var switchAnimation: Animation { DepartureFeed.switchAnimation }
 }
 
 /// Thin red outline for the favorite shown on the widgets. The first and last rows sit in the

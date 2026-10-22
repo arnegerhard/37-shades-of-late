@@ -6,19 +6,22 @@ import SwiftUI
 /// along the bottom counts down to.
 struct RouteMap: View {
     let selection: Selection
+    /// Shared with the departure list, so both always show the same buses and times.
+    let feed: DepartureFeed
     var interactive = true
 
     @State private var stops: [Stop] = []
     /// The real street route where the city provides one (Seattle); empty otherwise.
     @State private var shapes: [[CLLocationCoordinate2D]] = []
-    @State private var departures: [Departure] = []
     @State private var position: MapCameraPosition = .automatic
-    @State private var now = Date.now
-    @State private var refresh: Refresh?
     /// A live bus that was still on its way vanished from the latest data.
     @State private var busVanished = false
 
     /// The line to draw: the real route shape if there is one, else the stops joined in order.
+    private var departures: [Departure] { feed.loaded?.id == selection.id ? feed.departures : [] }
+    private var refresh: Refresh? { feed.loaded?.id == selection.id ? feed.refresh : nil }
+    private var now: Date { feed.updatedAt }
+
     private var route: [[CLLocationCoordinate2D]] {
         shapes.isEmpty ? [stops.compactMap(\.coordinate)] : shapes
     }
@@ -100,19 +103,18 @@ struct RouteMap: View {
         .task(id: selection) {
             stops = []
             shapes = []
-            departures = []
-            refresh = nil
             busVanished = false
             position = .automatic
             await loadRoute()
-            while !Task.isCancelled {
-                await loadDepartures()
-                // Ask again as soon as the proxy's next snapshot is ready; if that time has
-                // passed (511 budget spent), retry every few seconds instead of hammering it.
-                let next = refresh?.nextRefreshAt ?? .now
-                try? await Task.sleep(for: .seconds(max(5, next.timeIntervalSinceNow + 0.5)))
-            }
         }
+        .onChange(of: feed.departures) { old, new in
+            // Live buses that weren't due for another minute should still be in the new data;
+            // fewer of them means one dropped off the map mid-route.
+            let stillComing = old.filter { ($0.vehicle.map(isOnRoute) ?? false) && $0.time > .now + 60 }.count
+            busVanished = new.filter { $0.vehicle.map(isOnRoute) ?? false }.count < stillComing
+        }
+        .onAppear { if interactive { feed.client = .map } }
+        .onDisappear { if interactive { feed.client = .app } }
     }
 
     private var statusCard: some View {
@@ -159,18 +161,6 @@ struct RouteMap: View {
         }
     }
 
-    private func loadDepartures() async {
-        if let latest = try? await TransitService.snapshot(for: selection, client: interactive ? .map : .app) {
-            // Live buses that weren't due for another minute should still be in the new data;
-            // fewer of them means one dropped off the map mid-route.
-            let stillComing = buses.filter { $0.departure.time > .now + 60 }.count
-            let onRoute = latest.departures.filter { $0.vehicle.map(isOnRoute) ?? false }.count
-            busVanished = onRoute < stillComing
-            departures = latest.departures
-            refresh = latest.refresh
-        }
-        now = .now
-    }
 }
 
 /// A few-points-tall bar that empties until the proxy's next 511 snapshot is ready.

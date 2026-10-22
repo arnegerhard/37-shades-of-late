@@ -22,6 +22,8 @@
 		F33E7C0A1C0B4E37A1B2C3F3 /* WidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */; };
 		F33E7C0A1C0B4E37A1B2C3F5 /* Screenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33E7C0A1C0B4E37A1B2C3F4 /* Screenshots.swift */; };
 		A44E7C0A1C0B4E37A1B2C3A2 /* RouteMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */; };
+		B55E7C0A1C0B4E37A1B2C3B2 /* LineMapPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B55E7C0A1C0B4E37A1B2C3B1 /* LineMapPicker.swift */; };
+		C66E7C0A1C0B4E37A1B2C3C2 /* DepartureFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E7C0A1C0B4E37A1B2C3C1 /* DepartureFeed.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +69,8 @@
 		F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetViews.swift; sourceTree = "<group>"; };
 		F33E7C0A1C0B4E37A1B2C3F4 /* Screenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screenshots.swift; sourceTree = "<group>"; };
 		A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteMap.swift; sourceTree = "<group>"; };
+		B55E7C0A1C0B4E37A1B2C3B1 /* LineMapPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineMapPicker.swift; sourceTree = "<group>"; };
+		C66E7C0A1C0B4E37A1B2C3C1 /* DepartureFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepartureFeed.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -117,6 +121,8 @@
 				C50260F10B288288F1E6B27E /* Bus37App.swift */,
 				E22E7C0A1C0B4E37A1B2C3E1 /* PrivacyInfo.xcprivacy */,
 				F33E7C0A1C0B4E37A1B2C3F4 /* Screenshots.swift */,
+				C66E7C0A1C0B4E37A1B2C3C1 /* DepartureFeed.swift */,
+				B55E7C0A1C0B4E37A1B2C3B1 /* LineMapPicker.swift */,
 				A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */,
 				D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */,
 				2694D610C8E5A9E74CE27B68 /* Info.plist */,
@@ -233,6 +239,8 @@
 				690004075F5CB6AD64BFF0A5 /* Bus37App.swift in Sources */,
 				77D5A0F8ED4A2309B57DB5BA /* Departures.swift in Sources */,
 				D11E7C0A1C0B4E37A1B2C3D2 /* LineBadge.swift in Sources */,
+				C66E7C0A1C0B4E37A1B2C3C2 /* DepartureFeed.swift in Sources */,
+				B55E7C0A1C0B4E37A1B2C3B2 /* LineMapPicker.swift in Sources */,
 				A44E7C0A1C0B4E37A1B2C3A2 /* RouteMap.swift in Sources */,
 				D11E7C0A1C0B4E37A1B2C3D5 /* StopPicker.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */,

@@ -8,6 +8,7 @@ struct LinePicker: View {
     @State private var lines: [Line] = []
     @State private var error: String?
     @State private var search = ""
+    @State private var showingMap = false
 
     private var filtered: [Line] {
         guard !search.isEmpty else { return lines }
@@ -15,14 +16,53 @@ struct LinePicker: View {
     }
 
     var body: some View {
+        Group {
+            if showingMap {
+                LineMapPicker(city: city)
+                    .safeAreaInset(edge: .top) {
+                        cityPicker
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
+                            .background(.bar)
+                    }
+            } else {
+                list
+            }
+        }
+        .navigationTitle("Choose a line")
+        .navigationBarTitleDisplayMode(showingMap ? .inline : .automatic)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(.snappy(duration: 0.3)) { showingMap.toggle() }
+                } label: {
+                    Label(showingMap ? "List" : "Map", systemImage: showingMap ? "list.bullet" : "map")
+                }
+            }
+        }
+        .navigationDestination(for: Line.self) { line in
+            StopPicker(line: line, city: city, onPick: onPick)
+        }
+        .task(id: city) {
+            lines = []
+            error = nil
+            do { lines = try await TransitService.lines(in: city) } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    private var cityPicker: some View {
+        Picker("City", selection: $city) {
+            ForEach(City.allCases) { Text($0.name).tag($0) }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var list: some View {
         List {
             Section {
-                Picker("City", selection: $city) {
-                    ForEach(City.allCases) { Text($0.name).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                cityPicker
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
             }
             ForEach(filtered) { line in
                 NavigationLink(value: line) {
@@ -42,15 +82,6 @@ struct LinePicker: View {
             }
         }
         .searchable(text: $search, prompt: "Line number or name")
-        .navigationTitle("Choose a line")
-        .navigationDestination(for: Line.self) { line in
-            StopPicker(line: line, city: city, onPick: onPick)
-        }
-        .task(id: city) {
-            lines = []
-            error = nil
-            do { lines = try await TransitService.lines(in: city) } catch { self.error = error.localizedDescription }
-        }
     }
 }
 

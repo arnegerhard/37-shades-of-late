@@ -134,6 +134,20 @@ struct Line: Hashable, Decodable, Identifiable {
     let mode: String
 }
 
+/// A line with its route shape, for picking lines on a map.
+struct MapLine: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let mode: String
+    /// Official GTFS route colors as "#RRGGBB", where the agency publishes them.
+    let color: String?
+    let textColor: String?
+    /// [[lat, lon]] segments.
+    let shapes: [[[Double]]]
+
+    var line: Line { Line(id: id, name: name, mode: mode) }
+}
+
 struct Direction: Hashable, Decodable, Identifiable {
     let id: String
     let name: String
@@ -218,6 +232,16 @@ enum TransitService {
         struct Response: Decodable { let directions: [Direction] }
         let response: Response = try await get(url(city, "lines").appending(path: line.id), client: client)
         return response.directions
+    }
+
+    /// Every line in `city` with its route shape (one cached download from the proxy).
+    static func lineMap(in city: City) async throws -> [MapLine] {
+        struct Response: Decodable { let lines: [MapLine] }
+        // Bump `v` when the map's format changes: iOS caches it for an hour (the proxy's max-age).
+        var components = URLComponents(url: url(city, "map"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "v", value: "2")]
+        let response: Response = try await get(components.url!, client: .app)
+        return response.lines
     }
 
     /// The supported city nearest to this device, from the proxy's rough IP-based location.

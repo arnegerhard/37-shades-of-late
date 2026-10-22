@@ -1,0 +1,100 @@
+/** A line on the map: [[lat, lon], ...]. */
+export type Polyline = [number, number][];
+
+/**
+ * Douglas–Peucker simplification in meters, so whole-city route maps stay small to send.
+ * A ~12 m tolerance keeps every corner a rider would recognize at city zoom.
+ */
+export function simplify(points: Polyline, toleranceMeters = 12): Polyline {
+  if (points.length < 3) return points.map(round);
+  const lat0 = points[0][0];
+  const toMeters = (p: [number, number]) => [p[1] * 111_320 * Math.cos((lat0 * Math.PI) / 180), p[0] * 110_540];
+  const projected = points.map(toMeters);
+  const keep = new Uint8Array(points.length);
+  keep[0] = keep[points.length - 1] = 1;
+  const stack: [number, number][] = [[0, points.length - 1]];
+  while (stack.length) {
+    const [start, end] = stack.pop()!;
+    const [ax, ay] = projected[start], [bx, by] = projected[end];
+    const dx = bx - ax, dy = by - ay, length = Math.hypot(dx, dy) || 1;
+    let farthest = -1, distance = toleranceMeters;
+    for (let i = start + 1; i < end; i++) {
+      const [px, py] = projected[i];
+      const d = Math.abs(dy * px - dx * py + bx * ay - by * ax) / length;
+      if (d > distance) { distance = d; farthest = i; }
+    }
+    if (farthest >= 0) {
+      keep[farthest] = 1;
+      stack.push([start, farthest], [farthest, end]);
+    }
+  }
+  return points.filter((_, i) => keep[i]).map(round);
+}
+
+function round([lat, lon]: [number, number]): [number, number] {
+  return [Math.round(lat * 1e5) / 1e5, Math.round(lon * 1e5) / 1e5];
+}
+
+/** Reads one file out of a ZIP archive (stored or deflated), e.g. routes.txt from a GTFS feed. */
+export async function readZipEntry(zip: ArrayBuffer, name: string): Promise<string | undefined> {
+  const view = new DataView(zip);
+  // The end-of-central-directory record sits in the last 64 KB.
+  let eocd = -1;
+  for (let i = zip.byteLength - 22; i >= Math.max(0, zip.byteLength - 65_557); i--) {
+    if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return undefined;
+  let entry = view.getUint32(eocd + 16, true);
+  const count = view.getUint16(eocd + 10, true);
+  const decoder = new TextDecoder();
+  for (let i = 0; i < count && view.getUint32(entry, true) === 0x02014b50; i++) {
+    const method = view.getUint16(entry + 10, true);
+    const size = view.getUint32(entry + 20, true);
+    const nameLength = view.getUint16(entry + 28, true);
+    const extraLength = view.getUint16(entry + 30, true);
+    const commentLength = view.getUint16(entry + 32, true);
+    const local = view.getUint32(entry + 42, true);
+    const entryName = decoder.decode(new Uint8Array(zip, entry + 46, nameLength));
+    if (entryName === name || entryName.endsWith(`/${name}`)) {
+      const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+      const bytes = new Uint8Array(zip, start, size);
+      if (method === 0) return decoder.decode(bytes);
+      if (method !== 8) return undefined;
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return await new Response(stream).text();
+    }
+    entry += 46 + nameLength + extraLength + commentLength;
+  }
+  return undefined;
+}
+
+/** Parses CSV (with quoted fields) into objects keyed by the header row. */
+export function parseCSV(text: string): Record<string, string>[] {
+  const rows: string[][] = [];
+  let row: string[] = [], field = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      if (row.length > 1 || row[0]) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  const [header = [], ...data] = rows;
+  const keys = header.map((h) => h.replace(/^﻿/, "").trim());
+  return data.map((r) => Object.fromEntries(keys.map((k, i) => [k, r[i] ?? ""])));
+}
+
+/** A GTFS color ("005B95") as "#005B95", or undefined if missing or malformed. */
+export function hexColor(value: unknown): string | undefined {
+  const hex = String(value ?? "").trim().replace(/^#/, "");
+  return /^[0-9a-f]{6}$/i.test(hex) ? `#${hex.toUpperCase()}` : undefined;
+}

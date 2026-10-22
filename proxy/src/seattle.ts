@@ -6,7 +6,10 @@
  *   GET /v1/seattle/lines                          all lines, `id` is the rider-facing code ("8", "E Line")
  *   GET /v1/seattle/lines/:line                    directions with stops and the real route shapes
  *   GET /v1/seattle/departures?stop=1_2260&line=8&direction=1
+ *   GET /v1/seattle/map                            every line's route shape, for picking a line on a map
  */
+
+import { hexColor, simplify, type Polyline } from "./geo";
 
 const OBA = "https://api.pugetsound.onebusaway.org/api/where";
 /** King County Metro, Sound Transit, City of Seattle (streetcars). */
@@ -24,6 +27,9 @@ export interface SeattleLine {
   name: string;
   mode: string;
   routeId: string;
+  /** Official GTFS colors, e.g. Metro yellow, RapidRide red, Link green. */
+  color?: string;
+  textColor?: string;
 }
 
 interface Visit {
@@ -44,6 +50,8 @@ type Cached = <T>(key: string, ttlSeconds: number, load: () => Promise<T>) => Pr
 
 export interface SeattleDeps {
   cached: Cached;
+  /** Reads a cache entry without loading it, however old. */
+  peek: <T>(key: string) => Promise<{ data: T; fetchedAt: number } | undefined>;
   apiKey: string;
   staticTTL: number;
   /** Thrown when OneBusAway rate-limits us, so the cache serves what it has. */
@@ -63,6 +71,15 @@ export async function handleSeattle(parts: string[], url: URL, deps: SeattleDeps
     if (!line) return { body: { error: "unknown line" }, status: 404 };
     const { data, fetchedAt } = await deps.cached(`sea-line:${line.routeId}`, deps.staticTTL, () => fetchLine(line, deps));
     return { body: { line: code, directions: data, fetchedAt: iso(fetchedAt) }, maxAge: 3600 };
+  }
+
+  if (parts[0] === "map") {
+    // A partial map (still being filled in, see fetchMap) is only kept briefly.
+    let entry = await deps.cached("sea-map-v3", deps.staticTTL, () => fetchMap(deps));
+    if (!entry.data.complete && Date.now() - entry.fetchedAt > 20_000) {
+      entry = await deps.cached("sea-map-v3", 20, () => fetchMap(deps));
+    }
+    return { body: { lines: entry.data.lines, complete: entry.data.complete, fetchedAt: iso(entry.fetchedAt) }, maxAge: entry.data.complete ? 3600 : 0 };
   }
 
   if (parts[0] === "departures") {
@@ -93,7 +110,7 @@ export async function handleSeattle(parts: string[], url: URL, deps: SeattleDeps
 }
 
 function linesCached(deps: SeattleDeps) {
-  return deps.cached("sea-lines-v2", deps.staticTTL, () => fetchLines(deps));
+  return deps.cached("sea-lines-v3", deps.staticTTL, () => fetchLines(deps));
 }
 
 async function callOBA(path: string, params: Record<string, string>, deps: SeattleDeps): Promise<any> {
@@ -132,6 +149,8 @@ async function fetchLines(deps: SeattleDeps): Promise<SeattleLine[]> {
       name: SHORT_CODES[route.shortName] ? String(route.shortName) : longName,
       mode: route.type === 3 ? "bus" : route.type === 2 ? "rail" : "metro",
       routeId: String(route.id),
+      color: hexColor(route.color),
+      textColor: hexColor(route.textColor),
     });
   }
   return lines.sort((a, b) => a.id.localeCompare(b.id, "en", { numeric: true }));
@@ -155,6 +174,44 @@ async function fetchLine(line: SeattleLine, deps: SeattleDeps) {
       shapes: (group.polylines ?? []).map((p: any) => decodePolyline(p.points)),
     };
   });
+}
+
+/** Line fetches per request: Cloudflare's free plan allows about 50 outgoing requests per request. */
+const MAP_FETCHES_PER_REQUEST = 35;
+
+/**
+ * Every line with its route shape, built in installments: each call fetches up to
+ * MAP_FETCHES_PER_REQUEST lines that aren't cached (or are a day old) and uses whatever is
+ * cached for the rest, so a cold map fills in over about five requests and a daily refresh
+ * never shows gaps.
+ */
+async function fetchMap(deps: SeattleDeps) {
+  const lines = (await linesCached(deps)).data;
+  let budget = MAP_FETCHES_PER_REQUEST;
+  let complete = true;
+  const result: { id: string; name: string; mode: string; color?: string; textColor?: string; shapes: Polyline[] }[] = [];
+  for (const line of lines) {
+    const key = `sea-line:${line.routeId}`;
+    let entry = await deps.peek<any[]>(key);
+    const fresh = entry && Date.now() - entry.fetchedAt < deps.staticTTL * 1000;
+    if (!fresh && budget > 0) {
+      budget--;
+      try {
+        entry = await deps.cached(key, deps.staticTTL, () => fetchLine(line, deps));
+      } catch {
+        // Keep whatever we had; try again on a later request.
+      }
+    }
+    if (!entry) {
+      complete = false;
+      continue;
+    }
+    if (!fresh && budget <= 0) complete = false;
+    // One direction is enough to draw the line; the other mostly retraces it.
+    const shapes: Polyline[] = (entry.data[0]?.shapes ?? []).map((shape: Polyline) => simplify(shape));
+    if (shapes.length) result.push({ id: line.id, name: line.name, mode: line.mode, color: line.color, textColor: line.textColor, shapes });
+  }
+  return { lines: result, complete };
 }
 
 async function fetchStop(stop: string, deps: SeattleDeps): Promise<StopData> {

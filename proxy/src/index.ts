@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleSeattle } from "./seattle";
+import { hexColor, parseCSV, readZipEntry, simplify, type Polyline } from "./geo";
 
 /**
  * Caching proxy for live transit data: 511.org for SF Muni (below) and OneBusAway for Seattle
@@ -17,6 +18,8 @@ import { handleSeattle } from "./seattle";
  *   GET /v1/lines/:line                    a line's directions and their stops (with coordinates) in order
  *   GET /v1/departures?stop=13254&line=37  upcoming departures at a stop for one line, with each
  *                                          live bus's current position
+ *   GET /v1/map                            every Muni line's route shape, for picking a line on a map
+ *                                          (from DataSF's Muni Simple Routes; no 511 calls)
  *   GET /v1/city                           the supported city nearest the caller ("sf" or "seattle"),
  *                                          from Cloudflare's rough IP location; nothing is stored
  */
@@ -139,6 +142,7 @@ export class TransitCache extends DurableObject<Env> {
       if (parts[1] === "seattle") {
         const result = await handleSeattle(parts.slice(2), url, {
           cached: (key, ttl, load) => this.cached(key, ttl, load),
+          peek: (key) => this.ctx.storage.get(key),
           apiKey: this.env.OBA_API_KEY || "TEST",
           staticTTL: this.staticTTL,
           rateLimited: () => new BudgetExhausted(),
@@ -156,6 +160,11 @@ export class TransitCache extends DurableObject<Env> {
         const line = decodeURIComponent(parts[2]);
         const { data, fetchedAt } = await this.cached(`line-v2:${line}`, this.staticTTL, () => this.fetchLine(line));
         return json({ line, directions: data, fetchedAt: iso(fetchedAt) }, 200, 3600);
+      }
+
+      if (parts[1] === "map") {
+        const { data, fetchedAt } = await this.cached("sf-map-v2", this.staticTTL, () => this.fetchMap());
+        return json({ lines: data, fetchedAt: iso(fetchedAt) }, 200, 3600);
       }
 
       if (parts[1] === "departures") {
@@ -366,6 +375,51 @@ export class TransitCache extends DurableObject<Env> {
         stops: mergeSequences(sequences).map((stop) => ({ ...stop, ...locations.get(stop.code) })),
       };
     });
+  }
+
+  /**
+   * Every Muni line's shape from DataSF's "Muni Simple Routes" (updated each service change),
+   * matched to 511's line ids. Costs one 511 call at most, for the line names.
+   */
+  private async fetchMap() {
+    const response = await fetch("https://data.sfgov.org/resource/9exe-acju.geojson?$limit=5000");
+    if (!response.ok) throw new UpstreamError(response.status);
+    const geojson: any = await response.json();
+    const shapes = new Map<string, Polyline[]>();
+    for (const feature of geojson.features ?? []) {
+      // DataSF pads route numbers ("037", "008AX"); 511 doesn't ("37", "8AX"). Keep one
+      // direction per line, which is enough to draw and tap it.
+      const id = String(feature.properties?.lineabbr ?? "").replace(/^0+(?=\d)/, "");
+      if (!id || feature.properties?.direction === "O" && shapes.has(id)) continue;
+      const lines: number[][][] =
+        feature.geometry?.type === "MultiLineString" ? feature.geometry.coordinates : [feature.geometry?.coordinates ?? []];
+      const polylines = lines.map((line) => simplify(line.map(([lon, lat]) => [lat, lon] as [number, number])));
+      if (!shapes.has(id) || feature.properties?.direction === "I") shapes.set(id, polylines);
+    }
+    const { data: lines } = await this.cached("lines", this.staticTTL, () => this.fetchLines());
+    // Colors are nice to have: draw the map without them if Muni's feed can't be read today.
+    const colors = await this.cached("sf-colors", this.staticTTL, () => this.fetchColors())
+      .then((entry) => entry.data)
+      .catch(() => ({}) as Record<string, { color?: string; textColor?: string }>);
+    return lines
+      .filter((line) => shapes.has(line.id))
+      .map((line) => ({ ...line, ...colors[line.id], shapes: shapes.get(line.id)! }));
+  }
+
+  /** Muni's official route colors, from routes.txt in its GTFS feed (one 511 call a day). */
+  private async fetchColors(): Promise<Record<string, { color?: string; textColor?: string }>> {
+    await this.spendBudget();
+    const url = `https://api.511.org/transit/datafeeds?api_key=${this.env.API_KEY_511}&operator_id=${AGENCY}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new UpstreamError(response.status);
+    const routes = await readZipEntry(await response.arrayBuffer(), "routes.txt");
+    if (!routes) throw new UpstreamError(422);
+    const colors: Record<string, { color?: string; textColor?: string }> = {};
+    for (const route of parseCSV(routes)) {
+      const id = route.route_short_name || route.route_id;
+      if (id) colors[id] = { color: hexColor(route.route_color), textColor: hexColor(route.route_text_color) };
+    }
+    return colors;
   }
 
   /** Every upcoming arrival at every stop, from one 511 call (~10 MB of JSON). */
