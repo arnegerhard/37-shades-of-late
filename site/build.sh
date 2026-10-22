@@ -14,8 +14,8 @@ def data_uri(path):
 for key, value in {
     "{{APP_STORE_URL}}": app_store,
     "{{API_URL}}": api,
-    "{{PRIVACY_URL}}": api + "/privacy",
-    "{{SUPPORT_URL}}": api + "/support",
+    "{{PRIVACY_URL}}": "/privacy",
+    "{{SUPPORT_URL}}": "/support",
     "{{IMG_HOME}}": data_uri("images/home.jpg"),
     "{{IMG_LOCK}}": data_uri("images/lock.jpg"),
 }.items():
@@ -24,3 +24,5 @@ assert "{{" not in html, "unfilled placeholder"
 open("public/index.html", "w").write(html)
 print(f"public/index.html: {len(html) // 1024} KB")
 PY
+# Privacy and support pages are plain static files.
+cp pages/privacy.html pages/support.html public/

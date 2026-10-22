@@ -14,7 +14,7 @@ Paste these into App Store Connect → your app → App Information / the 1.0 ve
 | Secondary category | Travel |
 | Content rights | Does not contain, show, or access third-party content* |
 | Age rating | Answer **Profanity or Crude Humor: Infrequent/Mild** (the wait-time comments say "shit" and "bastard"), "None" to everything else; Apple then sets the rating |
-| Price | Free |
+| Price | $0.99 (Tier 1) |
 
 \* The departure times come from the public 511.org open data API, which permits redistribution
 with attribution (given in the description and on the privacy page). If App Review asks, that's
@@ -24,8 +24,8 @@ the answer.
 
 | Field | Value |
 | --- | --- |
-| Privacy Policy URL | https://bus37-proxy.arne-5c1.workers.dev/privacy |
-| Support URL | https://bus37-proxy.arne-5c1.workers.dev/support |
+| Privacy Policy URL | https://37shadesoflate.com/privacy |
+| Support URL | https://37shadesoflate.com/support |
 | Marketing URL | https://37shadesoflate.com |
 
 ## App Privacy ("nutrition label")

@@ -23,18 +23,19 @@ interface Env {
   HOURLY_BUDGET: string;
   SNAPSHOT_TTL_SECONDS: string;
   STATIC_TTL_SECONDS: string;
-  SUPPORT_EMAIL?: string;
   ANALYTICS_ENGINE?: AnalyticsEngineDataset;
 }
 
 const AGENCY = "SF";
+const SITE = "https://37shadesoflate.com";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
     const { pathname } = new URL(request.url);
-    if (pathname === "/privacy") return page("Privacy Policy", PRIVACY, env);
-    if (pathname === "/support" || pathname === "/") return page("Support", SUPPORT, env);
+    // These pages now live on the website; keep the old addresses working.
+    if (pathname === "/privacy" || pathname === "/support") return Response.redirect(`${SITE}${pathname}`, 301);
+    if (pathname === "/") return Response.redirect(SITE, 301);
     recordUsage(request, env);
     // "-v3": the shared-snapshot version runs in a fresh instance (the old per-stop one kept
     // serving stale code while busy). Bump the suffix again for a clean cache if ever needed.
@@ -470,64 +471,4 @@ function json(body: unknown, status = 200, maxAge = 0, headers: Record<string, s
       ...headers,
     },
   });
-}
-
-// MARK: - App Store pages
-
-const PRIVACY = `
-<p><strong>37 Shades of Late doesn't collect anything that identifies you.</strong> There are no
-accounts, ads or tracking, and no third-party SDKs.</p>
-<h2>What the app sends</h2>
-<p>To show departure times, the app asks our server for the predictions at the stop and line you
-picked. With each request it sends:</p>
-<ul>
-  <li>the stop, line and direction you're looking at;</li>
-  <li>whether the request came from the app, a widget or the map;</li>
-  <li>how many favorites you've saved, and the app version;</li>
-  <li>a random install ID that the app generates the first time it runs.</li>
-</ul>
-<p>The install ID isn't connected to your name, Apple ID, device identifiers or any other app,
-and we can't link it to you. It only lets us count, anonymously, how many people use the app,
-how often, and which lines and stops are popular, so we can improve it. Deleting the app
-deletes the ID; reinstalling creates a new one.</p>
-<h2>What we don't collect</h2>
-<p>We don't record your location, IP address or anything else about you, and we never share
-or sell usage statistics. Your favorites and chosen stop stay on your device. Our hosting
-provider (Cloudflare) keeps short-lived request logs to operate the service.</p>
-<h2>Data sources</h2>
-<p>Departure data comes from 511.org (Metropolitan Transportation Commission) and San Francisco
-Municipal Transportation Agency. 37 Shades of Late is not affiliated with or endorsed by either.</p>
-<p>Last updated October 22, 2026.</p>`;
-
-const SUPPORT = `
-<p>37 Shades of Late shows upcoming departures for a San Francisco Muni line and stop on your Home
-Screen and Lock Screen.</p>
-<h2>Getting started</h2>
-<ol>
-  <li>Open the app, tap the line at the top and pick a line, direction and stop.</li>
-  <li>Touch and hold your Home Screen or Lock Screen, tap <em>Edit</em> or <em>Customize</em>,
-  then add the <em>37 Shades of Late</em> widget.</li>
-</ol>
-<h2>Questions</h2>
-<p><strong>Times in green</strong> are live predictions from the bus's GPS. Grey times are
-scheduled estimates for buses that haven't started their trip yet.</p>
-<p><strong>The widget isn't updating.</strong> iOS decides how often widgets refresh to save
-battery. Tap the refresh button on the widget or open the app to update it right away.</p>`;
-
-function page(title: string, body: string, env: Env) {
-  const contact = env.SUPPORT_EMAIL
-    ? `<h2>Contact</h2><p><a href="mailto:${env.SUPPORT_EMAIL}">${env.SUPPORT_EMAIL}</a></p>`
-    : "";
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} · 37 Shades of Late</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font: 17px/1.5 -apple-system, system-ui, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px 16px; }
-  h1 { font-size: 28px; } h2 { font-size: 20px; margin-top: 28px; }
-  nav a { margin-right: 16px; }
-</style></head><body>
-<nav><a href="/support">Support</a><a href="/privacy">Privacy</a></nav>
-<h1>${title}</h1>${body}${contact}</body></html>`;
-  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
 }

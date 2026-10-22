@@ -113,6 +113,21 @@
   }
   .cta:hover { transform: translateY(-2px) rotate(-1deg); box-shadow: 0 16px 40px #000a; }
   .cta svg { width: 22px; height: 22px; }
+  .cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+
+  /* "$0.99?!" — jumps to the plan for anyone outraged by the price */
+  .why-price {
+    display: inline-flex; align-items: center; gap: 10px;
+    color: var(--fog); text-decoration: none; font: 700 15px/1.2 var(--round);
+    padding: 8px 14px 8px 8px; border-radius: 14px; border: 1px dashed #ffb02066;
+    transition: background .2s ease, border-color .2s ease;
+  }
+  .why-price .tag {
+    background: #ffb020; color: #1a1300; border-radius: 9px; padding: 7px 10px;
+    font: 900 17px/1 var(--round); transform: rotate(-5deg); transition: transform .2s ease;
+  }
+  .why-price:hover { background: #ffb02014; border-color: #ffb020; }
+  .why-price:hover .tag { transform: rotate(4deg) scale(1.06); }
   .cta small { display: block; font: 600 12px/1 system-ui; opacity: .6; margin-bottom: 3px; }
 
   .scroll-hint {
@@ -200,6 +215,39 @@
   .feature h3 { font: 800 21px/1.2 var(--round); margin: 12px 0 8px; }
   .feature p { margin: 0; color: var(--muted); font-size: 16px; }
 
+  /* ---------- The plan: your 99 cents vs. the hills ---------- */
+  .plan { position: relative; overflow: hidden; }
+  .price-tag {
+    display: inline-block; transform: rotate(-4deg);
+    background: #ffb020; color: #1a1300; border-radius: 14px; padding: 8px 18px 10px;
+    font: 900 clamp(44px, 7vw, 72px)/1 var(--round); letter-spacing: -.03em;
+    box-shadow: 0 14px 40px #ffb02033;
+  }
+  .price-tag small { font-size: .38em; letter-spacing: 0; margin-left: 4px; }
+  .plan-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 48px; align-items: start; margin-top: 40px; }
+  .steps { list-style: none; padding: 0; margin: 0; counter-reset: step; }
+  .steps li {
+    counter-increment: step; position: relative; padding: 0 0 26px 56px; color: var(--muted);
+  }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 0; top: -2px;
+    width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--red); color: #fff; font: 900 18px/1 var(--round);
+  }
+  .steps b { display: block; color: var(--ink); font: 800 20px/1.25 var(--round); margin-bottom: 4px; }
+  .flatten {
+    position: sticky; top: 16vh;
+    border-radius: 28px; border: 1px solid var(--line); background: #0f1124; overflow: hidden;
+  }
+  .flatten svg { display: block; width: 100%; height: auto; }
+  .flatten #hills { transform-origin: 50% 100%; transition: transform .1s linear; }
+  .flatten .meter { padding: 18px 22px 22px; border-top: 1px solid var(--line); }
+  .flatten .meter-label { display: flex; justify-content: space-between; font: 800 15px/1 var(--round); color: var(--muted); }
+  .flatten .meter-label b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .flatten .bar { margin-top: 12px; height: 10px; border-radius: 6px; background: #ffffff14; overflow: hidden; }
+  .flatten .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ffb020, var(--red-glow)); border-radius: 6px; }
+  .fineprint { margin-top: 18px; font-size: 13px; color: #77758a; }
+
   /* ---------- Final CTA + footer ---------- */
   .final { text-align: center; padding-bottom: 80px; }
   .final h2 { max-width: 16ch; margin-inline: auto; }
@@ -217,6 +265,8 @@
     .phones { flex-direction: column; align-items: center; gap: 56px; }
     .live { grid-template-columns: auto 1fr; }
     .live .mins { grid-column: 1 / -1; text-align: left; }
+    .plan-grid { grid-template-columns: 1fr; }
+    .flatten { position: relative; top: 0; }
     .scroll-hint { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -286,10 +336,16 @@
     <div class="badge37"><b>37</b> CORBETT · AND EVERY OTHER MUNI LINE</div>
     <h1>37 Shades<br>of <span class="late">Late</span></h1>
     <p class="tagline">Muni times on your Home Screen and Lock Screen. Emotional support included.</p>
-    <a class="cta app-store" href="{{APP_STORE_URL}}">
-      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
-      <span><small>Download free on the</small>App Store</span>
-    </a>
+    <div class="cta-row">
+      <a class="cta app-store" href="{{APP_STORE_URL}}">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
+        <span><small>$0.99 on the</small>App Store</span>
+      </a>
+      <a class="why-price" href="#plan">
+        <span class="tag">$0.99?!</span>
+        <span>Where your money goes</span>
+      </a>
+    </div>
   </div>
   <div class="scroll-hint">Scroll. The bus won't.</div>
 </header>
@@ -390,13 +446,64 @@
     </div>
   </section>
 
+  <section class="plan" id="plan">
+    <div class="wrap">
+      <div class="kicker">Pricing</div>
+      <div class="price-tag">$0.99<small>once</small></div>
+      <h2>Your 99¢ flattens San Francisco.</h2>
+      <p class="lede">The 37 isn't late because Muni is bad. The 37 is late because it has to climb Twin Peaks, twice,
+        like a Sisyphus with a fare box. So every cent you pay goes straight into an aggressive lobbying campaign
+        to get rid of the hills. No hills, no waiting. It's just physics.</p>
+
+      <div class="plan-grid">
+        <ol class="steps">
+          <li><b>Hire a lobbyist with a bulldozer.</b>Rent a small office near City Hall. Park the bulldozer outside, menacingly.</li>
+          <li><b>Rename Twin Peaks to Twin Flats.</b>Get it on the ballot. Signage first, geology later.</li>
+          <li><b>Lower Corbett Avenue to sea level.</b>The steepest part of the 37's day becomes a gentle roll. Buses arrive early, out of sheer confusion.</li>
+          <li><b>Nob Hill becomes Nob Plain.</b>Cable cars repurposed as decorative sculptures. Very nice, nobody minds.</li>
+          <li><b>Never wait for the 37 again.</b>That's the dream. We'll update this page when the hills are gone.</li>
+        </ol>
+
+        <div class="flatten" aria-hidden="true">
+          <svg viewBox="0 0 400 220">
+            <defs>
+              <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#2a1f4a"/><stop offset="1" stop-color="#0f1124"/>
+              </linearGradient>
+            </defs>
+            <rect width="400" height="220" fill="url(#sky)"/>
+            <g id="hills">
+              <path fill="#2d2752" d="M0 200 C40 120 80 90 120 150 C150 110 175 40 210 70 C235 30 255 30 275 75 C300 120 330 100 360 140 C380 160 395 170 400 175 L400 220 L0 220Z"/>
+              <path fill="#3a3260" d="M0 210 C50 160 90 150 130 185 C170 150 200 135 240 175 C280 150 320 150 400 195 L400 220 L0 220Z"/>
+              <g stroke="#57507e" stroke-width="2.5" fill="none" transform="translate(196 22) scale(.4)">
+                <path d="M30 210 L60 20 L90 210 M60 20 L60 0"/><path d="M5 70 H115 M14 120 H106 M22 165 H98"/>
+              </g>
+            </g>
+            <rect y="208" width="400" height="12" fill="#07080f"/>
+            <g id="dozer" transform="translate(-60 182)">
+              <rect x="10" y="6" width="34" height="14" rx="3" fill="#ffb020"/>
+              <rect x="22" y="-4" width="14" height="12" rx="2" fill="#ffb020"/>
+              <rect x="0" y="4" width="6" height="18" rx="1" fill="#c88a10"/>
+              <circle cx="18" cy="22" r="5" fill="#222"/><circle cx="38" cy="22" r="5" fill="#222"/>
+            </g>
+          </svg>
+          <div class="meter">
+            <div class="meter-label"><span>Hills remaining</span><b id="hills-left">50</b></div>
+            <div class="bar"><i id="hills-bar"></i></div>
+            <div class="fineprint">Progress is a simulation. Actual hills may vary. Plan subject to geology, zoning and common sense.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="final">
     <div class="wrap">
       <div class="kicker">Get it</div>
-      <h2>Download it. The bus isn't here yet anyway.</h2>
+      <h2>99 cents. Less than the fare, and it actually shows up.</h2>
       <a class="cta app-store" href="{{APP_STORE_URL}}">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
-        <span><small>Download free on the</small>App Store</span>
+        <span><small>$0.99 on the</small>App Store</span>
       </a>
     </div>
   </section>
@@ -474,6 +581,25 @@
     }
   }, { rootMargin: "-45% 0px -45% 0px" });
   shades.forEach((s) => shadeObserver.observe(s));
+
+  // ---------- The plan: hills flatten (and a bulldozer advances) as you scroll ----------
+  const plan = document.getElementById("plan");
+  const hills = document.getElementById("hills");
+  const dozer = document.getElementById("dozer");
+  const hillsLeft = document.getElementById("hills-left");
+  const hillsBar = document.getElementById("hills-bar");
+  function flatten() {
+    const r = plan.getBoundingClientRect();
+    // 0 when the section's top reaches mid-screen, 1 when its bottom does.
+    const progress = Math.min(1, Math.max(0, (innerHeight * 0.5 - r.top) / Math.max(1, r.height - innerHeight * 0.3)));
+    hills.style.transform = `scaleY(${1 - progress * 0.85})`;
+    dozer.setAttribute("transform", `translate(${-60 + progress * 470} 182)`);
+    // The campaign never quite finishes: it stops one hill short.
+    hillsLeft.textContent = Math.max(1, Math.round(50 - progress * 49));
+    hillsBar.style.width = `${progress * 98}%`;
+  }
+  if (!reducedMotion) addEventListener("scroll", () => requestAnimationFrame(flatten), { passive: true });
+  flatten();
 
   // ---------- Phones tilt toward the pointer ----------
   if (!reducedMotion && matchMedia("(hover: hover)").matches) {

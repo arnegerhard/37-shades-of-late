@@ -30,7 +30,7 @@ and stop you pick in the app. Defaults to the inbound 37 Corbett toward the Haig
 ## Website
 
 `site/` is the marketing page for 37shadesoflate.com: `index.src.html` plus the two screenshots in
-`site/images/`. `site/build.sh` inlines them into one self-contained `site/public/index.html` (git-ignored),
+`site/images/`, plus the privacy and support pages in `site/pages/`. `site/build.sh` inlines the screenshots into one self-contained `site/public/index.html` (git-ignored),
 which a static-assets Cloudflare Worker (`site/wrangler.jsonc`) serves. It shows the live next 37 at
 Church & 14th via the proxy (requests tagged `client=web`). Deploy with `site/build.sh` then
 `npx --prefix proxy wrangler deploy` from `site/`.
@@ -65,5 +65,5 @@ to `proxy/.analytics-token` (git-ignored) and run `proxy/stats.sh [days]`.
   `AppStore/capture.sh <simulator-udid> <output-prefix>` after installing a Debug build; it
   launches the app with `-screen home|lines|stops|widgets|lock` (debug-only, see
   `App/Screenshots.swift`).
-- Privacy policy and support pages are served by the proxy at `/privacy` and `/support`.
-  Set a `SUPPORT_EMAIL` var in `proxy/wrangler.jsonc` to show a contact address.
+- Privacy policy and support pages: https://37shadesoflate.com/privacy and `/support`, from
+  `site/pages/`. The proxy's old `/privacy` and `/support` addresses redirect there.
