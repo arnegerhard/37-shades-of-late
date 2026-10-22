@@ -13,6 +13,14 @@ enum City: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// Short tag for tight spaces like widgets, where lines from two cities sit side by side.
+    var code: String {
+        switch self {
+        case .sf: "SF"
+        case .seattle: "SEA"
+        }
+    }
+
     /// Where this city's endpoints live on the proxy; SF predates the others and has no prefix.
     fileprivate var pathPrefix: String {
         switch self {

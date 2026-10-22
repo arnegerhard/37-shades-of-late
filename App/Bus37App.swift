@@ -49,7 +49,9 @@ struct ContentView: View {
                     }
                     .tint(.primary)
                 } footer: {
-                    Text("Your widgets show this line and stop.")
+                    if favorites.isEmpty {
+                        Text("Your widgets show this line and stop until you save favorites.")
+                    }
                 }
 
                 Section {
@@ -113,7 +115,7 @@ struct ContentView: View {
 
                 Section {
                     if favorites.isEmpty {
-                        Label("Tap Save above to keep this line and stop here.", systemImage: "star")
+                        Label("Tap Save above to keep this line and stop here and on your widgets.", systemImage: "star")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -131,7 +133,7 @@ struct ContentView: View {
                     Text("Favorites").textCase(nil)
                 } footer: {
                     if !favorites.isEmpty {
-                        Text("Tap a favorite to show it here and on your widgets. Hold and drag to reorder, swipe to delete.")
+                        Text("Your widgets show these in this order. Tap one to show it here, hold and drag to reorder, swipe to delete.")
                     }
                 }
 
@@ -150,7 +152,11 @@ struct ContentView: View {
             }
             .task(id: selection) { await feed.follow(selection) }
             .task { await startInNearestCity() }
-            .onChange(of: favorites) { Selection.favorites = favorites }
+            .onChange(of: favorites) {
+                Selection.favorites = favorites
+                // The widgets list the favorites in order, so any change shows up there right away.
+                WidgetCenter.shared.reloadAllTimelines()
+            }
             #if DEBUG
             .onAppear {
                 switch ScreenshotScreen.current {
@@ -180,6 +186,10 @@ struct ContentView: View {
 
     private func favoriteRow(_ favorite: Selection) -> some View {
         HStack(spacing: 12) {
+            // Like the widgets: tag each favorite with its city once favorites span both.
+            if Set(favorites.map(\.city)).count > 1 {
+                CityTag(code: favorite.city.code)
+            }
             LineBadge(line: favorite.lineID, font: .system(.body, design: .rounded).weight(.heavy))
                 .frame(minWidth: 48, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
@@ -194,7 +204,7 @@ struct ContentView: View {
         .accessibilityAddTraits(favorite.id == selection.id ? .isSelected : [])
     }
 
-    /// The favorite shown on the widgets gets a thin frame in the line-badge red.
+    /// The favorite open in the app gets a thin frame in the line-badge red.
     private func favoriteBackground(isSelected: Bool, isFirst: Bool, isLast: Bool) -> some View {
         Color(.secondarySystemGroupedBackground)
             .overlay {
@@ -214,7 +224,7 @@ struct ContentView: View {
         }
     }
 
-    /// Makes `picked` the line and stop shown in the app and on the widgets.
+    /// Makes `picked` the line and stop shown in the app (and on the widgets while there are no favorites).
     private func select(_ picked: Selection) {
         guard picked.id != selection.id else { return }
         Selection.current = picked
@@ -235,7 +245,7 @@ struct ContentView: View {
     private static var switchAnimation: Animation { DepartureFeed.switchAnimation }
 }
 
-/// Thin red outline for the favorite shown on the widgets. The first and last rows sit in the
+/// Thin red outline for the favorite open in the app. The first and last rows sit in the
 /// section's rounded corners, so their outer corners follow those instead of being clipped.
 private struct SelectedFavoriteFrame: View {
     let isFirst: Bool

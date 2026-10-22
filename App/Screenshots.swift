@@ -16,16 +16,20 @@ enum ScreenshotScreen: String {
 struct WidgetShowcase: View {
     let screen: ScreenshotScreen
     @Environment(\.colorScheme) private var colorScheme
-    @State private var entry = DeparturesEntry(date: .now, departures: [], error: nil)
+    @State private var entry = DeparturesEntry.sample()
 
     var body: some View {
         Group {
             if screen == .lock { lockScreen } else { homeScreen }
         }
         .task {
-            if let departures = try? await TransitService.departures(client: .app) {
-                entry = DeparturesEntry(date: .now, departures: departures, error: nil)
+            // The favorites with live times, like the real widget shows them.
+            var rows = [WidgetRow]()
+            for selection in Selection.favorites.prefix(4) {
+                let departures = (try? await TransitService.departures(for: selection, client: .app)) ?? []
+                rows.append(WidgetRow(selection: selection, departures: departures))
             }
+            if !rows.isEmpty { entry = DeparturesEntry(date: .now, rows: rows, error: nil) }
         }
     }
 

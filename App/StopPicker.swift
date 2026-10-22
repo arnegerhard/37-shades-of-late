@@ -8,7 +8,8 @@ struct LinePicker: View {
     @State private var lines: [Line] = []
     @State private var error: String?
     @State private var search = ""
-    @State private var showingMap = false
+    // The map is the main way to pick; the toolbar button switches to the searchable list.
+    @State private var showingMap = true
 
     private var filtered: [Line] {
         guard !search.isEmpty else { return lines }
@@ -18,7 +19,7 @@ struct LinePicker: View {
     var body: some View {
         Group {
             if showingMap {
-                LineMapPicker(city: city)
+                LineMapPicker(city: city, onPick: onPick)
                     .safeAreaInset(edge: .top) {
                         cityPicker
                             .padding(.horizontal)

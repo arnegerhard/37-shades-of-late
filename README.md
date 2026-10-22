@@ -10,14 +10,18 @@ in SF, or the 8 toward Mount Baker at Denny Way & Fairview Ave (stop 1_2260) in 
 - **App** (`App/`): pick a city, line, direction and stop. The choice (including its `City`) is saved
   to the `group.info.jetsons.bus37` App Group so the widgets use it too. On first launch the app asks
   the proxy's `/v1/city` for the nearer supported city; there's no location permission.
-- **Line map** (`App/LineMapPicker.swift`): the line picker's Map button draws every line in the city in
-  its official GTFS color; tap near a line to select it (nearby lines appear as chips), then "Choose stop".
+- **Line map** (`App/LineMapPicker.swift`): the line picker opens on a map of every line in the city (the list
+  button switches to the searchable list), drawn in its official GTFS color; tap near a line to select it (nearby lines appear as chips). The selected line
+  shows every stop as a white arrow per direction, following the street at that stop; tap an arrow to
+  pick that stop and direction (then Choose, or tap it again), or tap anywhere else to deselect.
 - **Favorites**: save the current line and stop with Save; tap one to show it in the app and on
   the widgets; swipe to delete, Edit to reorder. Stored in the same App Group.
 - **Map** (`App/RouteMap.swift`): the route in the chosen direction (Seattle's real street shapes;
   in SF the stops joined in order), the chosen stop, and live buses on the route headed to it,
   refreshed whenever the proxy has newer data.
-- **Widget** (`Widget/`): small/medium Home Screen and rectangular/circular/inline Lock Screen.
+- **Widget** (`Widget/`): small/medium Home Screen and rectangular/circular/inline Lock Screen. Shows the
+  favorites in their saved order (the current stop if none are saved) as line names and minutes until the
+  next departures; a line saved twice gets its destination added. Views are in `Shared/WidgetViews.swift`.
 - **Proxy** (`proxy/`): Cloudflare Worker at https://bus37-proxy.arne-5c1.workers.dev that
   holds the 511.org API key so all installs share one key. A single Durable Object fetches
   every Muni stop's predictions in **one** 511 call (~10 MB) and answers all stops and users

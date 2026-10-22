@@ -2,13 +2,11 @@ import SwiftUI
 import WidgetKit
 
 struct Provider: TimelineProvider {
-    func placeholder(in context: Context) -> DeparturesEntry {
-        .init(date: .now, departures: [5, 17, 29].map { Departure(time: .now + $0 * 60, isLive: true) }, error: nil)
-    }
+    func placeholder(in context: Context) -> DeparturesEntry { .sample() }
 
     func getSnapshot(in context: Context, completion: @escaping (DeparturesEntry) -> Void) {
-        if context.isPreview { return completion(placeholder(in: context)) }
-        Task { completion(await load().first ?? placeholder(in: context)) }
+        if context.isPreview { return completion(.sample()) }
+        Task { completion(await load().first ?? .sample()) }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<DeparturesEntry>) -> Void) {
@@ -19,15 +17,29 @@ struct Provider: TimelineProvider {
         }
     }
 
-    /// One fetch, then an entry per minute so "in N min" counts down between refreshes.
+    /// The favorites in their saved order (or the app's current stop if none are saved), fetched
+    /// together, then an entry per minute so the minutes count down between refreshes.
     private func load() async -> [DeparturesEntry] {
         let now = Date.now
-        do {
-            let departures = try await TransitService.departures(client: .widget)
-            return (0..<15).map { DeparturesEntry(date: now + Double($0) * 60, departures: departures, error: nil) }
-        } catch {
-            return [DeparturesEntry(date: now, departures: [], error: error.localizedDescription)]
+        let favorites = Selection.favorites
+        let selections = Array((favorites.isEmpty ? [Selection.current] : favorites).prefix(4))
+        let rows = await withTaskGroup(of: (Int, WidgetRow).self) { group in
+            for (index, selection) in selections.enumerated() {
+                group.addTask {
+                    do {
+                        let departures = try await TransitService.departures(for: selection, client: .widget)
+                        return (index, WidgetRow(selection: selection, departures: departures))
+                    } catch {
+                        return (index, WidgetRow(selection: selection, departures: [], failed: true))
+                    }
+                }
+            }
+            var rows = [(Int, WidgetRow)]()
+            for await row in group { rows.append(row) }
+            return rows.sorted { $0.0 < $1.0 }.map(\.1)
         }
+        let error = rows.allSatisfy(\.failed) ? "Couldn't load departures" : nil
+        return (0..<15).map { DeparturesEntry(date: now + Double($0) * 60, rows: rows, error: error) }
     }
 }
 
@@ -44,8 +56,8 @@ struct Bus37Widget: Widget {
         StaticConfiguration(kind: "Bus37Widget", provider: Provider()) { entry in
             WidgetEntryView(entry: entry)
         }
-        .configurationDisplayName("Next Departures")
-        .description("Upcoming departures for the line and stop you picked in the app.")
+        .configurationDisplayName("Favorites")
+        .description("Minutes until the next departures for your favorites, in the order you arranged them in the app.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline])
     }
 }
@@ -58,11 +70,11 @@ struct Bus37WidgetBundle: WidgetBundle {
 #Preview(as: .systemSmall) {
     Bus37Widget()
 } timeline: {
-    DeparturesEntry(date: .now, departures: [4, 16, 31].map { Departure(time: .now + $0 * 60, isLive: true) }, error: nil)
+    DeparturesEntry.sample()
 }
 
 #Preview(as: .accessoryRectangular) {
     Bus37Widget()
 } timeline: {
-    DeparturesEntry(date: .now, departures: [4, 16, 31].map { Departure(time: .now + $0 * 60, isLive: true) }, error: nil)
+    DeparturesEntry.sample()
 }
