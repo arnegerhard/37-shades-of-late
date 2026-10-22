@@ -27,6 +27,14 @@ and stop you pick in the app. Defaults to the inbound 37 Corbett toward the Haig
   | `GET /v1/lines/:line` | directions and their stops in order, with coordinates (cached 24h) |
   | `GET /v1/departures?stop=&line=&direction=` | upcoming departures and live bus positions, plus `fetchedAt`/`nextRefreshAt` of the shared snapshot |
 
+## Website
+
+`site/` is the marketing page for 37shadesoflate.com: `index.src.html` plus the two screenshots in
+`site/images/`. `site/build.sh` inlines them into one self-contained `site/public/index.html` (git-ignored),
+which a static-assets Cloudflare Worker (`site/wrangler.jsonc`) serves. It shows the live next 37 at
+Church & 14th via the proxy (requests tagged `client=web`). Deploy with `site/build.sh` then
+`npx --prefix proxy wrangler deploy` from `site/`.
+
 ## Usage statistics
 
 Each request carries a random install ID the app generates (`AppGroup.installID`), the part of

@@ -382,14 +382,14 @@ export class TransitCache extends DurableObject<Env> {
 // MARK: - Usage statistics
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CLIENTS = new Set(["app", "widget", "map"]);
+const CLIENTS = new Set(["app", "widget", "map", "web"]);
 
 /**
  * Logs one anonymous event per API request to Workers Analytics Engine. The app sends a random
  * install ID it generated itself (no account, Apple ID or device identifier) so usage can be
  * counted per install; IP addresses and locations are never recorded.
  *
- * Columns: blob1 event (departures | lines | line), blob2 client (app | widget | map),
+ * Columns: blob1 event (departures | lines | line), blob2 client (app | widget | map | web),
  * blob3 line, blob4 stop, blob5 direction, blob6 install ID, blob7 app version,
  * double1 number of favorites; index1 install ID (keeps sampling per install).
  */
@@ -401,7 +401,9 @@ function recordUsage(request: Request, env: Env) {
   const event = parts[1] === "departures" ? "departures" : parts.length > 2 ? "line" : parts[1] ?? "";
   const header = (name: string) => (request.headers.get(name) ?? "").slice(0, 64);
   const install = UUID.test(header("X-Install-ID")) ? header("X-Install-ID").toLowerCase() : "unknown";
-  const client = CLIENTS.has(header("X-Client")) ? header("X-Client") : "unknown";
+  // The website can't send custom headers without a CORS preflight, so it uses ?client=web.
+  const claimed = header("X-Client") || (url.searchParams.get("client") ?? "");
+  const client = CLIENTS.has(claimed) ? claimed : "unknown";
   const line = (event === "line" ? decodeURIComponent(parts[2]) : url.searchParams.get("line")) ?? "";
   const favorites = Number(header("X-Favorites"));
   env.ANALYTICS_ENGINE.writeDataPoint({
@@ -463,6 +465,8 @@ function json(body: unknown, status = 200, maxAge = 0, headers: Record<string, s
     headers: {
       "Content-Type": "application/json",
       "Cache-Control": maxAge ? `public, max-age=${maxAge}` : "no-store",
+      // Public transit data; lets the 37shadesoflate.com page show live times.
+      "Access-Control-Allow-Origin": "*",
       ...headers,
     },
   });

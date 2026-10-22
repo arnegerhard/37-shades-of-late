@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>37 Shades of Late</title>
+<meta name="description" content="SF Muni departure times on your Home Screen and Lock Screen, with the emotional honesty they deserve.">
+<meta name="theme-color" content="#0b0d17">
+<meta property="og:title" content="37 Shades of Late">
+<meta property="og:description" content="Muni times on your Lock Screen. Emotional support included.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23bf1a26'/%3E%3Ctext x='50' y='68' font-family='system-ui' font-weight='900' font-size='52' fill='white' text-anchor='middle'%3E37%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: dark;
+    --red: #bf1a26;
+    --red-glow: #ff3b4a;
+    --night: #0b0d17;
+    --ink: #f4f1ea;
+    --muted: #a8a6b3;
+    --fog: #d9dbe8;
+    --card: rgba(255, 255, 255, 0.06);
+    --line: rgba(255, 255, 255, 0.12);
+    --round: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--night);
+    color: var(--ink);
+    font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow-x: hidden;
+  }
+  a { color: inherit; }
+  .wrap { width: min(1080px, 100% - 32px); margin-inline: auto; }
+
+  /* ---------- Hero with parallax San Francisco ---------- */
+  .hero {
+    position: relative;
+    height: 100svh;
+    min-height: 620px;
+    overflow: hidden;
+    background: radial-gradient(120% 80% at 70% 0%, #2a1f4a 0%, #141629 45%, var(--night) 80%);
+  }
+  .layer { position: absolute; inset: 0; will-change: transform; pointer-events: none; }
+  .stars {
+    background-image:
+      radial-gradient(1.5px 1.5px at 12% 18%, #fff8 50%, transparent 51%),
+      radial-gradient(1px 1px at 28% 9%, #fff6 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 44% 24%, #fff7 50%, transparent 51%),
+      radial-gradient(1px 1px at 63% 12%, #fff8 50%, transparent 51%),
+      radial-gradient(2px 2px at 81% 20%, #fff9 50%, transparent 51%),
+      radial-gradient(1px 1px at 92% 6%, #fff6 50%, transparent 51%),
+      radial-gradient(1px 1px at 7% 34%, #fff5 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 55% 36%, #fff5 50%, transparent 51%);
+  }
+  .layer svg { position: absolute; left: 0; bottom: 0; width: 100%; height: auto; }
+  .fog {
+    position: absolute; left: -50%; right: -50%; bottom: 14%; height: 34%;
+    background:
+      radial-gradient(40% 60% at 20% 60%, #d9dbe833, transparent 70%),
+      radial-gradient(35% 50% at 55% 50%, #d9dbe829, transparent 70%),
+      radial-gradient(45% 60% at 85% 65%, #d9dbe830, transparent 70%);
+    filter: blur(6px);
+    animation: drift 38s linear infinite alternate;
+  }
+  @keyframes drift { from { transform: translateX(-6%); } to { transform: translateX(6%); } }
+
+  .road { position: absolute; left: 0; right: 0; bottom: 0; height: 9%; background: #07080f; }
+  .road::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 46%; height: 3px;
+    background: repeating-linear-gradient(90deg, #f4f1ea55 0 36px, transparent 36px 72px);
+  }
+  .bus {
+    position: absolute; bottom: calc(9% - 4px); left: 0; width: clamp(150px, 22vw, 240px);
+    will-change: transform; filter: drop-shadow(0 10px 24px #bf1a2666);
+  }
+  .bus .wheel { animation: spin .6s linear infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .hero-copy {
+    position: relative; z-index: 2; height: 100%;
+    display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+    padding-bottom: 18vh;
+  }
+  .badge37 {
+    display: inline-flex; align-items: center; gap: 10px;
+    font: 800 15px/1 var(--round); letter-spacing: .02em; color: var(--muted);
+    margin-bottom: 18px;
+  }
+  .badge37 b {
+    background: var(--red); color: #fff; padding: 6px 9px; border-radius: 7px;
+    font: 900 18px/1 var(--round);
+  }
+  h1 {
+    margin: 0; font: 900 clamp(48px, 10vw, 128px)/.92 var(--round); letter-spacing: -.035em;
+  }
+  h1 .late {
+    color: var(--red-glow);
+    text-shadow: 0 0 40px #ff3b4a66;
+    display: inline-block;
+    animation: wobble 4.5s ease-in-out infinite;
+    transform-origin: 50% 80%;
+  }
+  @keyframes wobble { 0%, 86%, 100% { transform: rotate(0); } 90% { transform: rotate(-4deg); } 95% { transform: rotate(3deg); } }
+  .tagline { font-size: clamp(18px, 2.4vw, 24px); color: var(--fog); max-width: 34ch; margin: 22px 0 30px; }
+
+  .cta {
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--ink); color: var(--night); text-decoration: none;
+    padding: 14px 22px; border-radius: 16px; font: 800 18px/1 var(--round);
+    box-shadow: 0 10px 30px #0008; transition: transform .2s ease, box-shadow .2s ease;
+  }
+  .cta:hover { transform: translateY(-2px) rotate(-1deg); box-shadow: 0 16px 40px #000a; }
+  .cta svg { width: 22px; height: 22px; }
+  .cta small { display: block; font: 600 12px/1 system-ui; opacity: .6; margin-bottom: 3px; }
+
+  .scroll-hint {
+    position: absolute; z-index: 2; left: 50%; bottom: 12%; transform: translateX(-50%);
+    font: 700 13px/1 var(--round); color: var(--muted); letter-spacing: .08em; text-transform: uppercase;
+    animation: bob 2.4s ease-in-out infinite;
+  }
+  @keyframes bob { 50% { transform: translate(-50%, 6px); } }
+
+  /* ---------- Live ticker ---------- */
+  .live {
+    position: relative; z-index: 3; margin-top: -48px;
+    background: #12142a; border: 1px solid var(--line); border-radius: 22px;
+    padding: 20px 22px; display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center;
+    box-shadow: 0 30px 60px #0009;
+  }
+  .live .dot { width: 12px; height: 12px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 0 #3ddc8488; animation: pulse 2s infinite; }
+  .live.offline .dot { background: var(--muted); animation: none; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 12px #3ddc8400; } 100% { box-shadow: 0 0 0 0 #3ddc8400; } }
+  .live .label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+  .live .now { font: 800 clamp(20px, 3vw, 26px)/1.2 var(--round); }
+  .live .quip { font-style: italic; color: var(--fog); }
+  .live .mins { font: 900 clamp(34px, 6vw, 54px)/1 var(--round); color: #3ddc84; font-variant-numeric: tabular-nums; text-align: right; }
+  .live .mins span { font-size: .4em; color: var(--muted); margin-left: 4px; }
+
+  /* ---------- The shades: sticky countdown ---------- */
+  section { padding: 120px 0; }
+  .kicker { font: 800 14px/1 var(--round); color: var(--red-glow); letter-spacing: .14em; text-transform: uppercase; }
+  h2 { font: 900 clamp(34px, 5.5vw, 64px)/1 var(--round); letter-spacing: -.03em; margin: 14px 0 18px; }
+  .lede { color: var(--muted); max-width: 52ch; font-size: 19px; }
+
+  .shades { display: grid; grid-template-columns: 1fr 1.15fr; gap: 56px; margin-top: 64px; }
+  .board {
+    position: sticky; top: 18vh; height: min(420px, 62vh);
+    border-radius: 28px; background: #05060c; border: 1px solid var(--line);
+    display: grid; place-items: center; overflow: hidden;
+    box-shadow: inset 0 0 80px #000, 0 30px 80px #0008;
+  }
+  .board::before {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(0deg, #ffffff06 0 2px, transparent 2px 5px);
+    pointer-events: none;
+  }
+  .board .route { position: absolute; top: 22px; left: 24px; font: 800 15px/1 var(--round); color: var(--muted); }
+  .board .route b { background: var(--red); color: #fff; border-radius: 6px; padding: 4px 7px; margin-right: 8px; }
+  .digits {
+    font: 900 clamp(84px, 14vw, 168px)/1 ui-monospace, "SF Mono", Menlo, monospace;
+    color: #ffb020; text-shadow: 0 0 18px #ffb02088, 0 0 2px #ffd27a;
+    font-variant-numeric: tabular-nums; transition: color .3s, text-shadow .3s;
+  }
+  .digits.urgent { color: #3ddc84; text-shadow: 0 0 18px #3ddc8488; }
+  .digits.gone { color: var(--red-glow); text-shadow: 0 0 18px #ff3b4a88; }
+  .board .unit { position: absolute; bottom: 26px; font: 800 16px/1 var(--round); color: var(--muted); letter-spacing: .2em; text-transform: uppercase; }
+
+  .shade {
+    min-height: 62vh; display: flex; flex-direction: column; justify-content: center;
+    opacity: .25; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease;
+  }
+  .shade.active { opacity: 1; transform: none; }
+  .shade .when { font: 800 15px/1 var(--round); color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+  .shade blockquote { margin: 14px 0; font: 900 clamp(30px, 4.4vw, 52px)/1.05 var(--round); letter-spacing: -.02em; }
+  .shade p { color: var(--muted); margin: 0; max-width: 40ch; }
+
+  /* ---------- Screenshots ---------- */
+  .phones { display: flex; justify-content: center; gap: clamp(20px, 6vw, 80px); margin-top: 70px; perspective: 1400px; }
+  .phone-wrap { text-align: center; will-change: transform; }
+  .phone {
+    width: clamp(220px, 28vw, 300px); aspect-ratio: 1206 / 2622;
+    border-radius: 44px; padding: 10px; background: linear-gradient(145deg, #3a3b45, #15161c);
+    box-shadow: 0 40px 80px #000c, inset 0 0 0 2px #ffffff14;
+    transition: transform .15s ease-out; transform-style: preserve-3d;
+  }
+  .phone img { width: 100%; height: 100%; display: block; border-radius: 35px; object-fit: cover; }
+  .phone-wrap figcaption { margin-top: 22px; color: var(--muted); max-width: 26ch; margin-inline: auto; font-size: 16px; }
+  .phone-wrap figcaption b { color: var(--ink); display: block; font: 800 19px/1.2 var(--round); margin-bottom: 4px; }
+
+  /* ---------- Features ---------- */
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; margin-top: 56px; }
+  .feature {
+    background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 24px;
+    transition: transform .25s ease, background .25s ease;
+  }
+  .feature:hover { transform: translateY(-4px) rotate(-.6deg); background: rgba(255, 255, 255, 0.09); }
+  .feature .icon { font-size: 30px; }
+  .feature h3 { font: 800 21px/1.2 var(--round); margin: 12px 0 8px; }
+  .feature p { margin: 0; color: var(--muted); font-size: 16px; }
+
+  /* ---------- Final CTA + footer ---------- */
+  .final { text-align: center; padding-bottom: 80px; }
+  .final h2 { max-width: 16ch; margin-inline: auto; }
+  .final .cta { margin-top: 18px; }
+  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; }
+  footer nav { display: flex; gap: 18px; }
+
+  @media (max-width: 760px) {
+    section { padding: 84px 0; }
+    .shades { grid-template-columns: 1fr; gap: 0; }
+    .board { top: 12px; height: 200px; z-index: 2; }
+    .digits { font-size: 88px; }
+    .shade { min-height: 56vh; }
+    .phones { flex-direction: column; align-items: center; gap: 56px; }
+    .live { grid-template-columns: auto 1fr; }
+    .live .mins { grid-column: 1 / -1; text-align: left; }
+    .scroll-hint { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero" id="top">
+  <div class="layer stars" data-speed="0.08"></div>
+
+  <!-- Sutro Tower and the far hills -->
+  <div class="layer" data-speed="0.18">
+    <svg viewBox="0 0 1440 520" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <g fill="#241f3d">
+        <path d="M0 420 C180 330 300 360 420 300 C520 250 600 280 700 240 C820 190 930 260 1040 230 C1160 200 1260 260 1440 220 L1440 520 L0 520Z"/>
+      </g>
+      <g stroke="#3a3260" stroke-width="5" fill="none" transform="translate(1010 40)">
+        <path d="M30 210 L60 20 L90 210 M60 20 L60 0"/>
+        <path d="M5 70 H115 M14 120 H106 M22 165 H98"/>
+        <path d="M5 70 V95 M115 70 V95 M14 120 V140 M106 120 V140"/>
+      </g>
+      <circle cx="1070" cy="40" r="4" fill="#ff3b4a"><animate attributeName="opacity" values="1;.2;1" dur="2.2s" repeatCount="indefinite"/></circle>
+    </svg>
+  </div>
+
+  <div class="layer" data-speed="0.3"><div class="fog"></div></div>
+
+  <!-- Victorians on a hill, closer -->
+  <div class="layer" data-speed="0.42">
+    <svg viewBox="0 0 1440 520" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <path fill="#171a30" d="M0 470 C200 400 360 430 520 380 C700 330 860 390 1020 350 C1180 315 1300 360 1440 330 L1440 520 L0 520Z"/>
+      <g fill="#1d2140">
+        <path d="M150 440 v-70 l30 -28 l30 28 v70z"/><path d="M215 432 v-78 l32 -30 l32 30 v78z"/>
+        <path d="M284 425 v-66 l28 -26 l28 26 v66z"/><path d="M345 418 v-74 l30 -28 l30 28 v74z"/>
+        <path d="M410 410 v-62 l27 -25 l27 25 v62z"/>
+      </g>
+      <g fill="#ffcf6b" opacity=".8">
+        <rect x="170" y="390" width="8" height="12"/><rect x="236" y="372" width="8" height="12"/>
+        <rect x="300" y="385" width="8" height="12"/><rect x="368" y="362" width="8" height="12"/>
+        <rect x="430" y="380" width="8" height="12"/><rect x="252" y="398" width="8" height="12"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="road"></div>
+
+  <!-- The 37, driving with your scroll -->
+  <svg class="bus" id="bus" viewBox="0 0 240 110" aria-hidden="true">
+    <rect x="6" y="10" width="228" height="80" rx="14" fill="#bf1a26"/>
+    <rect x="6" y="64" width="228" height="10" fill="#8e121c"/>
+    <g fill="#bfe3ff" opacity=".9">
+      <rect x="22" y="22" width="34" height="28" rx="4"/><rect x="64" y="22" width="34" height="28" rx="4"/>
+      <rect x="106" y="22" width="34" height="28" rx="4"/><rect x="148" y="22" width="34" height="28" rx="4"/>
+    </g>
+    <rect x="192" y="22" width="34" height="48" rx="4" fill="#9cc6e6"/>
+    <rect x="196" y="12" width="30" height="8" rx="2" fill="#ffb020"/>
+    <text x="211" y="19" font-family="ui-monospace,Menlo,monospace" font-size="8" font-weight="900" fill="#05060c" text-anchor="middle">37</text>
+    <rect x="228" y="70" width="8" height="8" rx="2" fill="#fff6c2"/>
+    <g class="wheel"><circle cx="58" cy="90" r="15" fill="#111"/><circle cx="58" cy="90" r="6" fill="#666"/><rect x="56" y="77" width="4" height="9" fill="#888"/></g>
+    <g class="wheel"><circle cx="186" cy="90" r="15" fill="#111"/><circle cx="186" cy="90" r="6" fill="#666"/><rect x="184" y="77" width="4" height="9" fill="#888"/></g>
+  </svg>
+
+  <div class="wrap hero-copy">
+    <div class="badge37"><b>37</b> CORBETT · AND EVERY OTHER MUNI LINE</div>
+    <h1>37 Shades<br>of <span class="late">Late</span></h1>
+    <p class="tagline">Muni times on your Home Screen and Lock Screen. Emotional support included.</p>
+    <a class="cta app-store" href="{{APP_STORE_URL}}">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
+      <span><small>Download free on the</small>App Store</span>
+    </a>
+  </div>
+  <div class="scroll-hint">Scroll. The bus won't.</div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="live offline" id="live" aria-live="polite">
+      <div class="dot"></div>
+      <div>
+        <div class="label">Live · 37 at Church &amp; 14th St, toward the Haight</div>
+        <div class="now" id="live-now">Asking Muni nicely…</div>
+        <div class="quip" id="live-quip">&nbsp;</div>
+      </div>
+      <div class="mins" id="live-mins">–</div>
+    </div>
+  </div>
+
+  <section id="shades">
+    <div class="wrap">
+      <div class="kicker">The scale</div>
+      <h2>Every wait has a mood.</h2>
+      <p class="lede">Departure boards give you a number. We give you a number and an honest opinion about it.</p>
+
+      <div class="shades">
+        <div class="board" aria-hidden="true">
+          <div class="route"><b>37</b>to Masonic + Haight</div>
+          <div class="digits" id="digits">2</div>
+          <div class="unit" id="unit">min</div>
+        </div>
+
+        <div>
+          <article class="shade" data-digits="2" data-unit="min" data-mood="urgent">
+            <div class="when">2 minutes</div>
+            <blockquote>“Holy shit, the 37 is real.”</blockquote>
+            <p>Cryptozoologists hate this one trick. Put down the burrito and walk with purpose.</p>
+          </article>
+          <article class="shade" data-digits="6" data-unit="min">
+            <div class="when">6 minutes</div>
+            <blockquote>“Stay put, lazy bastard.”</blockquote>
+            <p>Not enough time for anything, too much time to stand there with dignity. Scroll the app. That's what it's for.</p>
+          </article>
+          <article class="shade" data-digits="12" data-unit="min">
+            <div class="when">12 minutes</div>
+            <blockquote>“Make coffee. Reconsider your life.”</blockquote>
+            <p>Pour-over takes four. That leaves eight for an existential crisis. Plenty.</p>
+          </article>
+          <article class="shade" data-digits="20" data-unit="min">
+            <div class="when">20 minutes</div>
+            <blockquote>“Walking is starting to look attractive.”</blockquote>
+            <p>The hill says no. Your legs say no. The 37 also says no, just more slowly.</p>
+          </article>
+          <article class="shade" data-digits="??" data-unit="no prediction">
+            <div class="when">No prediction</div>
+            <blockquote>“Schrödinger's 37: both coming and not coming.”</blockquote>
+            <p>Until you look at the street, every bus exists in a superposition of on-time and cancelled.</p>
+          </article>
+          <article class="shade" data-digits="404" data-unit="bus not found" data-mood="gone">
+            <div class="when">Bus vanishes from the map</div>
+            <blockquote>“The 37 has entered the witness protection program.”</blockquote>
+            <p>New name, new route, new life. We wish it well. We'd also like it to come back.</p>
+          </article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="wrap">
+      <div class="kicker">The app</div>
+      <h2>Disappointment, beautifully arranged.</h2>
+      <p class="lede">Pick any line and stop. Get live arrivals, a map of where the bus actually is, and widgets that judge your commute without you unlocking your phone.</p>
+
+      <div class="phones">
+        <figure class="phone-wrap" data-speed="-0.06">
+          <div class="phone"><img src="{{IMG_LOCK}}" alt="Lock Screen with the next 37 departures and a clock"></div>
+          <figcaption><b>Your Lock Screen, now with feelings.</b>Glance, sigh, put the phone back.</figcaption>
+        </figure>
+        <figure class="phone-wrap" data-speed="0.06">
+          <div class="phone"><img src="{{IMG_HOME}}" alt="The app showing the next 37 departures, a live map and favorites"></div>
+          <figcaption><b>The app.</b>Times, a live map, favorites, and commentary nobody asked for.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="kicker">Features</div>
+      <h2>Technically a transit app.</h2>
+      <div class="features">
+        <div class="feature"><div class="icon">🗺️</div><h3>Live bus map</h3><p>Watch a little red dot not move, in real time.</p></div>
+        <div class="feature"><div class="icon">🔒</div><h3>Lock Screen widgets</h3><p>Be let down without even unlocking your phone.</p></div>
+        <div class="feature"><div class="icon">⭐</div><h3>Favorites</h3><p>Curate your suffering. Drag to reorder it.</p></div>
+        <div class="feature"><div class="icon">🚋</div><h3>Every Muni line</h3><p>Buses, streetcars, the Metro. Not just the 37. The 37 is just the most emotionally available.</p></div>
+        <div class="feature"><div class="icon">🙈</div><h3>No account, no ads</h3><p>We don't know who you are. We only know you're waiting.</p></div>
+        <div class="feature"><div class="icon">⏱️</div><h3>Fresh every 70 seconds</h3><p>Live predictions from 511.org, as fresh as Muni's own data allows.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <div class="kicker">Get it</div>
+      <h2>Download it. The bus isn't here yet anyway.</h2>
+      <a class="cta app-store" href="{{APP_STORE_URL}}">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
+        <span><small>Download free on the</small>App Store</span>
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Departure data from 511.org. 37 Shades of Late is an independent app, not affiliated with or endorsed by SFMTA or the Metropolitan Transportation Commission.</div>
+    <nav><a href="{{PRIVACY_URL}}">Privacy</a><a href="{{SUPPORT_URL}}">Support</a></nav>
+  </div>
+</footer>
+
+<script>
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- Parallax layers and the scroll-driven bus ----------
+  const layers = [...document.querySelectorAll("[data-speed]")];
+  const bus = document.getElementById("bus");
+  const hero = document.getElementById("top");
+  let ticking = false;
+
+  function onScroll() {
+    const y = scrollY;
+    for (const el of layers) {
+      if (el.closest(".phones")) {
+        // Phones drift relative to their own position on screen.
+        const rect = el.getBoundingClientRect();
+        const offset = rect.top + rect.height / 2 - innerHeight / 2;
+        el.style.transform = `translate3d(0, ${offset * Number(el.dataset.speed)}px, 0)`;
+      } else {
+        el.style.transform = `translate3d(0, ${y * Number(el.dataset.speed)}px, 0)`;
+      }
+    }
+    // The bus enters from the left and crosses the screen over the height of the hero.
+    const progress = Math.min(1.2, y / hero.offsetHeight);
+    const busWidth = bus.getBoundingClientRect().width;
+    const x = -busWidth + (innerWidth + busWidth) * (0.18 + progress * 0.82);
+    bus.style.transform = `translate3d(${x}px, ${Math.sin(y / 40) * 1.5}px, 0)`;
+    ticking = false;
+  }
+  if (!reducedMotion) {
+    addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(onScroll); } }, { passive: true });
+    addEventListener("resize", onScroll);
+  }
+  onScroll();
+
+  // ---------- The departure board follows the active shade ----------
+  const digits = document.getElementById("digits");
+  const unit = document.getElementById("unit");
+  const shades = document.querySelectorAll(".shade");
+  let shown = null;
+
+  function countTo(target) {
+    if (!/^\d+$/.test(target) || !/^\d+$/.test(digits.textContent) || reducedMotion) {
+      digits.textContent = target; return;
+    }
+    const from = Number(digits.textContent), to = Number(target), start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / 450);
+      digits.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3)));
+      if (t < 1 && shown === target) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  const shadeObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      shades.forEach((s) => s.classList.toggle("active", s === entry.target));
+      const { digits: d, unit: u, mood } = entry.target.dataset;
+      if (shown !== d) { shown = d; countTo(d); }
+      unit.textContent = u;
+      digits.classList.toggle("urgent", mood === "urgent");
+      digits.classList.toggle("gone", mood === "gone");
+    }
+  }, { rootMargin: "-45% 0px -45% 0px" });
+  shades.forEach((s) => shadeObserver.observe(s));
+
+  // ---------- Phones tilt toward the pointer ----------
+  if (!reducedMotion && matchMedia("(hover: hover)").matches) {
+    for (const phone of document.querySelectorAll(".phone")) {
+      phone.addEventListener("pointermove", (e) => {
+        const r = phone.getBoundingClientRect();
+        const rx = ((e.clientY - r.top) / r.height - 0.5) * -10;
+        const ry = ((e.clientX - r.left) / r.width - 0.5) * 12;
+        phone.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+      });
+      phone.addEventListener("pointerleave", () => { phone.style.transform = ""; });
+    }
+  }
+
+  // ---------- Live: the actual next 37 at Church & 14th ----------
+  const API = "{{API_URL}}/v1/departures?stop=13254&line=37&direction=IB&client=web";
+  const live = document.getElementById("live");
+  const liveNow = document.getElementById("live-now");
+  const liveQuip = document.getElementById("live-quip");
+  const liveMins = document.getElementById("live-mins");
+
+  function quip(minutes) {
+    if (minutes < 4) return "Holy shit, the 37 is real.";
+    if (minutes < 9) return "Stay put, lazy bastard.";
+    if (minutes < 16) return "Make coffee. Reconsider your life.";
+    return "Walking is starting to look attractive.";
+  }
+
+  async function refresh() {
+    let next = 60_000;
+    try {
+      const response = await fetch(API, { cache: "no-store" });
+      if (!response.ok) throw new Error(response.status);
+      const data = await response.json();
+      const upcoming = data.departures.find((d) => Date.parse(d.time) > Date.now() - 30_000);
+      live.classList.remove("offline");
+      if (upcoming) {
+        const minutes = Math.max(0, Math.floor((Date.parse(upcoming.time) - Date.now()) / 60_000));
+        const at = new Date(upcoming.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        liveNow.textContent = `Next 37 at ${at}${upcoming.live ? "" : " (scheduled)"}`;
+        liveQuip.textContent = `“${quip(minutes)}”`;
+        liveMins.innerHTML = minutes === 0 ? "now" : `${minutes}<span>min</span>`;
+      } else {
+        liveNow.textContent = "No 37s predicted right now";
+        liveQuip.textContent = "“Schrödinger's 37: both coming and not coming.”";
+        liveMins.textContent = "??";
+      }
+      if (data.nextRefreshAt) next = Math.max(10_000, Date.parse(data.nextRefreshAt) - Date.now() + 1_000);
+    } catch {
+      live.classList.add("offline");
+      liveNow.textContent = "Muni isn't answering";
+      liveQuip.textContent = "“The 37 has entered the witness protection program.”";
+      liveMins.textContent = "404";
+    }
+    setTimeout(refresh, next);
+  }
+  refresh();
+</script>
+</body>
+</html>

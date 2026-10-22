@@ -13,7 +13,7 @@ Paste these into App Store Connect → your app → App Information / the 1.0 ve
 | Primary category | Navigation |
 | Secondary category | Travel |
 | Content rights | Does not contain, show, or access third-party content* |
-| Age rating | 4+ (answer "None" to every question) |
+| Age rating | Answer **Profanity or Crude Humor: Infrequent/Mild** (the wait-time comments say "shit" and "bastard"), "None" to everything else; Apple then sets the rating |
 | Price | Free |
 
 \* The departure times come from the public 511.org open data API, which permits redistribution
@@ -26,7 +26,7 @@ the answer.
 | --- | --- |
 | Privacy Policy URL | https://bus37-proxy.arne-5c1.workers.dev/privacy |
 | Support URL | https://bus37-proxy.arne-5c1.workers.dev/support |
-| Marketing URL | (leave empty) |
+| Marketing URL | https://37shadesoflate.com |
 
 ## App Privacy ("nutrition label")
 
@@ -73,7 +73,7 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 
 **Copyright**
 
-> 2026 <your name or company>
+> 2026 Arne Gerhard
 
 ## App Review notes
 
@@ -81,4 +81,6 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 
 ## Screenshots
 
-In `AppStore/screenshots/` — upload the `iphone-6.9` set (1320×2868) and the `ipad-13` set (2064×2752).
+In `AppStore/screenshots/`. App Store Connect's "iPhone with Dynamic Island (medium display)" tab takes the
+`iphone-6.3` set (1206×2622); "iPad 13\" display" takes the `ipad-13` set (2064×2752). The `iphone-6.9` set
+(1320×2868) is for a large-display tab if Apple asks for one.

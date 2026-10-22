@@ -1,0 +1,13 @@
+{
+  "$schema": "../proxy/node_modules/wrangler/config-schema.json",
+  // Static marketing page for 37shadesoflate.com. Build with ./build.sh, deploy with
+  // `npx wrangler deploy` (run from proxy/ node_modules or with npx).
+  "name": "37shadesoflate-site",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "./public" },
+  // Custom domains: Cloudflare creates the DNS records and certificates for these.
+  "routes": [
+    { "pattern": "37shadesoflate.com", "custom_domain": true },
+    { "pattern": "www.37shadesoflate.com", "custom_domain": true }
+  ]
+}
