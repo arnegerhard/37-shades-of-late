@@ -14,13 +14,18 @@ in SF, or the 8 toward Mount Baker at Denny Way & Fairview Ave (stop 1_2260) in 
   button switches to the searchable list), drawn in its official GTFS color; tap near a line to select it (nearby lines appear as chips). The selected line
   shows every stop as a white arrow per direction, following the street at that stop; tap an arrow to
   pick that stop and direction (then Choose, or tap it again), or tap anywhere else to deselect.
+- **Offline line data** (`LineData` in `Shared/Departures.swift`): the line lists and line maps for both cities
+  ship as snapshots in `App/Snapshots/` and load instantly, even offline; the newest download is kept in
+  Caches and the proxy is checked for changes at most once a day. A line's stops are kept for a week once
+  loaded. Refresh the snapshots before a release with `App/Snapshots/update.sh`. Debug builds launched with
+  `-simulateOffline YES` fail every request, to test this.
 - **Favorites**: save the current line and stop with Save; tap one to show it in the app and on
   the widgets; swipe to delete, Edit to reorder. Stored in the same App Group.
 - **Map** (`App/RouteMap.swift`): the route in the chosen direction (Seattle's real street shapes;
   in SF the stops joined in order), the chosen stop, and live buses on the route headed to it,
   refreshed whenever the proxy has newer data.
 - **Widget** (`Widget/`): small/medium Home Screen and rectangular/circular/inline Lock Screen. Shows the
-  favorites in their saved order (the current stop if none are saved) as line names and minutes until the
+  stop open in the app first, then the other favorites in their saved order, as line names and minutes until the
   next departures; a line saved twice gets its destination added. Views are in `Shared/WidgetViews.swift`.
 - **Proxy** (`proxy/`): Cloudflare Worker at https://bus37-proxy.arne-5c1.workers.dev that
   holds the 511.org API key so all installs share one key. A single Durable Object fetches

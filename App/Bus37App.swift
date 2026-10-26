@@ -21,6 +21,7 @@ struct Bus37App: App {
 struct ContentView: View {
     @State private var selection = Selection.current
     @State private var feed = DepartureFeed()
+    @State private var favoritesFeed = FavoritesFeed()
     @State private var choosing = false
     @State private var pickerPath: [Line] = []
     @State private var showingMap = false
@@ -35,97 +36,69 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
+                // The map is how you pick a ride: it previews the open route and its buses, and
+                // tapping it opens every line in the city to choose a ride, direction and stop.
                 Section {
-                    Button { choosing = true } label: {
-                        HStack(spacing: 12) {
-                            LineBadge(line: selection.lineID, font: .system(.title3, design: .rounded).weight(.heavy))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("To \(selection.destination)").font(.headline)
-                                Text(selection.stopName).font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("Change").font(.subheadline).foregroundStyle(Color.accentColor)
-                        }
+                    CityPager(cities: City.allCases, city: selection.city, onSwitch: switchCity(to:)) { city in
+                        RouteMap(selection: preview(for: city), feed: feed, interactive: false)
+                            .allowsHitTesting(false)
                     }
-                    .tint(.primary)
-                } footer: {
-                    if favorites.isEmpty {
-                        Text("Your widgets show this line and stop until you save favorites.")
-                    }
-                }
-
-                Section {
-                    if let error = feed.error {
-                        Text(error).foregroundStyle(.secondary)
-                    } else if departures.isEmpty {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("No upcoming \((loaded ?? selection).lineID)s")
-                                .foregroundStyle(.secondary)
-                            QuipText(Quip.noPrediction(line: (loaded ?? selection).lineID))
-                        }
-                        .opacity(isStale ? 0.4 : 1)
-                    }
-                    ForEach(departures, id: \.self) { departure in
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(departure.time, format: .dateTime.hour().minute())
-                                    .font(.title3.weight(.semibold)).monospacedDigit()
-                                Spacer()
-                                Text(departure.time, style: .relative)
-                                    .foregroundStyle(departure.isLive ? .green : .secondary)
-                            }
-                            // Only the next bus gets commentary.
-                            if departure == departures.first {
-                                TimelineView(.everyMinute) { context in
-                                    QuipText(Quip.forWait(until: departure.time, from: context.date,
-                                                          line: (loaded ?? selection).lineID))
-                                }
-                            }
-                        }
-                        .opacity(isStale ? 0.4 : 1)
-                    }
+                    .frame(height: 220)
+                    .contentShape(Rectangle())
+                    .onTapGesture { choosing = true }
+                    .listRowInsets(EdgeInsets())
                 } header: {
-                    HStack {
-                        Text("Next departures")
-                        Spacer()
-                        Button(isFavorite ? "Saved" : "Save", systemImage: isFavorite ? "star.fill" : "star") {
-                            toggleFavorite()
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("Select your ride and stop to track", systemImage: "hand.tap.fill")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
+                            ForEach(City.allCases) { Text($0.name).tag($0) }
                         }
-                        .font(.subheadline.weight(.semibold))
-                        .tint(.orange)
+                        .pickerStyle(.segmented)
                     }
                     .textCase(nil)
+                    .padding(.bottom, 4)
                 }
 
-                Section {
-                    Button { showingMap = true } label: {
-                        RouteMap(selection: selection, feed: feed, interactive: false)
-                            .frame(height: 200)
-                            .allowsHitTesting(false)
-                            .overlay(alignment: .bottomTrailing) {
-                                Label("Live map", systemImage: "arrow.up.left.and.arrow.down.right")
-                                    .font(.footnote.weight(.semibold))
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(.regularMaterial, in: Capsule())
-                                    .padding(10)
-                            }
+                if !isFavorite {
+                    Section {
+                        stopCard
+                    } header: {
+                        HStack {
+                            Spacer()
+                            Button("Save", systemImage: "star") { toggleFavorite() }
+                                .font(.subheadline.weight(.semibold))
+                                .tint(.orange)
+                        }
+                        .textCase(nil)
+                    } footer: {
+                        if favorites.isEmpty {
+                            Text("Your widgets show this line and stop until you save favorites.")
+                        }
                     }
-                    .listRowInsets(EdgeInsets())
                 }
 
                 Section {
                     if favorites.isEmpty {
-                        Label("Tap Save above to keep this line and stop here and on your widgets.", systemImage: "star")
+                        Label("Pick a ride on the map, then tap Save to keep it here and on your widgets.", systemImage: "star")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                     ForEach(favorites) { favorite in
-                        Button { select(favorite) } label: { favoriteRow(favorite) }
-                            .tint(.primary)
-                            .listRowBackground(favoriteBackground(
-                                isSelected: favorite.id == selection.id,
-                                isFirst: favorite.id == favorites.first?.id,
-                                isLast: favorite.id == favorites.last?.id))
+                        Group {
+                            if favorite.id == selection.id {
+                                // The open favorite becomes the big card, right where it sits in the order.
+                                stopCard
+                            } else {
+                                Button { select(favorite) } label: { favoriteRow(favorite) }
+                                    .tint(.primary)
+                            }
+                        }
+                        .listRowBackground(favoriteBackground(
+                            isSelected: favorite.id == selection.id,
+                            isFirst: favorite.id == favorites.first?.id,
+                            isLast: favorite.id == favorites.last?.id))
                     }
                     .onDelete { favorites.remove(atOffsets: $0) }
                     .onMove { favorites.move(fromOffsets: $0, toOffset: $1) }
@@ -133,7 +106,7 @@ struct ContentView: View {
                     Text("Favorites").textCase(nil)
                 } footer: {
                     if !favorites.isEmpty {
-                        Text("Your widgets show these in this order. Tap one to show it here, hold and drag to reorder, swipe to delete.")
+                        Text("Your widgets show the open one first, then the rest in this order. Tap one to open it, hold and drag to reorder, swipe to delete.")
                     }
                 }
 
@@ -151,6 +124,7 @@ struct ContentView: View {
                     .toolbarBackground(.visible, for: .navigationBar)
             }
             .task(id: selection) { await feed.follow(selection) }
+            .task(id: favorites) { await favoritesFeed.follow(favorites) }
             .task { await startInNearestCity() }
             .onChange(of: favorites) {
                 Selection.favorites = favorites
@@ -195,6 +169,14 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("To \(favorite.destination)").font(.subheadline.weight(.semibold))
                 Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
+                TimelineView(.everyMinute) { context in
+                    let upcoming = favoritesFeed.departures[favorite.id] ?? []
+                    Text(Departure.waits(upcoming, from: context.date, count: 3) ?? (favoritesFeed.departures[favorite.id] == nil ? "…" : "none"))
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(upcoming.first?.isLive == true ? .green : .secondary)
+                }
+                .padding(.top, 2)
             }
             Spacer()
             Image(systemName: "line.3.horizontal")
@@ -212,6 +194,59 @@ struct ContentView: View {
             }
     }
 
+    /// The open stop: line, destination and stop, then the next three departures. Tapping it opens
+    /// the live map of that ride; a different ride is picked on the map above.
+    private var stopCard: some View {
+        Button { showingMap = true } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    if isFavorite, Set(favorites.map(\.city)).count > 1 {
+                        CityTag(code: selection.city.code)
+                    }
+                    LineBadge(line: selection.lineID, font: .system(.title3, design: .rounded).weight(.heavy))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("To \(selection.destination)").font(.headline)
+                        Text(selection.stopName).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "map")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .accessibilityLabel("Live map")
+                }
+                nextDepartures
+            }
+            .padding(.vertical, 4)
+        }
+        .tint(.primary)
+    }
+
+    /// The next three departures as minutes, like the widgets ("4 · 16 · 31 min"), plus a comment
+    /// on the first. Recounted every minute between data refreshes.
+    private var nextDepartures: some View {
+        TimelineView(.everyMinute) { context in
+            let line = (loaded ?? selection).lineID
+            VStack(alignment: .leading, spacing: 3) {
+                if let error = feed.error {
+                    Text(error).font(.subheadline).foregroundStyle(.secondary)
+                } else if let waits = Departure.waits(departures, from: context.date, count: 3) {
+                    Text(waits)
+                        .font(.system(.title3, design: .rounded).weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(departures.first?.isLive == true ? .green : .secondary)
+                    if let next = departures.first(where: { $0.time > context.date.addingTimeInterval(-30) }) {
+                        QuipText(Quip.forWait(until: next.time, from: context.date, line: line))
+                    }
+                } else {
+                    Text("No upcoming \(line)s").font(.subheadline).foregroundStyle(.secondary)
+                    QuipText(Quip.noPrediction(line: line))
+                }
+            }
+            .padding(.leading, 2)
+            .opacity(isStale ? 0.4 : 1)
+        }
+    }
+
     /// On a fresh install, start with the default stop of whichever supported city the proxy
     /// thinks we're in (a rough IP-based guess: no location permission, nothing stored).
     private func startInNearestCity() async {
@@ -224,14 +259,27 @@ struct ContentView: View {
         }
     }
 
-    /// Makes `picked` the line and stop shown in the app (and on the widgets while there are no favorites).
+    /// Makes `picked` the line and stop shown in the app, and first on the widgets.
     private func select(_ picked: Selection) {
         guard picked.id != selection.id else { return }
         Selection.current = picked
+        // The widgets lead with the open stop, so they change along with it (reloaded below).
         // Keep the old times on screen (dimmed) until the new ones arrive, so the list
         // resizes once, straight to its new height.
         withAnimation(Self.switchAnimation) { selection = picked }
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// What each city's map shows: the open stop for its city, else the stop switching there would open.
+    private func preview(for city: City) -> Selection {
+        city == selection.city ? selection : (favorites.first { $0.city == city } ?? city.defaultSelection)
+    }
+
+    /// Switching city opens your first favorite there, or that city's default stop if you have
+    /// none, so the map, the card and the widgets all move to the new city.
+    private func switchCity(to city: City) {
+        guard city != selection.city else { return }
+        select(favorites.first { $0.city == city } ?? city.defaultSelection)
     }
 
     private func toggleFavorite() {
@@ -305,5 +353,54 @@ struct QuipText: View {
             .font(.caption)
             .italic()
             .foregroundStyle(.secondary)
+    }
+}
+
+/// Pages between cities with a finger: dragging slides the neighbor city's map in alongside the
+/// current one, and letting go past a third of the width (or with a quick flick) switches to it.
+private struct CityPager<Page: View>: View {
+    let cities: [City]
+    let city: City
+    let onSwitch: (City) -> Void
+    @ViewBuilder let page: (City) -> Page
+
+    @GestureState private var drag: CGFloat = 0
+    @State private var settle: CGFloat = 0
+    @State private var width: CGFloat = 1
+
+    private var index: CGFloat { CGFloat(cities.firstIndex(of: city) ?? 0) }
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                ForEach(cities) { page($0).frame(width: geometry.size.width) }
+            }
+            .offset(x: -index * geometry.size.width + drag + settle)
+            .animation(.snappy(duration: 0.3), value: city)
+            .onAppear { width = geometry.size.width }
+            .onChange(of: geometry.size.width) { width = geometry.size.width }
+        }
+        .clipped()
+        // On the whole frame: the pages themselves ignore touches so a tap reaches the picker.
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 20)
+                .updating($drag) { value, state, _ in
+                    let dx = value.translation.width
+                    guard abs(dx) > abs(value.translation.height) else { return }
+                    // Rubber-band past the first and last city.
+                    let atEdge = (dx > 0 && index == 0) || (dx < 0 && Int(index) == cities.count - 1)
+                    state = atEdge ? dx / 4 : dx
+                }
+                .onEnded { value in
+                    let dx = value.predictedEndTranslation.width
+                    let target = Int(index) + (dx < -width / 3 ? 1 : dx > width / 3 ? -1 : 0)
+                    guard cities.indices.contains(target), target != Int(index) else { return }
+                    // Hand the finger's offset over to the animation so the slide doesn't jump.
+                    settle = value.translation.width + CGFloat(target - Int(index)) * width
+                    onSwitch(cities[target])
+                    withAnimation(.snappy(duration: 0.3)) { settle = 0 }
+                }
+        )
     }
 }

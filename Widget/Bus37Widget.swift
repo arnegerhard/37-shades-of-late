@@ -17,12 +17,14 @@ struct Provider: TimelineProvider {
         }
     }
 
-    /// The favorites in their saved order (or the app's current stop if none are saved), fetched
-    /// together, then an entry per minute so the minutes count down between refreshes.
+    /// The stop open in the app first (it's what the Lock Screen's single-line and round widgets
+    /// show), then the other favorites in their saved order. Fetched together, then an entry per
+    /// minute so the minutes count down between refreshes.
     private func load() async -> [DeparturesEntry] {
         let now = Date.now
-        let favorites = Selection.favorites
-        let selections = Array((favorites.isEmpty ? [Selection.current] : favorites).prefix(4))
+        let current = Selection.current
+        let others = Selection.favorites.filter { $0.id != current.id }
+        let selections = Array(([current] + others).prefix(4))
         let rows = await withTaskGroup(of: (Int, WidgetRow).self) { group in
             for (index, selection) in selections.enumerated() {
                 group.addTask {

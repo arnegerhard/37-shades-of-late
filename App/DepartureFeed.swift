@@ -64,3 +64,26 @@ final class DepartureFeed {
         }
     }
 }
+
+/// Upcoming departures for every favorite, for the small rows in the favorites list. Refreshed
+/// about every 70 seconds (the proxy's snapshot interval); the open stop has its own `DepartureFeed`.
+@MainActor @Observable
+final class FavoritesFeed {
+    private(set) var departures: [Selection.ID: [Departure]] = [:]
+
+    /// Keeps `departures` current for `favorites` until the calling task is cancelled.
+    func follow(_ favorites: [Selection]) async {
+        while !Task.isCancelled {
+            await withTaskGroup(of: (Selection.ID, [Departure]?).self) { group in
+                for favorite in favorites {
+                    group.addTask { (favorite.id, try? await TransitService.departures(for: favorite, client: .app)) }
+                }
+                for await (id, latest) in group where !Task.isCancelled {
+                    // Keep the last known times when a refresh fails (bad connection).
+                    if let latest { departures[id] = latest }
+                }
+            }
+            try? await Task.sleep(for: .seconds(70))
+        }
+    }
+}

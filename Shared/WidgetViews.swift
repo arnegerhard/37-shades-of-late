@@ -29,11 +29,8 @@ struct DeparturesEntry: TimelineEntry {
     }
 
     /// "4 · 16 · 31 min", or "now · 9 min".
-    func waits(_ row: WidgetRow, count: Int) -> String? {
-        let next = upcoming(row).prefix(count).map(minutes(until:))
-        guard !next.isEmpty else { return nil }
-        let parts = next.map { $0 == 0 ? "now" : "\($0)" }
-        return parts.joined(separator: " · ") + (next.last == 0 ? "" : " min")
+    func waits(_ row: WidgetRow, count: Int, unit: Bool = true) -> String? {
+        Departure.waits(upcoming(row), from: date, count: count, unit: unit)
     }
 
     /// With favorites from more than one city, each row is tagged with its city ("SF", "SEA"),
@@ -104,26 +101,47 @@ struct Bus37WidgetView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.tertiary)
         }
+        // Four rows only fit up to "large" text; beyond that iOS would push the last one out.
+        .dynamicTypeSize(...DynamicTypeSize.large)
         .containerBackground(for: .widget) { Color(.systemBackground) }
     }
 
     private func row(_ row: WidgetRow) -> some View {
         let next = entry.upcoming(row).first
-        return HStack(alignment: .center, spacing: 8) {
+        let small = family == .systemSmall
+        return HStack(alignment: .center, spacing: small ? 5 : 8) {
             if let tag = entry.cityTag(for: row, visible: maxRows) {
-                CityTag(code: tag)
+                if small {
+                    // No room for the outlined tag in the small widget: a tiny code before the badge.
+                    Text(tag)
+                        .font(.system(size: 8, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .frame(width: 19, alignment: .leading)
+                } else {
+                    CityTag(code: tag)
+                }
             }
-            LineBadge(line: row.selection.lineID, font: .system(.subheadline, design: .rounded).weight(.heavy))
-                .frame(minWidth: 34, alignment: .leading)
-            if let label = entry.label(for: row) {
+            // The badge always shows the whole line name ("37", "C Line"): it keeps its full width and
+            // the waits shrink instead. Long names get a smaller font in the small widget.
+            let longName = row.selection.lineID.count > 3
+            LineBadge(line: row.selection.lineID,
+                      font: .system(small ? (longName ? .caption2 : .footnote) : .subheadline, design: .rounded).weight(.heavy))
+                .lineLimit(1)
+                .fixedSize()
+                .layoutPriority(2)
+            if !small, let label = entry.label(for: row) {
                 Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
-            Spacer(minLength: 4)
-            Text(entry.waits(row, count: family == .systemMedium ? 4 : 2) ?? (row.failed ? "–" : "none"))
-                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+            Spacer(minLength: 2)
+            // The small widget drops "min" so two waits always fit next to the badge.
+            Text(entry.waits(row, count: small ? 2 : 4, unit: !small) ?? (row.failed ? "–" : "none"))
+                .font(.system(small ? .callout : .subheadline, design: .rounded).weight(.semibold))
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.5)
+                .layoutPriority(1)
                 .foregroundStyle(next?.isLive == true ? .green : .secondary)
         }
     }

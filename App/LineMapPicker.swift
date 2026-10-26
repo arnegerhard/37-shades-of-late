@@ -81,14 +81,13 @@ struct LineMapPicker: View {
             deselect()
             error = nil
             position = .region(city.region)
-            do {
-                let loaded = try await TransitService.lineMap(in: city)
-                paths = Dictionary(uniqueKeysWithValues: loaded.map { line in
-                    (line.id, line.shapes.map { $0.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil } })
-                })
-                lines = loaded
-            } catch {
-                self.error = error.localizedDescription
+            // Instantly from the device (or the app's built-in snapshot), then quietly swap in newer
+            // data if the proxy has it; that's checked at most once a day.
+            show(TransitService.cachedLineMap(in: city))
+            if lines.isEmpty { error = "No line data yet. Check your connection." }
+            if let newer = await TransitService.refreshedLineMap(in: city), !Task.isCancelled {
+                show(newer)
+                error = nil
             }
         }
         .task(id: selectedID) {
@@ -97,7 +96,10 @@ struct LineMapPicker: View {
             picked = nil
             guard let selected else { return }
             zoom(to: selected)
-            guard let loaded = try? await TransitService.directions(for: selected.line, in: city), !Task.isCancelled else { return }
+            // Stops seen before are on the device already; others need one download.
+            var loaded = TransitService.cachedDirections(for: selected.line, in: city)
+            if loaded == nil { loaded = try? await TransitService.directions(for: selected.line, in: city) }
+            guard let loaded, !Task.isCancelled else { return }
             directions = loaded
             withAnimation(.easeOut(duration: 0.25)) {
                 arrows = StopArrow.arrows(for: loaded, lineShape: paths[selected.id] ?? [])
@@ -210,6 +212,16 @@ struct LineMapPicker: View {
             candidates = Array(nearby)
             selectedID = nearby.first?.id
         }
+    }
+
+    private func show(_ loaded: [MapLine]) {
+        guard !loaded.isEmpty else { return }
+        paths = Dictionary(uniqueKeysWithValues: loaded.map { line in
+            (line.id, line.shapes.map { $0.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil } })
+        })
+        lines = loaded
+        // A refresh may have dropped the selected line (a service change); let go of it then.
+        if let selectedID, !loaded.contains(where: { $0.id == selectedID }) { deselect() }
     }
 
     private func deselect() {

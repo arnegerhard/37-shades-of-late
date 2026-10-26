@@ -30,7 +30,7 @@ struct LinePicker: View {
                 list
             }
         }
-        .navigationTitle("Choose a line")
+        .navigationTitle("Select your ride")
         .navigationBarTitleDisplayMode(showingMap ? .inline : .automatic)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -47,7 +47,12 @@ struct LinePicker: View {
         .task(id: city) {
             lines = []
             error = nil
-            do { lines = try await TransitService.lines(in: city) } catch { self.error = error.localizedDescription }
+            lines = TransitService.cachedLines(in: city)
+            if lines.isEmpty { error = "No line data yet. Check your connection." }
+            if let newer = await TransitService.refreshedLines(in: city), !Task.isCancelled {
+                lines = newer
+                error = nil
+            }
         }
     }
 

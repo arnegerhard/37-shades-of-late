@@ -20,7 +20,9 @@ struct RouteMap: View {
     /// The line to draw: the real route shape if there is one, else the stops joined in order.
     private var departures: [Departure] { feed.loaded?.id == selection.id ? feed.departures : [] }
     private var refresh: Refresh? { feed.loaded?.id == selection.id ? feed.refresh : nil }
-    private var now: Date { feed.updatedAt }
+    /// The current minute, ticking on the minute mark like the departure list's TimelineView,
+    /// so the minutes on the map always match the list's.
+    @State private var now = Date.currentMinute
 
     private var route: [[CLLocationCoordinate2D]] {
         shapes.isEmpty ? [stops.compactMap(\.coordinate)] : shapes
@@ -88,9 +90,12 @@ struct RouteMap: View {
             }
 
             ForEach(buses, id: \.departure) { bus in
-                Annotation(minutesLabel(bus.departure), coordinate: bus.vehicle.coordinate, anchor: .center) {
-                    BusMarker(bearing: bus.vehicle.bearing)
+                // The minutes are part of the marker, not the annotation's title: MapKit hides titles
+                // that collide with other labels (like the stop's name right next to it).
+                Annotation("", coordinate: bus.vehicle.coordinate, anchor: .center) {
+                    BusMarker(bearing: bus.vehicle.bearing, minutes: shortMinutes(bus.departure), isLive: bus.departure.isLive)
                 }
+                .annotationTitles(.hidden)
             }
         }
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
@@ -98,6 +103,12 @@ struct RouteMap: View {
             VStack(spacing: 0) {
                 if interactive { statusCard }
                 RefreshBar(refresh: refresh)
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                now = .currentMinute
+                try? await Task.sleep(until: .now + .seconds(now.addingTimeInterval(60).timeIntervalSinceNow), clock: .continuous)
             }
         }
         .task(id: selection) {
@@ -145,6 +156,12 @@ struct RouteMap: View {
         .padding()
     }
 
+    /// "7" or "now", for the compact labels next to buses (no "min", to save space).
+    private func shortMinutes(_ departure: Departure) -> String {
+        let minutes = max(0, Int(departure.time.timeIntervalSince(now) / 60))
+        return minutes == 0 ? "now" : "\(minutes)"
+    }
+
     private func minutesLabel(_ departure: Departure) -> String {
         let minutes = max(0, Int(departure.time.timeIntervalSince(now) / 60))
         return minutes == 0 ? "now" : "\(minutes) min"
@@ -185,8 +202,29 @@ private struct RefreshBar: View {
 
 private struct BusMarker: View {
     let bearing: Double?
+    let minutes: String
+    /// Green like every other live time in the app; grey for a scheduled-only estimate.
+    let isLive: Bool
 
     var body: some View {
+        // The circle sits on the bus; the label hangs off to its right, clear of the stop pin
+        // (often right above or below a bus that's about to arrive).
+        icon
+            .overlay(alignment: .leading) {
+                Text(minutes)
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(isLive ? .green : .secondary)
+                    .fixedSize()
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(.regularMaterial, in: Capsule())
+                    .offset(x: 34)
+            }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(minutes == "now" ? "Bus, arriving now" : "Bus, \(minutes) minutes")
+    }
+
+    private var icon: some View {
         ZStack {
             if let bearing {
                 // Small arrow on the circle's edge pointing the way the bus is heading.
@@ -217,4 +255,11 @@ extension Stop {
 
 extension Vehicle {
     var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+}
+
+extension Date {
+    /// The start of the current minute, the same moment `TimelineView(.everyMinute)` reports.
+    static var currentMinute: Date {
+        Calendar.current.dateInterval(of: .minute, for: .now)?.start ?? .now
+    }
 }

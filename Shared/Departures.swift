@@ -129,6 +129,17 @@ struct Departure: Hashable, Codable {
     var vehicle: Vehicle? = nil
 }
 
+extension Departure {
+    /// Minutes until the next `count` departures, like "4 · 16 · 31 min" or "now · 9 min".
+    static func waits(_ departures: [Departure], from date: Date, count: Int, unit: Bool = true) -> String? {
+        let next = departures.filter { $0.time > date.addingTimeInterval(-30) }.prefix(count)
+            .map { max(0, Int($0.time.timeIntervalSince(date) / 60)) }
+        guard !next.isEmpty else { return nil }
+        let parts = next.map { $0 == 0 ? "now" : "\($0)" }
+        return parts.joined(separator: " · ") + (unit && next.last != 0 ? " min" : "")
+    }
+}
+
 /// Where a live bus is right now, from its GPS.
 struct Vehicle: Hashable, Codable {
     let lat: Double
@@ -230,26 +241,56 @@ enum TransitService {
         return (departures, Refresh(fetchedAt: response.fetchedAt, nextRefreshAt: response.nextRefreshAt))
     }
 
-    static func lines(in city: City) async throws -> [Line] {
-        struct Response: Decodable { let lines: [Line] }
-        let response: Response = try await get(url(city, "lines"), client: .app)
-        return response.lines
+    // MARK: Line data, available instantly
+    //
+    // Lines, their map shapes and stops change only with service changes, a few times a year. So they
+    // come from the newest copy on the device (saved from the proxy) or, before the first download,
+    // from snapshots bundled with the app (App/Snapshots), and show immediately even offline. The
+    // proxy is checked for newer data in the background at most once a day.
+
+    private struct LinesResponse: Decodable { let lines: [Line] }
+    private struct MapResponse: Decodable { let lines: [MapLine] }
+    private struct DirectionsResponse: Decodable { let directions: [Direction] }
+
+    /// Every line in `city`, from the device without waiting for the network.
+    static func cachedLines(in city: City) -> [Line] {
+        (LineData.load("lines-\(city.rawValue)", as: LinesResponse.self))?.lines ?? []
     }
 
+    /// Newer lines from the proxy, or nil when the last check was recent or nothing changed.
+    static func refreshedLines(in city: City) async -> [Line]? {
+        await LineData.refresh("lines-\(city.rawValue)", from: url(city, "lines"), as: LinesResponse.self)?.lines
+    }
+
+    /// Every line in `city` with its route shape and colors, from the device without waiting.
+    static func cachedLineMap(in city: City) -> [MapLine] {
+        (LineData.load("linemap-\(city.rawValue)", as: MapResponse.self))?.lines ?? []
+    }
+
+    /// A newer line map from the proxy, or nil when the last check was recent or nothing changed.
+    static func refreshedLineMap(in city: City) async -> [MapLine]? {
+        // `v` matches the map format the app understands.
+        var components = URLComponents(url: url(city, "map"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "v", value: "2")]
+        return await LineData.refresh("linemap-\(city.rawValue)", from: components.url!, as: MapResponse.self)?.lines
+    }
+
+    /// A line's directions and stops: from the device if they were loaded before (and are under a
+    /// week old), else from the proxy, then kept for next time.
     static func directions(for line: Line, in city: City, client: Client = .app) async throws -> [Direction] {
-        struct Response: Decodable { let directions: [Direction] }
-        let response: Response = try await get(url(city, "lines").appending(path: line.id), client: client)
+        let name = "directions-\(city.rawValue)-\(line.id)"
+        if let cached = LineData.load(name, as: DirectionsResponse.self, maxAge: 7 * 86_400) {
+            return cached.directions
+        }
+        let data = try await fetch(url(city, "lines").appending(path: line.id), client: client)
+        let response = try decoder.decode(DirectionsResponse.self, from: data)
+        LineData.save(data, as: name)
         return response.directions
     }
 
-    /// Every line in `city` with its route shape (one cached download from the proxy).
-    static func lineMap(in city: City) async throws -> [MapLine] {
-        struct Response: Decodable { let lines: [MapLine] }
-        // Bump `v` when the map's format changes: iOS caches it for an hour (the proxy's max-age).
-        var components = URLComponents(url: url(city, "map"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "v", value: "2")]
-        let response: Response = try await get(components.url!, client: .app)
-        return response.lines
+    /// Like `directions`, but only what's already on the device, for showing stops without waiting.
+    static func cachedDirections(for line: Line, in city: City) -> [Direction]? {
+        LineData.load("directions-\(city.rawValue)-\(line.id)", as: DirectionsResponse.self)?.directions
     }
 
     /// The supported city nearest to this device, from the proxy's rough IP-based location.
@@ -265,6 +306,14 @@ enum TransitService {
     }
 
     private static func get<T: Decodable>(_ url: URL, client: Client) async throws -> T {
+        try decoder.decode(T.self, from: try await fetch(url, client: client))
+    }
+
+    fileprivate static func fetch(_ url: URL, client: Client) async throws -> Data {
+        #if DEBUG
+        // Launch with `-simulateOffline YES` to check what the app shows without a connection.
+        if UserDefaults.standard.bool(forKey: "simulateOffline") { throw URLError(.notConnectedToInternet) }
+        #endif
         var request = URLRequest(url: url)
         // Anonymous usage statistics; see recordUsage in the proxy.
         request.setValue(AppGroup.installID, forHTTPHeaderField: "X-Install-ID")
@@ -276,12 +325,72 @@ enum TransitService {
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             throw TransitError.badResponse(http.statusCode)
         }
+        return data
+    }
+
+    fileprivate static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         // The proxy sends JavaScript ISO dates, which include milliseconds.
         decoder.dateDecodingStrategy = .custom { decoder in
             let string = try decoder.singleValueContainer().decode(String.self)
             return try Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(string)
         }
-        return try decoder.decode(T.self, from: data)
+        return decoder
+    }()
+}
+
+/// Line data kept on the device: the newest download in Caches, else the snapshot in the app bundle.
+private enum LineData {
+    private static var folder: URL {
+        let folder = URL.cachesDirectory.appending(path: "LineData", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    private static func file(_ name: String) -> URL { folder.appending(path: "\(name).json") }
+
+    /// The saved copy (if younger than `maxAge`), else the bundled snapshot, decoded.
+    static func load<T: Decodable>(_ name: String, as type: T.Type, maxAge: TimeInterval? = nil) -> T? {
+        let saved = file(name)
+        if let data = try? Data(contentsOf: saved), let value = try? TransitService.decoder.decode(T.self, from: data) {
+            let age = (try? saved.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                .map { Date.now.timeIntervalSince($0) } ?? 0
+            if maxAge == nil || age < maxAge! { return value }
+        }
+        guard let bundled = Bundle.main.url(forResource: name, withExtension: "json"),
+              let data = try? Data(contentsOf: bundled) else { return nil }
+        return try? TransitService.decoder.decode(T.self, from: data)
+    }
+
+    static func save(_ data: Data, as name: String) {
+        try? data.write(to: file(name), options: .atomic)
+    }
+
+    /// Downloads `url` at most once a day per `name`; returns the new value only if it decodes and
+    /// differs from what's on the device, and saves it for next time. Errors (offline) return nil.
+    static func refresh<T: Decodable>(_ name: String, from url: URL, as type: T.Type) async -> T? {
+        let checkedKey = "lineDataChecked.\(name)"
+        if let checked = UserDefaults.standard.object(forKey: checkedKey) as? Date, Date.now.timeIntervalSince(checked) < 86_400 {
+            return nil
+        }
+        guard let data = try? await TransitService.fetch(url, client: .app),
+              let value = try? TransitService.decoder.decode(T.self, from: data),
+              // The proxy may still be assembling Seattle's map; never replace a full copy with part of one.
+              (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["complete"] as? Bool != false
+        else { return nil }
+        UserDefaults.standard.set(Date.now, forKey: checkedKey)
+        let current = (try? Data(contentsOf: file(name)))
+            ?? Bundle.main.url(forResource: name, withExtension: "json").flatMap { try? Data(contentsOf: $0) }
+        guard strippingTimestamps(current) != strippingTimestamps(data) else { return nil }
+        save(data, as: name)
+        return value
+    }
+
+    /// The proxy stamps each response with when it was built; ignore that when comparing.
+    private static func strippingTimestamps(_ data: Data?) -> Data? {
+        guard let data, var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return data }
+        json["fetchedAt"] = nil
+        json["complete"] = nil
+        return try? JSONSerialization.data(withJSONObject: json, options: .sortedKeys)
     }
 }
