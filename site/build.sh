@@ -17,7 +17,8 @@ for key, value in {
     "{{PRIVACY_URL}}": "/privacy",
     "{{SUPPORT_URL}}": "/support",
     "{{IMG_HOME}}": data_uri("images/home.jpg"),
-    "{{IMG_LOCK}}": data_uri("images/lock.jpg"),
+    "{{IMG_LOCKWIDGET}}": data_uri("images/lockwidget.jpg"),
+    "{{IMG_MAP}}": data_uri("images/map.jpg"),
 }.items():
     html = html.replace(key, value)
 assert "{{" not in html, "unfilled placeholder"

@@ -4,9 +4,10 @@ import WidgetKit
 
 /// App Store screenshot support. Launch with `-screen <name>` to open a screen directly:
 /// `lines` and `stops` open the picker, `map` the live map; `widgets` and `lock` show the widgets on a mock
-/// Home Screen and Lock Screen (iOS doesn't let automation place real widgets).
+/// Home Screen and Lock Screen (iOS doesn't let automation place real widgets); `lockwidget` is a
+/// plain Lock Screen with just the clock and the rectangular widget, no captions.
 enum ScreenshotScreen: String {
-    case lines, stops, map, widgets, lock
+    case lines, stops, map, widgets, lock, lockwidget
 
     static var current: ScreenshotScreen? {
         UserDefaults.standard.string(forKey: "screen").flatMap(ScreenshotScreen.init)
@@ -20,7 +21,11 @@ struct WidgetShowcase: View {
 
     var body: some View {
         Group {
-            if screen == .lock { lockScreen } else { homeScreen }
+            switch screen {
+            case .lock: lockScreen
+            case .lockwidget: plainLockScreen
+            default: homeScreen
+            }
         }
         .task {
             // The favorites with live times, like the real widget shows them.
@@ -76,6 +81,29 @@ struct WidgetShowcase: View {
                     .frame(width: 76, height: 76)
             }
             .padding(.top, 8)
+            Spacer()
+        }
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LinearGradient(colors: [Color(red: 0.05, green: 0.08, blue: 0.2), Color(red: 0.3, green: 0.12, blue: 0.3)],
+                                   startPoint: .top, endPoint: .bottom))
+    }
+
+    /// Just what a real Lock Screen with the rectangular widget looks like: date, clock, widget.
+    private var plainLockScreen: some View {
+        VStack(spacing: 0) {
+            Text(entry.date, format: .dateTime.weekday(.wide).month(.wide).day())
+                .font(.system(size: 22, weight: .semibold))
+                .padding(.top, 78)
+            Text(entry.date.formatted(Date.VerbatimFormatStyle(
+                format: "\(hour: .defaultDigits(clock: .twelveHour, hourCycle: .oneBased)):\(minute: .twoDigits)",
+                timeZone: .current, calendar: .current)))
+                .font(.system(size: 104, weight: .bold, design: .rounded))
+                .monospacedDigit()
+            Bus37WidgetView(entry: entry, family: .accessoryRectangular)
+                .frame(width: 172, height: 76)
+                .padding(.top, 8)
             Spacer()
         }
         .foregroundStyle(.white)

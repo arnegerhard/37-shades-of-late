@@ -6,7 +6,7 @@ struct Bus37App: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if let screen = ScreenshotScreen.current, screen == .widgets || screen == .lock {
+            if let screen = ScreenshotScreen.current, [.widgets, .lock, .lockwidget].contains(screen) {
                 WidgetShowcase(screen: screen)
             } else {
                 ContentView()

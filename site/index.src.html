@@ -250,6 +250,25 @@
   .shade blockquote { margin: 14px 0; font: 900 clamp(30px, 4.4vw, 52px)/1.05 var(--round); letter-spacing: -.02em; }
   .shade p { color: var(--muted); margin: 0; max-width: 40ch; }
 
+  /* ---------- The Lock Screen: the main event ---------- */
+  .lock { padding-top: 110px; }
+  .lock-grid { display: grid; grid-template-columns: auto 1fr; gap: clamp(32px, 7vw, 96px); align-items: center; }
+  .lock-phone { position: relative; }
+  .lock-phone::before {
+    /* a soft red glow behind the phone */
+    content: ""; position: absolute; inset: 8% -18%; border-radius: 50%;
+    background: radial-gradient(closest-side, #ff3b4a55, transparent); filter: blur(30px); z-index: -1;
+  }
+  .lock-phone .phone { width: clamp(250px, 30vw, 340px); }
+  .lock-copy h2 { max-width: 13ch; }
+  .lock-points { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 18px; }
+  .lock-points li { display: grid; grid-template-columns: 44px 1fr; gap: 14px; align-items: start; color: var(--muted); }
+  .lock-points .icon {
+    width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; font-size: 22px;
+    background: var(--card); border: 1px solid var(--line);
+  }
+  .lock-points b { display: block; color: var(--ink); font: 800 19px/1.25 var(--round); margin-bottom: 2px; }
+
   /* ---------- Screenshots ---------- */
   .phones { display: flex; justify-content: center; gap: clamp(20px, 6vw, 80px); margin-top: 70px; perspective: 1400px; }
   .phone-wrap { text-align: center; will-change: transform; }
@@ -328,6 +347,9 @@
     .digits { font-size: 88px; }
     .shade { min-height: 56vh; }
     .phones { flex-direction: column; align-items: center; gap: 56px; }
+    .lock { padding-top: 84px; }
+    .lock-grid { grid-template-columns: 1fr; justify-items: center; }
+    .lock-copy { order: -1; }
     .live { grid-template-columns: auto 1fr; }
     .live .mins { grid-column: 1 / -1; text-align: left; }
     .plan-grid { grid-template-columns: 1fr; }
@@ -408,7 +430,7 @@
   <div class="wrap hero-copy">
     <div class="badge37"><b>37</b> CORBETT · EVERY MUNI LINE · NOW ALSO SEATTLE</div>
     <h1>37 Shades<br>of <span class="late">Late</span></h1>
-    <p class="tagline">Muni and Seattle transit times on your Home Screen and Lock Screen. Emotional support included.</p>
+    <p class="tagline">Minutes until your bus, right on your Lock Screen. Muni and Seattle. Emotional support included.</p>
     <div class="cta-row">
       <a class="cta app-store" href="{{APP_STORE_URL}}">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
@@ -438,6 +460,24 @@
       <div class="mins" id="live-mins">–</div>
     </div>
   </div>
+
+  <section class="lock" id="lockscreen">
+    <div class="wrap lock-grid">
+      <figure class="lock-phone phone-wrap" data-speed="-0.05">
+        <div class="phone"><img src="{{IMG_LOCKWIDGET}}" alt="iPhone Lock Screen with the clock and a widget listing the 37, N and 14 with minutes until each arrives"></div>
+      </figure>
+      <div class="lock-copy">
+        <div class="kicker">The whole point</div>
+        <h2>Your Lock Screen does the waiting.</h2>
+        <p class="lede">Raise your phone, see the minutes, put it back. No unlocking, no app, no tapping through menus while the bus drives past.</p>
+        <ul class="lock-points">
+          <li><span class="icon">⭐</span><span><b>All your favorites at once</b>Your lines in the order you choose, each with minutes until the next two buses.</span></li>
+          <li><span class="icon">⏱️</span><span><b>Minutes, not clock times</b>"4 min" beats "10:52" when you're deciding whether to run.</span></li>
+          <li><span class="icon">🔒</span><span><b>Right under the clock</b>Big widget below the time, a tiny one above it, or a single countdown in a circle.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
 
   <section class="origin" id="origin">
     <div class="wrap">
@@ -536,12 +576,12 @@
     <div class="wrap">
       <div class="kicker">The app</div>
       <h2>Disappointment, beautifully arranged.</h2>
-      <p class="lede">Pick any line and stop. Get live arrivals, a map of where the bus actually is, and widgets that judge your commute without you unlocking your phone.</p>
+      <p class="lede">Pick any line and stop on a map, get live arrivals, and watch where the bus actually is.</p>
 
       <div class="phones">
         <figure class="phone-wrap" data-speed="-0.06">
-          <div class="phone"><img src="{{IMG_LOCK}}" alt="Lock Screen with the next 37 departures and a clock"></div>
-          <figcaption><b>Your Lock Screen, now with feelings.</b>Glance, sigh, put the phone back.</figcaption>
+          <div class="phone"><img src="{{IMG_MAP}}" alt="Live map of the 37's route with the next bus on it"></div>
+          <figcaption><b>The live map.</b>Watch your bus not move, in real time.</figcaption>
         </figure>
         <figure class="phone-wrap" data-speed="0.06">
           <div class="phone"><img src="{{IMG_HOME}}" alt="The app showing the next 37 departures, a live map and favorites"></div>
