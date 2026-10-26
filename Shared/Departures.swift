@@ -106,14 +106,24 @@ struct Selection: Codable, Hashable, Identifiable {
         set { defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "lastOpenedFavorite") }
     }
 
-    /// What the widgets show, in order. They lead with the open stop when it's a favorite, else with
-    /// the favorite opened last: just browsing another city's map shouldn't take over the Lock Screen.
-    /// With no favorites, the open stop is all there is.
+    /// The stop last open in each city, so switching back returns to it.
+    static func lastOpened(in city: City) -> Selection? {
+        defaults.data(forKey: "lastOpened-\(city.code)").flatMap { try? JSONDecoder().decode(Selection.self, from: $0) }
+    }
+
+    static func setLastOpened(_ selection: Selection) {
+        defaults.set(try? JSONEncoder().encode(selection), forKey: "lastOpened-\(selection.city.code)")
+    }
+
+    /// What the widgets show, in order. They lead with the favorite opened last: switching city or
+    /// browsing other stops shouldn't take over the Lock Screen. Without one (older installs), the
+    /// open stop if it's a favorite, else the first favorite. With no favorites, the open stop is all
+    /// there is.
     static var widgetSelections: [Selection] {
         let favorites = favorites
         guard !favorites.isEmpty else { return [current] }
-        let lead = favorites.first { $0.id == current.id }
-            ?? lastOpenedFavorite.flatMap { last in favorites.first { $0.id == last.id } }
+        let lead = lastOpenedFavorite.flatMap { last in favorites.first { $0.id == last.id } }
+            ?? favorites.first { $0.id == current.id }
             ?? favorites[0]
         return [lead] + favorites.filter { $0.id != lead.id }
     }

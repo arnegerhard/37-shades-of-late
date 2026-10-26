@@ -35,11 +35,10 @@ struct ContentView: View {
     private var isFavorite: Bool { favorites.contains { $0.id == selection.id } }
 
     /// The favorite the widgets lead with (see Selection.widgetSelections), marked by the red frame:
-    /// the open stop if it's a favorite, else the favorite opened last.
+    /// the favorite opened last.
     private var widgetLeadID: String? {
-        if isFavorite { return selection.id }
-        let last = Selection.lastOpenedFavorite?.id
-        return (favorites.first { $0.id == last } ?? favorites.first)?.id
+        guard !favorites.isEmpty else { return nil }
+        return Selection.widgetSelections.first?.id
     }
 
     var body: some View {
@@ -281,13 +280,12 @@ struct ContentView: View {
         }
     }
 
-    /// Makes `picked` the line and stop shown in the app, and first on the widgets.
-    private func select(_ picked: Selection) {
+    /// Makes `picked` the line and stop shown in the app. A favorite the user opens also leads the
+    /// widgets; one the app opens for them (switching city) doesn't (see Selection.widgetSelections).
+    private func select(_ picked: Selection, byUser: Bool = true) {
         guard picked.id != selection.id else { return }
         Selection.current = picked
-        // Opening a favorite makes it the widgets' lead; browsing other stops doesn't (see
-        // Selection.widgetSelections).
-        if favorites.contains(where: { $0.id == picked.id }) { Selection.lastOpenedFavorite = picked }
+        if byUser, favorites.contains(where: { $0.id == picked.id }) { Selection.lastOpenedFavorite = picked }
         // Keep the old times on screen (dimmed) until the new ones arrive, so the list
         // resizes once, straight to its new height.
         withAnimation(Self.switchAnimation) { selection = picked }
@@ -296,14 +294,23 @@ struct ContentView: View {
 
     /// What each city's map shows: the open stop for its city, else the stop switching there would open.
     private func preview(for city: City) -> Selection {
-        city == selection.city ? selection : (favorites.first { $0.city == city } ?? city.defaultSelection)
+        city == selection.city ? selection : opening(city)
     }
 
-    /// Switching city opens your first favorite there, or that city's default stop if you have
-    /// none, so the map, the card and the widgets all move to the new city.
+    /// The stop switching to `city` opens: the one you last had open there if it's a favorite,
+    /// else your first favorite there, else the city's default stop.
+    private func opening(_ city: City) -> Selection {
+        let cityFavorites = favorites.filter { $0.city == city }
+        let last = Selection.lastOpened(in: city)
+        return cityFavorites.first { $0.id == last?.id } ?? cityFavorites.first ?? city.defaultSelection
+    }
+
+    /// Switching city moves the map and the card to the new city. The widgets keep leading with the
+    /// favorite you chose, wherever it is.
     private func switchCity(to city: City) {
         guard city != selection.city else { return }
-        select(favorites.first { $0.city == city } ?? city.defaultSelection)
+        Selection.setLastOpened(selection)
+        select(opening(city), byUser: false)
     }
 
     private func toggleFavorite() {
