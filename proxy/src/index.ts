@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleSeattle } from "./seattle";
-import { hexColor, parseCSV, readZipEntry, simplify, type Polyline } from "./geo";
+import { hexColor, linePairs, linesAtStop, parseCSV, readZipEntry, simplify, type Polyline } from "./geo";
 
 /**
  * Caching proxy for live transit data: 511.org for SF Muni (below) and OneBusAway for Seattle
@@ -17,7 +17,11 @@ import { hexColor, parseCSV, readZipEntry, simplify, type Polyline } from "./geo
  *   GET /v1/lines                          all Muni lines
  *   GET /v1/lines/:line                    a line's directions and their stops (with coordinates) in order
  *   GET /v1/departures?stop=13254&line=37  upcoming departures at a stop for one line, with each
- *                                          live bus's current position
+ *                                          live bus's current position. `line` and `direction` may
+ *                                          be lists ("K,L,M" / "IB,IB,IB"): departures of all of
+ *                                          them, merged by time, each tagged with its `line`
+ *   GET /v1/stop?stop=15728                the lines currently serving a stop, with direction and
+ *                                          destination (same for /v1/seattle/stop)
  *   GET /v1/map                            every Muni line's route shape, for picking a line on a map
  *                                          (from DataSF's Muni Simple Routes; no 511 calls)
  *   GET /v1/city                           the supported city nearest the caller ("sf" or "seattle"),
@@ -167,6 +171,13 @@ export class TransitCache extends DurableObject<Env> {
         return json({ lines: data, fetchedAt: iso(fetchedAt) }, 200, 3600);
       }
 
+      if (parts[1] === "stop") {
+        const stop = url.searchParams.get("stop");
+        if (!stop || !/^\d+$/.test(stop)) return json({ error: "stop (numeric) is required" }, 400);
+        const data = (await this.currentSnapshot()).stops.get(stop);
+        return json({ stop: { code: stop, name: data?.name ?? "" }, lines: linesAtStop(data?.visits ?? []) });
+      }
+
       if (parts[1] === "departures") {
         const stop = url.searchParams.get("stop");
         const line = url.searchParams.get("line");
@@ -177,10 +188,11 @@ export class TransitCache extends DurableObject<Env> {
         const snapshot = await this.currentSnapshot();
         const data = snapshot.stops.get(stop);
         const now = Date.now();
+        const wanted = linePairs(line, direction);
         const departures = (data?.visits ?? [])
-          .filter((v) => v.line === line && (!direction || v.direction === direction))
+          .filter((v) => wanted.some((w) => w.line === v.line && (!w.direction || w.direction === v.direction)))
           .filter((v) => Date.parse(v.time) > now - 30_000)
-          .map(({ time, live, destination, vehicle }) => ({ time, live, destination, vehicle }));
+          .map(({ line, time, live, destination, vehicle }) => ({ line, time, live, destination, vehicle }));
         const ttl = this.snapshotTTL * 1000;
         return json({
           stop: { code: stop, name: data?.name ?? "" },
@@ -500,6 +512,7 @@ function recordUsage(request: Request, env: Env) {
 }
 
 // MARK: - Helpers
+
 
 const CITIES = { sf: [37.7749, -122.4194], seattle: [47.6062, -122.3321] } as const;
 

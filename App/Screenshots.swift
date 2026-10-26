@@ -7,7 +7,7 @@ import WidgetKit
 /// Home Screen and Lock Screen (iOS doesn't let automation place real widgets); `lockwidget` is a
 /// plain Lock Screen with just the clock and the rectangular widget, no captions.
 enum ScreenshotScreen: String {
-    case lines, stops, map, widgets, lock, lockwidget
+    case lines, stops, map, widgets, lock, lockwidget, guide
 
     static var current: ScreenshotScreen? {
         UserDefaults.standard.string(forKey: "screen").flatMap(ScreenshotScreen.init)
@@ -30,8 +30,7 @@ struct WidgetShowcase: View {
         .task {
             // The favorites with live times, like the real widget shows them.
             var rows = [WidgetRow]()
-            let current = Selection.current
-            for selection in ([current] + Selection.favorites.filter { $0.id != current.id }).prefix(4) {
+            for selection in Selection.widgetSelections.prefix(4) {
                 let departures = (try? await TransitService.departures(for: selection, client: .app)) ?? []
                 rows.append(WidgetRow(selection: selection, departures: departures))
             }

@@ -98,3 +98,20 @@ export function hexColor(value: unknown): string | undefined {
   const hex = String(value ?? "").trim().replace(/^#/, "");
   return /^[0-9a-f]{6}$/i.test(hex) ? `#${hex.toUpperCase()}` : undefined;
 }
+
+/** "K,L,M" + "IB" (or "IB,IB,OB") → [{line: "K", direction: "IB"}, ...]. */
+export function linePairs(lines: string, directions: string | null): { line: string; direction?: string }[] {
+  const dirs = (directions ?? "").split(",").filter(Boolean);
+  return lines.split(",").filter(Boolean).slice(0, 8)
+    .map((line, i) => ({ line, direction: dirs.length > 1 ? dirs[i] : dirs[0] }));
+}
+
+/** Distinct line + direction pairs among a stop's upcoming visits, with a destination each. */
+export function linesAtStop(visits: { line: string; direction: string; destination: string }[]) {
+  const seen = new Map<string, { line: string; direction: string; destination: string }>();
+  for (const v of visits) {
+    const key = `${v.line}|${v.direction}`;
+    if (v.line && !seen.has(key)) seen.set(key, { line: v.line, direction: v.direction, destination: v.destination });
+  }
+  return [...seen.values()].sort((a, b) => a.line.localeCompare(b.line, "en", { numeric: true }));
+}

@@ -30,7 +30,7 @@ struct DeparturesEntry: TimelineEntry {
 
     /// "4 · 16 · 31 min", or "now · 9 min".
     func waits(_ row: WidgetRow, count: Int, unit: Bool = true) -> String? {
-        Departure.waits(upcoming(row), from: date, count: count, unit: unit)
+        Departure.waits(upcoming(row), from: date, count: count, unit: unit, lines: row.selection.isMultiLine)
     }
 
     /// With favorites from more than one city, each row is tagged with its city ("SF", "SEA"),
@@ -44,7 +44,7 @@ struct DeparturesEntry: TimelineEntry {
     /// The same line saved twice in one city (two stops or directions) gets its destination added
     /// to tell them apart.
     func label(for row: WidgetRow) -> String? {
-        rows.filter { $0.selection.lineID == row.selection.lineID && $0.selection.city == row.selection.city }.count > 1
+        rows.filter { $0.selection.lineLabel == row.selection.lineLabel && $0.selection.city == row.selection.city }.count > 1
             ? String(row.selection.destination.split(separator: " ").first ?? "")
             : nil
     }
@@ -125,8 +125,8 @@ struct Bus37WidgetView: View {
             }
             // The badge always shows the whole line name ("37", "C Line"): it keeps its full width and
             // the waits shrink instead. Long names get a smaller font in the small widget.
-            let longName = row.selection.lineID.count > 3
-            LineBadge(line: row.selection.lineID,
+            let longName = row.selection.lineLabel.count > 3
+            LineBadge(line: row.selection.lineLabel,
                       font: .system(small ? (longName ? .caption2 : .footnote) : .subheadline, design: .rounded).weight(.heavy))
                 .lineLimit(1)
                 .fixedSize()
@@ -174,7 +174,7 @@ struct LockScreenView: View {
                         Text(tag).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                             .frame(width: 22, alignment: .leading)
                     }
-                    Text(row.selection.lineID)
+                    Text(row.selection.lineLabel)
                         .font(.system(.headline, design: .rounded).weight(.heavy))
                         .widgetAccentable()
                     if let label = entry.label(for: row) {
@@ -197,7 +197,8 @@ struct LockScreenView: View {
         ZStack {
             AccessoryWidgetBackground()
             VStack(spacing: -2) {
-                Text(entry.rows.first?.selection.lineID ?? "–")
+                // The line that comes next, for a combined stop.
+                Text(entry.rows.first.flatMap { entry.upcoming($0).first?.line } ?? entry.rows.first?.selection.lineLabel ?? "–")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
                     .widgetAccentable()
                 if let row = entry.rows.first, let next = entry.upcoming(row).first {
@@ -215,7 +216,7 @@ struct LockScreenView: View {
     /// "37 4m · N 2m · 22 9m": each favorite's next departure.
     private var inline: some View {
         let parts = entry.rows.prefix(3).map { row -> String in
-            let name = [entry.cityTag(for: row, visible: 3), row.selection.lineID].compactMap { $0 }.joined(separator: " ")
+            let name = [entry.cityTag(for: row, visible: 3), row.selection.lineLabel].compactMap { $0 }.joined(separator: " ")
             guard let next = entry.upcoming(row).first else { return "\(name) –" }
             let minutes = entry.minutes(until: next)
             return "\(name) \(minutes == 0 ? "now" : "\(minutes)m")"

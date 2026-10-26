@@ -9,7 +9,7 @@
  *   GET /v1/seattle/map                            every line's route shape, for picking a line on a map
  */
 
-import { hexColor, simplify, type Polyline } from "./geo";
+import { hexColor, linePairs, linesAtStop, simplify, type Polyline } from "./geo";
 
 const OBA = "https://api.pugetsound.onebusaway.org/api/where";
 /** King County Metro, Sound Transit, City of Seattle (streetcars). */
@@ -82,18 +82,32 @@ export async function handleSeattle(parts: string[], url: URL, deps: SeattleDeps
     return { body: { lines: entry.data.lines, complete: entry.data.complete, fetchedAt: iso(entry.fetchedAt) }, maxAge: entry.data.complete ? 3600 : 0 };
   }
 
+  if (parts[0] === "stop") {
+    const stop = url.searchParams.get("stop") ?? "";
+    if (!/^\d+_\w+$/.test(stop)) return { body: { error: "stop (agency_id) is required" }, status: 400 };
+    const codes = new Map((await linesCached(deps)).data.map((l) => [l.routeId, l.id]));
+    const entry = await deps.cached(`sea-stop:${stop}`, DEPARTURES_TTL_MS / 1000, () => fetchStop(stop, deps));
+    const visits = entry.data.visits.map((v) => ({ ...v, line: codes.get(v.routeId) ?? "" }));
+    return { body: { stop: { code: stop, name: entry.data.name }, lines: linesAtStop(visits) } };
+  }
+
   if (parts[0] === "departures") {
     const stop = url.searchParams.get("stop") ?? "";
     const code = url.searchParams.get("line");
     const direction = url.searchParams.get("direction");
     if (!/^\d+_\w+$/.test(stop) || !code) return { body: { error: "stop (agency_id) and line are required" }, status: 400 };
-    const line = (await linesCached(deps)).data.find((l) => l.id === code);
+    const lines = (await linesCached(deps)).data;
+    const wanted = linePairs(code, direction)
+      .map((w) => ({ ...w, routeId: lines.find((l) => l.id === w.line)?.routeId }));
     const entry = await deps.cached(`sea-stop:${stop}`, DEPARTURES_TTL_MS / 1000, () => fetchStop(stop, deps));
     const now = Date.now();
     const departures = entry.data.visits
-      .filter((v) => v.routeId === line?.routeId && (!direction || v.direction === direction))
+      .flatMap((v) => {
+        const match = wanted.find((w) => w.routeId === v.routeId && (!w.direction || w.direction === v.direction));
+        return match ? [{ ...v, line: match.line }] : [];
+      })
       .filter((v) => Date.parse(v.time) > now - 30_000)
-      .map(({ time, live, destination, vehicle }) => ({ time, live, destination, vehicle }));
+      .map(({ line, time, live, destination, vehicle }) => ({ line, time, live, destination, vehicle }));
     return {
       body: {
         stop: { code: stop, name: entry.data.name },

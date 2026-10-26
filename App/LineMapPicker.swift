@@ -16,6 +16,9 @@ struct LineMapPicker: View {
     @State private var directions: [Direction] = []
     @State private var arrows: [StopArrow] = []
     @State private var picked: StopArrow?
+    /// Other lines serving the picked stop, and which of them the user also wants to count.
+    @State private var otherLines: [StopLine] = []
+    @State private var alsoIDs: Set<String> = []
     @State private var heading: CLLocationDirection = 0
     @State private var error: String?
     @State private var position: MapCameraPosition
@@ -90,6 +93,16 @@ struct LineMapPicker: View {
                 error = nil
             }
         }
+        .task(id: picked?.id) {
+            otherLines = []
+            alsoIDs = []
+            guard let picked, let selected else { return }
+            let found = (try? await TransitService.linesAtStop(picked.stop.code, in: city)) ?? []
+            guard !Task.isCancelled else { return }
+            withAnimation(.snappy(duration: 0.25)) {
+                otherLines = found.filter { $0.line != selected.id }
+            }
+        }
         .task(id: selectedID) {
             directions = []
             arrows = []
@@ -110,7 +123,9 @@ struct LineMapPicker: View {
     @ViewBuilder private var card: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let selected {
-                if candidates.count > 1 {
+                if picked != nil, !otherLines.isEmpty {
+                    alsoTake
+                } else if candidates.count > 1 {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(candidates) { line in
@@ -168,6 +183,40 @@ struct LineMapPicker: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .padding()
+    }
+
+    /// "Also take" chips: the other lines at the picked stop, which the user can add so the stop
+    /// counts whichever comes first (the K, L and M toward downtown at Castro).
+    private var alsoTake: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Also fine with").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(otherLines) { other in
+                        let on = alsoIDs.contains(other.id)
+                        let mapLine = lines.first { $0.id == other.line }
+                        Button {
+                            withAnimation(.snappy(duration: 0.2)) {
+                                if on { alsoIDs.remove(other.id) } else { alsoIDs.insert(other.id) }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: on ? "checkmark.circle.fill" : "plus.circle")
+                                    .font(.caption)
+                                LineBadge(line: other.line, font: .system(.subheadline, design: .rounded).weight(.heavy),
+                                          color: mapLine?.mapColor ?? LineBadge.red, textColor: mapLine?.badgeTextColor ?? .white)
+                            }
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(on ? Color.primary.opacity(0.15) : .clear, in: Capsule())
+                            .opacity(on ? 1 : 0.7)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Also take line \(other.line) to \(other.destination)")
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+            }
+        }
     }
 
     /// With a line selected: an arrow within a fingertip picks that stop and direction (tapping it
@@ -234,10 +283,13 @@ struct LineMapPicker: View {
 
     private func choose(_ arrow: StopArrow) {
         guard let selected else { return }
+        // Only lines still offered for this stop (the chips reset when the arrow changes).
+        let also = otherLines.filter { alsoIDs.contains($0.id) }
+            .map { Selection.OtherLine(lineID: $0.line, directionID: $0.direction) }
         onPick(Selection(
             lineID: selected.id, lineName: selected.name, directionID: arrow.direction.id,
             destination: arrow.direction.destination, stopCode: arrow.stop.code, stopName: arrow.stop.name,
-            city: city))
+            city: city, also: also))
     }
 
     /// Frame the whole line, so its arrows are big enough to tap after a little zooming.

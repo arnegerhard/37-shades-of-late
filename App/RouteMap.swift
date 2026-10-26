@@ -13,6 +13,8 @@ struct RouteMap: View {
     @State private var stops: [Stop] = []
     /// The real street route where the city provides one (Seattle); empty otherwise.
     @State private var shapes: [[CLLocationCoordinate2D]] = []
+    /// The routes of the other lines a combined stop counts (the L and M besides the K).
+    @State private var otherRoutes: [[CLLocationCoordinate2D]] = []
     @State private var position: MapCameraPosition = .automatic
     /// A live bus that was still on its way vanished from the latest data.
     @State private var busVanished = false
@@ -25,7 +27,7 @@ struct RouteMap: View {
     @State private var now = Date.currentMinute
 
     private var route: [[CLLocationCoordinate2D]] {
-        shapes.isEmpty ? [stops.compactMap(\.coordinate)] : shapes
+        (shapes.isEmpty ? [stops.compactMap(\.coordinate)] : shapes) + otherRoutes
     }
     private var selectedStop: Stop? { stops.first { $0.code == selection.stopCode } }
     /// Live buses on the route. 511 reports a trip's assigned bus wherever it is, so a bus still
@@ -93,7 +95,8 @@ struct RouteMap: View {
                 // The minutes are part of the marker, not the annotation's title: MapKit hides titles
                 // that collide with other labels (like the stop's name right next to it).
                 Annotation("", coordinate: bus.vehicle.coordinate, anchor: .center) {
-                    BusMarker(bearing: bus.vehicle.bearing, minutes: shortMinutes(bus.departure), isLive: bus.departure.isLive)
+                    BusMarker(bearing: bus.vehicle.bearing, minutes: shortMinutes(bus.departure), isLive: bus.departure.isLive,
+                              line: selection.isMultiLine ? bus.departure.line : nil)
                 }
                 .annotationTitles(.hidden)
             }
@@ -114,6 +117,7 @@ struct RouteMap: View {
         .task(id: selection) {
             stops = []
             shapes = []
+            otherRoutes = []
             busVanished = false
             position = .automatic
             await loadRoute()
@@ -130,7 +134,7 @@ struct RouteMap: View {
 
     private var statusCard: some View {
         HStack(spacing: 12) {
-            LineBadge(line: selection.lineID, font: .system(.title3, design: .rounded).weight(.heavy))
+            LineBadge(line: selection.lineLabel, font: .system(.title3, design: .rounded).weight(.heavy))
             VStack(alignment: .leading, spacing: 2) {
                 if let next = buses.first {
                     Text("Next bus \(minutesLabel(next.departure) == "now" ? "arriving now" : "in \(minutesLabel(next.departure))")")
@@ -142,11 +146,11 @@ struct RouteMap: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if busVanished {
-                    QuipText(Quip.vanished(line: selection.lineID))
+                    QuipText(Quip.vanished(line: selection.lineLabel))
                 } else if let next = departures.first {
-                    QuipText(Quip.forWait(until: next.time, from: now, line: selection.lineID))
+                    QuipText(Quip.forWait(until: next.time, from: now, line: next.line ?? selection.lineLabel))
                 } else {
-                    QuipText(Quip.noPrediction(line: selection.lineID))
+                    QuipText(Quip.noPrediction(line: selection.lineLabel))
                 }
             }
             Spacer(minLength: 0)
@@ -176,6 +180,19 @@ struct RouteMap: View {
         shapes = (direction?.shapes ?? []).map { segment in
             segment.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil }
         }
+        // The other lines of a combined stop, drawn too so their buses show on the map.
+        var others: [[CLLocationCoordinate2D]] = []
+        for other in selection.also {
+            let line = Line(id: other.lineID, name: "", mode: "bus")
+            guard let directions = try? await TransitService.directions(for: line, in: selection.city, client: interactive ? .map : .app),
+                  let direction = directions.first(where: { $0.id == other.directionID }) ?? directions.first
+            else { continue }
+            let shape = (direction.shapes ?? []).map { segment in
+                segment.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil }
+            }
+            others += shape.isEmpty ? [direction.stops.compactMap(\.coordinate)] : shape
+        }
+        otherRoutes = others
     }
 
 }
@@ -205,44 +222,50 @@ private struct BusMarker: View {
     let minutes: String
     /// Green like every other live time in the app; grey for a scheduled-only estimate.
     let isLive: Bool
+    /// On a combined stop, which line this bus is, shown instead of the bus icon.
+    var line: String? = nil
 
     var body: some View {
-        // The circle sits on the bus; the label hangs off to its right, clear of the stop pin
-        // (often right above or below a bus that's about to arrive).
-        icon
-            .overlay(alignment: .leading) {
-                Text(minutes)
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-                    .monospacedDigit()
-                    .foregroundStyle(isLive ? .green : .secondary)
-                    .fixedSize()
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(.regularMaterial, in: Capsule())
-                    .offset(x: 34)
-            }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(minutes == "now" ? "Bus, arriving now" : "Bus, \(minutes) minutes")
-    }
-
-    private var icon: some View {
         ZStack {
             if let bearing {
-                // Small arrow on the circle's edge pointing the way the bus is heading.
+                // Small arrow on the ring pointing the way the bus is heading.
                 Image(systemName: "arrowtriangle.up.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(LineBadge.red)
-                    .offset(y: -19)
+                    .offset(y: -22)
                     .rotationEffect(.degrees(bearing))
             }
+            // A dark disc with the line-red ring, so the minutes can keep the app's green/grey.
             Circle()
-                .fill(LineBadge.red)
-                .stroke(.white, lineWidth: 2)
-                .frame(width: 30, height: 30)
-            Image(systemName: "bus.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
+                .fill(Color(white: 0.1))
+                .overlay(Circle().strokeBorder(LineBadge.red, lineWidth: 3))
+                .overlay(Circle().strokeBorder(.white, lineWidth: 1).padding(-1))
+                .frame(width: 36, height: 36)
+            VStack(spacing: 0) {
+                if let line {
+                    Text(line)
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .frame(maxWidth: 26)
+                } else {
+                    Image(systemName: "bus.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                Text(minutes)
+                    .font(.system(size: minutes.count > 2 ? 10 : 13, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(isLive ? .green : .secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: 28)
+            }
         }
         .shadow(radius: 2, y: 1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel((line.map { "Line \($0), " } ?? "Bus, ") + (minutes == "now" ? "arriving now" : "\(minutes) minutes"))
     }
 }
 

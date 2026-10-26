@@ -26,12 +26,21 @@ struct ContentView: View {
     @State private var pickerPath: [Line] = []
     @State private var showingMap = false
     @State private var favorites = Selection.favorites
+    @State private var showingGuide = !WidgetGuide.hasBeenShown
 
     private var departures: [Departure] { feed.departures }
     private var loaded: Selection? { feed.loaded }
     private var isStale: Bool { loaded?.id != selection.id }
 
     private var isFavorite: Bool { favorites.contains { $0.id == selection.id } }
+
+    /// The favorite the widgets lead with (see Selection.widgetSelections), marked by the red frame:
+    /// the open stop if it's a favorite, else the favorite opened last.
+    private var widgetLeadID: String? {
+        if isFavorite { return selection.id }
+        let last = Selection.lastOpenedFavorite?.id
+        return (favorites.first { $0.id == last } ?? favorites.first)?.id
+    }
 
     var body: some View {
         NavigationStack {
@@ -96,7 +105,7 @@ struct ContentView: View {
                             }
                         }
                         .listRowBackground(favoriteBackground(
-                            isSelected: favorite.id == selection.id,
+                            isSelected: favorite.id == widgetLeadID,
                             isFirst: favorite.id == favorites.first?.id,
                             isLast: favorite.id == favorites.last?.id))
                     }
@@ -106,20 +115,24 @@ struct ContentView: View {
                     Text("Favorites").textCase(nil)
                 } footer: {
                     if !favorites.isEmpty {
-                        Text("Your widgets show the open one first, then the rest in this order. Tap one to open it, hold and drag to reorder, swipe to delete.")
+                        Text("Your widgets show the one you opened last first, then the rest in this order. Tap one to open it, hold and drag to reorder, swipe to delete.")
                     }
                 }
 
                 Section {
-                    Text("Add the widget from your Home Screen or Lock Screen: touch and hold, tap Edit or Customize, then search for \"37 Shades of Late\".")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    Button { showingGuide = true } label: {
+                        Label("Put your buses on the Lock Screen", systemImage: "lock.iphone")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                } footer: {
+                    Text("A 30-second walkthrough for adding the widget.")
                 }
             }
             .navigationTitle("37 Shades of Late")
             .refreshable { await feed.reload() }
             .navigationDestination(isPresented: $showingMap) {
                 RouteMap(selection: selection, feed: feed)
-                    .navigationTitle("\(selection.lineID) \(selection.lineName)")
+                    .navigationTitle(selection.isMultiLine ? "\(selection.lineIDs.joined(separator: ", ")) to \(selection.destination)" : "\(selection.lineID) \(selection.lineName)")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbarBackground(.visible, for: .navigationBar)
             }
@@ -134,6 +147,7 @@ struct ContentView: View {
             #if DEBUG
             .onAppear {
                 switch ScreenshotScreen.current {
+                case .guide: showingGuide = true
                 case .lines: choosing = true
                 case .map: showingMap = true
                 case .stops:
@@ -155,6 +169,12 @@ struct ContentView: View {
                     }
                 }
             }
+            .fullScreenCover(isPresented: $showingGuide) {
+                WidgetGuide {
+                    WidgetGuide.hasBeenShown = true
+                    showingGuide = false
+                }
+            }
         }
     }
 
@@ -164,14 +184,14 @@ struct ContentView: View {
             if Set(favorites.map(\.city)).count > 1 {
                 CityTag(code: favorite.city.code)
             }
-            LineBadge(line: favorite.lineID, font: .system(.body, design: .rounded).weight(.heavy))
+            LineBadge(line: favorite.lineLabel, font: .system(.body, design: .rounded).weight(.heavy))
                 .frame(minWidth: 48, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 Text("To \(favorite.destination)").font(.subheadline.weight(.semibold))
                 Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
                 TimelineView(.everyMinute) { context in
                     let upcoming = favoritesFeed.departures[favorite.id] ?? []
-                    Text(Departure.waits(upcoming, from: context.date, count: 3) ?? (favoritesFeed.departures[favorite.id] == nil ? "…" : "none"))
+                    Text(Departure.waits(upcoming, from: context.date, count: 3, lines: favorite.isMultiLine) ?? (favoritesFeed.departures[favorite.id] == nil ? "…" : "none"))
                         .font(.system(.subheadline, design: .rounded).weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(upcoming.first?.isLive == true ? .green : .secondary)
@@ -203,7 +223,7 @@ struct ContentView: View {
                     if isFavorite, Set(favorites.map(\.city)).count > 1 {
                         CityTag(code: selection.city.code)
                     }
-                    LineBadge(line: selection.lineID, font: .system(.title3, design: .rounded).weight(.heavy))
+                    LineBadge(line: selection.lineLabel, font: .system(.title3, design: .rounded).weight(.heavy))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("To \(selection.destination)").font(.headline)
                         Text(selection.stopName).font(.subheadline).foregroundStyle(.secondary)
@@ -225,17 +245,19 @@ struct ContentView: View {
     /// on the first. Recounted every minute between data refreshes.
     private var nextDepartures: some View {
         TimelineView(.everyMinute) { context in
-            let line = (loaded ?? selection).lineID
+            let shown = loaded ?? selection
+            let line = shown.lineLabel
             VStack(alignment: .leading, spacing: 3) {
                 if let error = feed.error {
                     Text(error).font(.subheadline).foregroundStyle(.secondary)
-                } else if let waits = Departure.waits(departures, from: context.date, count: 3) {
+                } else if let waits = Departure.waits(departures, from: context.date, count: 3, lines: shown.isMultiLine) {
                     Text(waits)
                         .font(.system(.title3, design: .rounded).weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(departures.first?.isLive == true ? .green : .secondary)
                     if let next = departures.first(where: { $0.time > context.date.addingTimeInterval(-30) }) {
-                        QuipText(Quip.forWait(until: next.time, from: context.date, line: line))
+                        // About the line that actually comes next.
+                        QuipText(Quip.forWait(until: next.time, from: context.date, line: next.line ?? line))
                     }
                 } else {
                     Text("No upcoming \(line)s").font(.subheadline).foregroundStyle(.secondary)
@@ -263,7 +285,9 @@ struct ContentView: View {
     private func select(_ picked: Selection) {
         guard picked.id != selection.id else { return }
         Selection.current = picked
-        // The widgets lead with the open stop, so they change along with it (reloaded below).
+        // Opening a favorite makes it the widgets' lead; browsing other stops doesn't (see
+        // Selection.widgetSelections).
+        if favorites.contains(where: { $0.id == picked.id }) { Selection.lastOpenedFavorite = picked }
         // Keep the old times on screen (dimmed) until the new ones arrive, so the list
         // resizes once, straight to its new height.
         withAnimation(Self.switchAnimation) { selection = picked }
@@ -287,13 +311,14 @@ struct ContentView: View {
             favorites.remove(at: index)
         } else {
             favorites.append(selection)
+            Selection.lastOpenedFavorite = selection
         }
     }
 
     private static var switchAnimation: Animation { DepartureFeed.switchAnimation }
 }
 
-/// Thin red outline for the favorite open in the app. The first and last rows sit in the
+/// Thin red outline for the favorite on the Lock Screen (the widgets' lead). The first and last rows sit in the
 /// section's rounded corners, so their outer corners follow those instead of being clipped.
 private struct SelectedFavoriteFrame: View {
     let isFirst: Bool

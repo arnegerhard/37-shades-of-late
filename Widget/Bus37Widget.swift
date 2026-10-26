@@ -22,9 +22,7 @@ struct Provider: TimelineProvider {
     /// minute so the minutes count down between refreshes.
     private func load() async -> [DeparturesEntry] {
         let now = Date.now
-        let current = Selection.current
-        let others = Selection.favorites.filter { $0.id != current.id }
-        let selections = Array(([current] + others).prefix(4))
+        let selections = Array(Selection.widgetSelections.prefix(4))
         let rows = await withTaskGroup(of: (Int, WidgetRow).self) { group in
             for (index, selection) in selections.enumerated() {
                 group.addTask {

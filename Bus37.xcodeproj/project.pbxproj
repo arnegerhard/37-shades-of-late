@@ -28,6 +28,7 @@
 		D77E7C0A1C0B4E37A1B2C401 /* linemap-seattle.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C301 /* linemap-seattle.json */; };
 		D77E7C0A1C0B4E37A1B2C402 /* lines-sf.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C302 /* lines-sf.json */; };
 		D77E7C0A1C0B4E37A1B2C403 /* lines-seattle.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C303 /* lines-seattle.json */; };
+		E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -79,6 +80,7 @@
 		D77E7C0A1C0B4E37A1B2C301 /* linemap-seattle.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = linemap-seattle.json; sourceTree = "<group>"; };
 		D77E7C0A1C0B4E37A1B2C302 /* lines-sf.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = lines-sf.json; sourceTree = "<group>"; };
 		D77E7C0A1C0B4E37A1B2C303 /* lines-seattle.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = lines-seattle.json; sourceTree = "<group>"; };
+		E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGuide.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -134,6 +136,7 @@
 				B55E7C0A1C0B4E37A1B2C3B1 /* LineMapPicker.swift */,
 				A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */,
 				D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */,
+				E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */,
 				2694D610C8E5A9E74CE27B68 /* Info.plist */,
 			);
 			path = App;
@@ -267,6 +270,7 @@
 				B55E7C0A1C0B4E37A1B2C3B2 /* LineMapPicker.swift in Sources */,
 				A44E7C0A1C0B4E37A1B2C3A2 /* RouteMap.swift in Sources */,
 				D11E7C0A1C0B4E37A1B2C3D5 /* StopPicker.swift in Sources */,
+				E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F5 /* Screenshots.swift in Sources */,
 			);

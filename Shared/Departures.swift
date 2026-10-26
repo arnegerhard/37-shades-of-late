@@ -55,9 +55,31 @@ struct Selection: Codable, Hashable, Identifiable {
     var stopCode: String
     var stopName: String
     var city: City = .sf
+    /// Other lines at the same stop the user is happy to take too, like the L and M besides the K
+    /// at Castro toward downtown. Their departures are merged with the main line's.
+    var also: [OtherLine] = []
 
-    /// The same line, direction and stop count as one place, whatever the display names say.
-    var id: String { "\(city.rawValue)|\(lineID)|\(directionID)|\(stopCode)" }
+    struct OtherLine: Codable, Hashable {
+        var lineID: String
+        var directionID: String
+    }
+
+    /// Every line this choice counts, the main one first.
+    var lineIDs: [String] { [lineID] + also.map(\.lineID) }
+
+    /// For badges and labels: "37", or "KLM" / "5·21" when several lines are combined.
+    var lineLabel: String {
+        let ids = lineIDs
+        return ids.joined(separator: ids.allSatisfy { $0.count == 1 } ? "" : "·")
+    }
+
+    var isMultiLine: Bool { !also.isEmpty }
+
+    /// The same lines, direction and stop count as one place, whatever the display names say.
+    var id: String {
+        let extra = also.map { "+\($0.lineID)/\($0.directionID)" }.sorted().joined()
+        return "\(city.rawValue)|\(lineID)|\(directionID)|\(stopCode)\(extra)"
+    }
 
     static var defaultSelection: Selection { City.sf.defaultSelection }
 
@@ -77,6 +99,24 @@ struct Selection: Codable, Hashable, Identifiable {
 
     /// False until the first line and stop is saved, e.g. on a fresh install.
     static var hasSavedChoice: Bool { defaults.data(forKey: key) != nil }
+
+    /// The favorite last opened in the app.
+    static var lastOpenedFavorite: Selection? {
+        get { defaults.data(forKey: "lastOpenedFavorite").flatMap { try? JSONDecoder().decode(Selection.self, from: $0) } }
+        set { defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "lastOpenedFavorite") }
+    }
+
+    /// What the widgets show, in order. They lead with the open stop when it's a favorite, else with
+    /// the favorite opened last: just browsing another city's map shouldn't take over the Lock Screen.
+    /// With no favorites, the open stop is all there is.
+    static var widgetSelections: [Selection] {
+        let favorites = favorites
+        guard !favorites.isEmpty else { return [current] }
+        let lead = favorites.first { $0.id == current.id }
+            ?? lastOpenedFavorite.flatMap { last in favorites.first { $0.id == last.id } }
+            ?? favorites[0]
+        return [lead] + favorites.filter { $0.id != lead.id }
+    }
 
     /// Saved lines and stops, in the order the user arranged them.
     static var favorites: [Selection] {
@@ -120,6 +160,7 @@ extension Selection {
         stopCode = try container.decode(String.self, forKey: .stopCode)
         stopName = try container.decode(String.self, forKey: .stopName)
         city = try container.decodeIfPresent(City.self, forKey: .city) ?? .sf
+        also = try container.decodeIfPresent([OtherLine].self, forKey: .also) ?? []
     }
 }
 
@@ -127,16 +168,22 @@ struct Departure: Hashable, Codable {
     let time: Date
     let isLive: Bool  // false when there's no bus assigned yet and the time is schedule-based
     var vehicle: Vehicle? = nil
+    /// Which line this is, for choices that combine several lines.
+    var line: String? = nil
 }
 
 extension Departure {
     /// Minutes until the next `count` departures, like "4 · 16 · 31 min" or "now · 9 min".
-    static func waits(_ departures: [Departure], from date: Date, count: Int, unit: Bool = true) -> String? {
+    /// With `lines`, each wait gets its line in front: "L 2 · K 5 · M 6 min".
+    static func waits(_ departures: [Departure], from date: Date, count: Int, unit: Bool = true, lines: Bool = false) -> String? {
         let next = departures.filter { $0.time > date.addingTimeInterval(-30) }.prefix(count)
-            .map { max(0, Int($0.time.timeIntervalSince(date) / 60)) }
         guard !next.isEmpty else { return nil }
-        let parts = next.map { $0 == 0 ? "now" : "\($0)" }
-        return parts.joined(separator: " · ") + (unit && next.last != 0 ? " min" : "")
+        let minutes = next.map { max(0, Int($0.time.timeIntervalSince(date) / 60)) }
+        let parts = zip(next, minutes).map { departure, minutes in
+            let wait = minutes == 0 ? "now" : "\(minutes)"
+            return lines ? "\(departure.line ?? "") \(wait)".trimmingCharacters(in: .whitespaces) : wait
+        }
+        return parts.joined(separator: " · ") + (unit && minutes.last != 0 ? " min" : "")
     }
 }
 
@@ -165,6 +212,14 @@ struct MapLine: Decodable, Identifiable {
     let shapes: [[[Double]]]
 
     var line: Line { Line(id: id, name: name, mode: mode) }
+}
+
+/// A line serving a stop, as the proxy reports it from upcoming arrivals.
+struct StopLine: Hashable, Decodable, Identifiable {
+    let line: String
+    let direction: String
+    let destination: String
+    var id: String { "\(line)|\(direction)" }
 }
 
 struct Direction: Hashable, Decodable, Identifiable {
@@ -225,6 +280,7 @@ enum TransitService {
                 let time: Date
                 let live: Bool
                 let vehicle: Vehicle?
+                let line: String?
             }
             let departures: [Item]
             let fetchedAt: Date
@@ -233,11 +289,11 @@ enum TransitService {
         var components = URLComponents(url: url(selection.city, "departures"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "stop", value: selection.stopCode),
-            URLQueryItem(name: "line", value: selection.lineID),
-            URLQueryItem(name: "direction", value: selection.directionID),
+            URLQueryItem(name: "line", value: selection.lineIDs.joined(separator: ",")),
+            URLQueryItem(name: "direction", value: ([selection.directionID] + selection.also.map(\.directionID)).joined(separator: ",")),
         ]
         let response: Response = try await get(components.url!, client: client)
-        let departures = response.departures.map { Departure(time: $0.time, isLive: $0.live, vehicle: $0.vehicle) }
+        let departures = response.departures.map { Departure(time: $0.time, isLive: $0.live, vehicle: $0.vehicle, line: $0.line) }
         return (departures, Refresh(fetchedAt: response.fetchedAt, nextRefreshAt: response.nextRefreshAt))
     }
 
@@ -286,6 +342,15 @@ enum TransitService {
         let response = try decoder.decode(DirectionsResponse.self, from: data)
         LineData.save(data, as: name)
         return response.directions
+    }
+
+    /// The lines currently serving a stop, each with its direction and destination.
+    static func linesAtStop(_ stop: String, in city: City) async throws -> [StopLine] {
+        struct Response: Decodable { let lines: [StopLine] }
+        var components = URLComponents(url: url(city, "stop"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "stop", value: stop)]
+        let response: Response = try await get(components.url!, client: .app)
+        return response.lines
     }
 
     /// Like `directions`, but only what's already on the device, for showing stops without waiting.
