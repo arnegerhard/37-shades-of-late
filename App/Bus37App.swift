@@ -31,7 +31,8 @@ struct ContentView: View {
     @State private var showingMap = false
     /// The stop that was open before a favorite's live map button, to go back to after the map.
     @State private var openBeforeMap: Selection?
-    @State private var sharing = false
+    /// The stop being shared, from the home map or the live map.
+    @State private var sharing: Selection?
     /// A stop from a shared link, waiting for "Add".
     @State private var incoming: Selection?
     @State private var favorites = Selection.favorites
@@ -89,12 +90,12 @@ struct ContentView: View {
                     .toolbarBackground(.visible, for: .navigationBar)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button { sharing = true } label: { Image(systemName: "square.and.arrow.up") }
+                            Button { sharing = selection } label: { Image(systemName: "square.and.arrow.up") }
                                 .accessibilityLabel("Share this stop")
                         }
                     }
-                    .sheet(isPresented: $sharing) {
-                        ShareSheet(selection: selection, departures: feed.loaded?.id == selection.id ? feed.departures : [])
+                    .sheet(item: $sharing) { stop in
+                        ShareSheet(selection: stop, departures: shownDepartures(for: stop).departures)
                     }
             }
             .onChange(of: showingMap) {
@@ -138,7 +139,7 @@ struct ContentView: View {
                 case .guide: showingGuide = true
                 case .share:
                     showingMap = true
-                    Task { try? await Task.sleep(for: .seconds(1.5)); sharing = true }
+                    Task { try? await Task.sleep(for: .seconds(1.5)); sharing = selection }
                 case .lines: choosing = true
                 case .map: showingMap = true
                 case .stops:
@@ -157,6 +158,9 @@ struct ContentView: View {
                     // Shown once more under the picker sheet, then gone once it closes.
                     Task { try? await Task.sleep(for: .seconds(0.6)); mapHintDone = true }
                 }
+            }
+            .sheet(item: Binding(get: { showingMap ? nil : sharing }, set: { sharing = $0 })) { stop in
+                ShareSheet(selection: stop, departures: shownDepartures(for: stop).departures)
             }
             .sheet(isPresented: $choosing) {
                 NavigationStack(path: $pickerPath) {
@@ -289,8 +293,21 @@ struct ContentView: View {
                         if openIsFavorite {
                             openFavoriteCard(open)
                                 .padding(10)
+                                // Clear of the share button.
+                                .padding(.trailing, 48)
                                 .transition(.move(edge: .top).combined(with: .opacity))
                         }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        Button { sharing = open } label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(width: 38, height: 38)
+                                .background(.regularMaterial, in: Circle())
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(10)
+                        .accessibilityLabel("Share this stop")
                     }
                     .overlay(alignment: .bottomTrailing) {
                         // Says out loud what tapping the map does; the map alone reads as a picture.

@@ -170,12 +170,12 @@ struct ShareCard: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6).padding(.vertical, 4)
                     .background(LineBadge.red, in: RoundedRectangle(cornerRadius: 5))
-                Text("37 Shades of Late").font(.system(size: 15, weight: .heavy, design: .rounded))
-                Spacer(minLength: 8)
-                Text("37shadesoflate.com").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("37 Shades of Late").font(.system(size: 15, weight: .heavy, design: .rounded))
+                    Text("37shadesoflate.com").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+                }
             }
             .lineLimit(1)
-            .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(.white)
         .padding(26)

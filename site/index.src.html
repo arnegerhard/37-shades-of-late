@@ -138,15 +138,23 @@
   }
   @keyframes bob { 50% { transform: translate(-50%, 6px); } }
 
-  /* ---------- "NEW!" starburst sticker ---------- */
-  .new-sticker {
+  /* ---------- "NEW!" starburst stickers: Seattle pops in, then New York ---------- */
+  .stickers {
     /* Beside the title on wide screens; under the buttons on phones (see the media query). */
-    position: absolute; z-index: 3; right: 0; top: 22%;
+    position: absolute; z-index: 3; right: 0; top: 8%;
+    display: flex; flex-direction: column; align-items: flex-end;
+  }
+  .stickers .new-sticker + .new-sticker { margin: -34px 70px 0 0; }
+  .new-sticker {
+    position: relative;
     width: 200px; height: 200px; display: grid; place-items: center; text-align: center;
     color: #1a0b00; text-decoration: none;
-    animation: stickerWobble 3.2s ease-in-out infinite;
+    animation: stickerPop .7s cubic-bezier(.3, 1.6, .5, 1) var(--delay) both,
+               stickerWobble 3.2s ease-in-out calc(var(--delay) + .7s) infinite;
     filter: drop-shadow(0 18px 30px #0009);
   }
+  .new-sticker.seattle { --delay: .5s; }
+  .new-sticker.nyc { --delay: 1.6s; }
   .new-sticker::before {
     content: ""; position: absolute; inset: 0;
     background: radial-gradient(circle at 35% 30%, #fff3b0, #ffd23f 35%, #ff9a1f 75%, #ff5e3a);
@@ -164,6 +172,8 @@
   .new-sticker .what { display: block; margin-top: 6px; font: 800 14px/1.15 var(--round); }
   .new-sticker:hover { animation-duration: .6s; }
   @keyframes stickerWobble { 0%, 100% { transform: rotate(-6deg) scale(1); } 50% { transform: rotate(5deg) scale(1.07); } }
+  @keyframes stickerPop { from { transform: rotate(-40deg) scale(0); opacity: 0; } to { transform: rotate(-6deg) scale(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .new-sticker { animation: none; } }
   @keyframes burstSpin { to { transform: rotate(360deg); } }
   @keyframes shine { 0%, 55% { background-position: -200% 0; } 85%, 100% { background-position: 200% 0; } }
 
@@ -358,7 +368,9 @@
     .flatten { top: 12px; order: -1; z-index: 2; box-shadow: 0 20px 40px #000c; }
     .steps li { padding-bottom: 26vh; }
     .scroll-hint { display: none; }
-    .new-sticker { position: relative; top: auto; right: auto; align-self: flex-end; margin-top: 10px; width: 140px; height: 140px; }
+    .stickers { position: relative; top: auto; right: auto; flex-direction: row; align-self: flex-end; margin-top: 10px; }
+    .stickers .new-sticker + .new-sticker { margin: 30px 0 0 -18px; }
+    .new-sticker { width: 140px; height: 140px; }
     .new-sticker .new { font-size: 34px; }
     .new-sticker .what { font-size: 11.5px; }
     .origin .timeline { padding-left: 74px; }
@@ -442,9 +454,14 @@
         <span>Where your money goes</span>
       </a>
     </div>
-    <a class="new-sticker" href="#origin" aria-label="New: now suffer in New York too. Read how this got out of hand.">
-      <span><b class="new">NEW!</b><b class="what">Now suffer in New York too</b></span>
-    </a>
+    <div class="stickers">
+      <a class="new-sticker seattle" href="#origin" aria-label="New: now suffer in Seattle too. Read how this got out of hand.">
+        <span><b class="new">NEW!</b><b class="what">Now suffer in Seattle too</b></span>
+      </a>
+      <a class="new-sticker nyc" href="#origin" aria-label="New: now suffer in New York too. Read how this got out of hand.">
+        <span><b class="new">NEW!</b><b class="what">Now suffer in New York too</b></span>
+      </a>
+    </div>
   </div>
   <div class="scroll-hint">Scroll. The bus won't.</div>
 </header>
