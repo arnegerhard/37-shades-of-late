@@ -28,6 +28,8 @@
 		D77E7C0A1C0B4E37A1B2C401 /* linemap-seattle.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C301 /* linemap-seattle.json */; };
 		D77E7C0A1C0B4E37A1B2C402 /* lines-sf.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C302 /* lines-sf.json */; };
 		D77E7C0A1C0B4E37A1B2C403 /* lines-seattle.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C303 /* lines-seattle.json */; };
+		D77E7C0A1C0B4E37A1B2C405 /* linemap-nyc.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C305 /* linemap-nyc.json */; };
+		D77E7C0A1C0B4E37A1B2C406 /* lines-nyc.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C306 /* lines-nyc.json */; };
 		E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */; };
 /* End PBXBuildFile section */
 
@@ -80,6 +82,8 @@
 		D77E7C0A1C0B4E37A1B2C301 /* linemap-seattle.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = linemap-seattle.json; sourceTree = "<group>"; };
 		D77E7C0A1C0B4E37A1B2C302 /* lines-sf.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = lines-sf.json; sourceTree = "<group>"; };
 		D77E7C0A1C0B4E37A1B2C303 /* lines-seattle.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = lines-seattle.json; sourceTree = "<group>"; };
+		D77E7C0A1C0B4E37A1B2C305 /* linemap-nyc.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = linemap-nyc.json; sourceTree = "<group>"; };
+		D77E7C0A1C0B4E37A1B2C306 /* lines-nyc.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = lines-nyc.json; sourceTree = "<group>"; };
 		E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGuide.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -160,6 +164,8 @@
 				D77E7C0A1C0B4E37A1B2C301 /* linemap-seattle.json */,
 				D77E7C0A1C0B4E37A1B2C302 /* lines-sf.json */,
 				D77E7C0A1C0B4E37A1B2C303 /* lines-seattle.json */,
+				D77E7C0A1C0B4E37A1B2C305 /* linemap-nyc.json */,
+				D77E7C0A1C0B4E37A1B2C306 /* lines-nyc.json */,
 			);
 			path = Snapshots;
 			sourceTree = "<group>";
@@ -244,6 +250,8 @@
 				D77E7C0A1C0B4E37A1B2C401 /* linemap-seattle.json in Resources */,
 				D77E7C0A1C0B4E37A1B2C402 /* lines-sf.json in Resources */,
 				D77E7C0A1C0B4E37A1B2C403 /* lines-seattle.json in Resources */,
+				D77E7C0A1C0B4E37A1B2C405 /* linemap-nyc.json in Resources */,
+				D77E7C0A1C0B4E37A1B2C406 /* lines-nyc.json in Resources */,
 				E22E7C0A1C0B4E37A1B2C3E2 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

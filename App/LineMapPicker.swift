@@ -592,6 +592,9 @@ extension City {
         case .seattle:
             MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 47.62, longitude: -122.32),
                                span: MKCoordinateSpan(latitudeDelta: 0.22, longitudeDelta: 0.22))
+        case .nyc:
+            MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 40.72, longitude: -73.94),
+                               span: MKCoordinateSpan(latitudeDelta: 0.28, longitudeDelta: 0.28))
         }
     }
 }
@@ -724,6 +727,11 @@ enum LineLabels {
         if line.mode != "bus" { return 0 }
         if id.hasSuffix("R"), id.dropLast().allSatisfy(\.isNumber) { return 0 }   // Muni's Rapid lines
         if id.count == 6, id.hasSuffix(" Line") { return 0 }                      // RapidRide A–H
+        if id.hasSuffix("-SBS") { return 0 }                                      // New York's Select Bus Service
+        // New York's express buses, mostly into Manhattan from far out.
+        if ["BM", "QM", "SIM", "X"].contains(where: { id.hasPrefix($0) && id.dropFirst($0.count).first?.isNumber == true }) {
+            return 2
+        }
         if id.hasSuffix("X") || id.contains("OWL") || id.hasSuffix("BUS") || id.contains("Shuttle") || id == "Easy Loop" {
             return 2
         }

@@ -6,6 +6,7 @@
     "module": "ES2022",
     "moduleResolution": "Bundler",
     "strict": true,
+    "resolveJsonModule": true,
     "noEmit": true,
     "types": ["@cloudflare/workers-types"]
   },

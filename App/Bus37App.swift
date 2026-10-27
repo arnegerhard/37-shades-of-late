@@ -29,118 +29,39 @@ struct ContentView: View {
     @State private var openBeforeMap: Selection?
     @State private var favorites = Selection.favorites
     @State private var showingGuide = !WidgetGuide.hasBeenShown
+    /// The city whose favorites are in edit mode (deleting); a sideways swipe turns the page instead.
+    @State private var editingCity: City?
+    /// How far each city's list is scrolled; the hint and city picker slide away by as much (up to
+    /// their own height) to give the pinned map their room.
+    @State private var scrollOffsets: [City: CGFloat] = [:]
+    @State private var headerHeight: CGFloat = 0
 
     private var departures: [Departure] { feed.departures }
     private var loaded: Selection? { feed.loaded }
     private var isStale: Bool { loaded?.id != selection.id }
 
-    private var isFavorite: Bool { favorites.contains { $0.id == selection.id } }
-
     var body: some View {
         NavigationStack {
-            List {
-                // The map is how you pick a ride: it previews the open route and its buses, and
-                // tapping it opens every line in the city to choose a ride, direction and stop.
-                Section {
-                    CityPager(cities: City.allCases, city: selection.city, onSwitch: switchCity(to:)) { city in
-                        // Room at the top for the open favorite's card, so the route isn't under it.
-                        RouteMap(selection: preview(for: city), feed: feed, interactive: false,
-                                 topInset: isFavorite && city == selection.city ? 44 : 0)
-                            .allowsHitTesting(false)
-                    }
-                    .frame(height: 260)
-                    .contentShape(Rectangle())
-                    .onTapGesture { choosing = true }
-                    .overlay(alignment: .topLeading) {
-                        if isFavorite {
-                            openFavoriteCard
-                                .padding(10)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-                    }
-                    .overlay(alignment: .bottomTrailing) {
-                        // Says out loud what tapping the map does; the map alone reads as a picture.
-                        Button { choosing = true } label: {
-                            Label("Add favorite", systemImage: "plus.circle.fill")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(.regularMaterial, in: Capsule())
-                        }
-                        .buttonStyle(.borderless)
-                        .padding(12)
-                    }
-                    .listRowInsets(EdgeInsets())
-                } header: {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("Tap the map to pick your next wait", systemImage: "hand.tap.fill")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
-                            ForEach(City.allCases) { Text($0.name).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                    .textCase(nil)
-                    .padding(.bottom, 4)
-                }
-
-                // A city's default stop, before you've picked anything there.
-                if !isFavorite {
-                    Section {
-                        stopCard
-                    } footer: {
-                        if favorites.isEmpty {
-                            Text("Your widgets wait for this one until you save favorites of your own.")
-                        }
+            VStack(alignment: .leading, spacing: 0) {
+                // The title is drawn here rather than by the navigation bar, which would follow the
+                // lists' scrolling and shift the pages under it a moment after a scroll comes to rest.
+                Text("37 Shades of Late")
+                    .font(.largeTitle.bold())
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
+                    .padding(.bottom, 8)
+                    .accessibilityAddTraits(.isHeader)
+                // A page per city, each with its own map, open stop and favorites; swiping anywhere
+                // switches city and the whole page slides along.
+                TabView(selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
+                    ForEach(City.allCases) { city in
+                        cityPage(city).tag(city)
                     }
                 }
-
-                Section {
-                    if favorites.isEmpty {
-                        Button { choosing = true } label: {
-                            Label("No favorites yet. Tap the map to start curating your suffering. It shows up here and on your widgets.", systemImage: "plus.circle")
-                                .font(.subheadline)
-                                .multilineTextAlignment(.leading)
-                        }
-                    }
-                    ForEach(favorites) { favorite in
-                        // Tapping a favorite opens it on the map above; its own buttons open the live
-                        // map, or reorder it (hold and drag).
-                        HStack(spacing: 8) {
-                            Button { select(favorite) } label: { favoriteRow(favorite) }
-                            .buttonStyle(.borderless)
-                            .tint(.primary)
-                            liveMapButton(for: favorite)
-                            Image(systemName: "line.3.horizontal")
-                                .foregroundStyle(.tertiary)
-                                .frame(width: 20, height: 44)
-                                .contentShape(Rectangle())
-                                .accessibilityHidden(true)
-                        }
-                        .listRowBackground(favoriteBackground(isSelected: favorite.id == selection.id))
-                    }
-                    .onDelete { favorites.remove(atOffsets: $0) }
-                    .onMove { favorites.move(fromOffsets: $0, toOffset: $1) }
-                } header: {
-                    Text("Favorites").textCase(nil)
-                } footer: {
-                    if !favorites.isEmpty {
-                        Text("Your widgets suffer in this order; the small ones only have room for the top one. The full-screen button lets you watch the bus not move, live. Hold and drag to reorder, swipe to delete.")
-                    }
-                }
-
-                Section {
-                    Button { showingGuide = true } label: {
-                        Label("Put your buses on the Lock Screen", systemImage: "lock.iphone")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                } footer: {
-                    Text("Be let down without even unlocking your phone. Takes 30 seconds, less than any bus.")
-                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .navigationTitle("37 Shades of Late")
-            .refreshable { await feed.reload() }
+            .background(Color(.systemGroupedBackground))
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $showingMap) {
                 RouteMap(selection: selection, feed: feed)
                     .navigationTitle(selection.isMultiLine ? "\(selection.lineIDs.joined(separator: ", ")) to \(selection.destination)" : "\(selection.lineID) \(selection.lineName)")
@@ -198,6 +119,163 @@ struct ContentView: View {
         }
     }
 
+    /// One city: the map previewing its open stop (tap it to pick another), that stop's departures
+    /// while it isn't a favorite, and the city's favorites.
+    private func cityPage(_ city: City) -> some View {
+        let open = preview(for: city)
+        let cityFavorites = favorites.filter { $0.city == city }
+        let openIsFavorite = cityFavorites.contains { $0.id == open.id }
+        // The map stays pinned above the list, moving up into the header's room once the list
+        // scrolls, so a favorite picked far down a long list still shows on it.
+        return ZStack(alignment: .top) {
+            List {
+                // The city's default stop, before you've picked anything there.
+                if !openIsFavorite {
+                    Section {
+                        stopCard(open)
+                    } footer: {
+                        if cityFavorites.isEmpty {
+                            Text("Your widgets wait for this one in \(city.name) until you save favorites of your own.")
+                        }
+                    }
+                }
+
+                Section {
+                    if cityFavorites.isEmpty {
+                        Button { choosing = true } label: {
+                            Label("No favorites in \(city.name) yet. Tap the map to start curating your suffering. It shows up here and on your widgets.", systemImage: "plus.circle")
+                                .font(.subheadline)
+                                .multilineTextAlignment(.leading)
+                        }
+                    }
+                    ForEach(cityFavorites) { favorite in
+                        // Tapping a favorite opens it on the map above; its own buttons open the live
+                        // map, or reorder it (hold and drag).
+                        HStack(spacing: 8) {
+                            Button { select(favorite) } label: { favoriteRow(favorite) }
+                            .buttonStyle(.borderless)
+                            .tint(.primary)
+                            liveMapButton(for: favorite)
+                            // In edit mode the list draws its own handle.
+                            if editingCity != city {
+                                Image(systemName: "line.3.horizontal")
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 20, height: 44)
+                                    .contentShape(Rectangle())
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .listRowBackground(favoriteBackground(isSelected: favorite.id == open.id))
+                        // Only in edit mode: otherwise a sideways swipe on a row is for turning the page.
+                        .deleteDisabled(editingCity != city)
+                    }
+                    .onDelete { offsets in
+                        let gone = Set(offsets.map { cityFavorites[$0].id })
+                        favorites.removeAll { gone.contains($0.id) }
+                    }
+                    .onMove { from, to in
+                        // Only this city's order changes; each city keeps its own list.
+                        var reordered = cityFavorites
+                        reordered.move(fromOffsets: from, toOffset: to)
+                        favorites = favorites.filter { $0.city != city } + reordered
+                    }
+                } header: {
+                    HStack {
+                        Text("Favorites")
+                        Spacer()
+                        if !cityFavorites.isEmpty {
+                            Button(editingCity == city ? "Done" : "Edit") {
+                                withAnimation { editingCity = editingCity == city ? nil : city }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                        }
+                    }
+                    .textCase(nil)
+                } footer: {
+                    if !cityFavorites.isEmpty {
+                        Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. The full-screen button lets you watch the \(city.vehicle) not move, live. Hold and drag to reorder; Edit to delete.")
+                    }
+                }
+
+                Section {
+                    Button { showingGuide = true } label: {
+                        Label("Put your \(city.vehicles) on the Lock Screen", systemImage: "lock.iphone")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                } footer: {
+                    Text("Be let down without even unlocking your phone. Takes 30 seconds, less than any \(city.vehicle).")
+                }
+            }
+            .environment(\.editMode, .constant(editingCity == city ? .active : .inactive))
+            .refreshable { await feed.reload() }
+            // The list starts below the hint, picker and map, and scrolls on under them.
+            .contentMargins(.top, headerHeight + 260 + 16, for: .scrollContent)
+            .modifier(ScrollOffset { scrollOffsets[city] = $0 })
+
+            // The hint and city picker, then the map. Scrolling the list slides the hint and picker
+            // up out of sight (and the map with them, into their room), in step with the finger.
+            VStack(alignment: .leading, spacing: 0) {
+                cityHeader
+                    .opacity(headerHeight > 0 ? 1 - collapse(city) / headerHeight : 1)
+                    .allowsHitTesting(collapse(city) < headerHeight / 2)
+                // Room at the top for the open favorite's card, so the route isn't under it.
+                RouteMap(selection: open, feed: feed, interactive: false, topInset: openIsFavorite ? 44 : 0)
+                    .allowsHitTesting(false)
+                    .frame(height: 260)
+                    .contentShape(Rectangle())
+                    .onTapGesture { choosing = true }
+                    .overlay(alignment: .topLeading) {
+                        if openIsFavorite {
+                            openFavoriteCard(open)
+                                .padding(10)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        // Says out loud what tapping the map does; the map alone reads as a picture.
+                        Button { choosing = true } label: {
+                            Label("Add favorite", systemImage: "plus.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(.regularMaterial, in: Capsule())
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(12)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: ListCorners.radius, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            }
+            // Covers the rows scrolling up underneath, from the top of the page to below the map.
+            .background(alignment: .bottom) {
+                Color(.systemGroupedBackground).frame(height: 2000)
+            }
+            .offset(y: -collapse(city))
+        }
+        .clipped()
+    }
+
+    /// "Tap the map…" and the city picker, at the top of each city's page.
+    private var cityHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Tap the map to pick your next wait", systemImage: "hand.tap.fill")
+                .font(.headline)
+            Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
+                ForEach(City.allCases) { Text($0.name).tag($0) }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 8)
+        .onGeometryChange(for: CGFloat.self, of: \.size.height) { headerHeight = $0 }
+    }
+
+    /// How far the header has slid away for `city`: as far as its list is scrolled, up to its height.
+    private func collapse(_ city: City) -> CGFloat {
+        min(max(scrollOffsets[city] ?? 0, 0), headerHeight)
+    }
+
     /// The favorite open on the map gets a thin frame in the line-badge red. It's only a marker.
     private func favoriteBackground(isSelected: Bool) -> some View {
         Color(.secondarySystemGroupedBackground)
@@ -222,13 +300,7 @@ struct ContentView: View {
                             .layoutPriority(1)
                         Text("To \(favorite.destination)").font(.subheadline.weight(.semibold))
                     }
-                    HStack(spacing: 6) {
-                        // Like the widgets: tag each favorite with its city once favorites span both.
-                        if Set(favorites.map(\.city)).count > 1 {
-                            Text(favorite.city.code).font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
-                        }
-                        Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
-                    }
+                    Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
                     if loaded != nil {
                         // About the line that actually comes next.
                         QuipText(upcoming.first.map { Quip.forWait(until: $0.time, from: context.date, line: $0.line ?? favorite.lineLabel) }
@@ -261,10 +333,10 @@ struct ContentView: View {
     }
 
     /// A city's default stop before any favorite there: tapping it opens its live map.
-    private var stopCard: some View {
+    private func stopCard(_ open: Selection) -> some View {
         Button { showingMap = true } label: {
             HStack(spacing: 12) {
-                stopCardContent
+                stopCardContent(open)
                 Image(systemName: "map")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Color.accentColor)
@@ -275,20 +347,17 @@ struct ContentView: View {
     }
 
     /// The open stop: line, destination and stop, then the next three departures.
-    private var stopCardContent: some View {
+    private func stopCardContent(_ open: Selection) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                if isFavorite, Set(favorites.map(\.city)).count > 1 {
-                    CityTag(code: selection.city.code)
-                }
-                LineBadge(line: selection.lineLabel, font: .system(.title3, design: .rounded).weight(.heavy))
+                LineBadge(line: open.lineLabel, font: .system(.title3, design: .rounded).weight(.heavy))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("To \(selection.destination)").font(.headline)
-                    Text(selection.stopName).font(.subheadline).foregroundStyle(.secondary)
+                    Text("To \(open.destination)").font(.headline)
+                    Text(open.stopName).font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
-            nextDepartures
+            nextDepartures(open)
         }
         .multilineTextAlignment(.leading)
         .padding(.vertical, 4)
@@ -297,24 +366,27 @@ struct ContentView: View {
 
     /// The open favorite, in one line over the top of the map: line, stop and the next departure.
     /// Tapping it opens the live map.
-    private var openFavoriteCard: some View {
+    private func openFavoriteCard(_ open: Selection) -> some View {
         Button { showingMap = true } label: {
             TimelineView(.everyMinute) { context in
-                let shown = loaded ?? selection
+                let (departures, dimmed) = shownDepartures(for: open)
                 let next = departures.first { $0.time > context.date.addingTimeInterval(-30) }
                 HStack(spacing: 8) {
-                    LineBadge(line: selection.lineLabel, font: .system(.subheadline, design: .rounded).weight(.heavy))
-                    Text(selection.stopName)
+                    LineBadge(line: open.lineLabel, font: .system(.subheadline, design: .rounded).weight(.heavy))
+                        // The whole line name ("HOB–33"); the stop name gives way instead.
+                        .fixedSize()
+                    Text(open.stopName)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
-                    if feed.error == nil, let first = Departure.waits(departures, from: context.date, count: 1, lines: shown.isMultiLine) {
+                    if open.id != selection.id || feed.error == nil,
+                       let first = Departure.waits(departures, from: context.date, count: 1, lines: open.isMultiLine) {
                         Text(first)
                             .font(.system(.subheadline, design: .rounded).weight(.semibold))
                             .monospacedDigit()
                             .foregroundStyle(next?.isLive == true ? .green : .secondary)
                             .lineLimit(1)
                             .fixedSize()
-                            .opacity(isStale ? 0.4 : 1)
+                            .opacity(dimmed ? 0.4 : 1)
                     }
                 }
                 .padding(.leading, 6)
@@ -347,13 +419,18 @@ struct ContentView: View {
 
     /// The next three departures as minutes, like the widgets ("4 · 16 · 31 min"), plus a comment
     /// on the first. Recounted every minute between data refreshes.
-    private var nextDepartures: some View {
+    private func nextDepartures(_ open: Selection) -> some View {
         TimelineView(.everyMinute) { context in
-            let shown = loaded ?? selection
+            let isOpen = open.id == selection.id
+            let shown = isOpen ? loaded ?? selection : open
             let line = shown.lineLabel
+            let (departures, dimmed) = shownDepartures(for: open)
             VStack(alignment: .leading, spacing: 3) {
-                if let error = feed.error {
+                if isOpen, let error = feed.error {
                     Text(error).font(.subheadline).foregroundStyle(.secondary)
+                } else if !isOpen && departures.isEmpty {
+                    // Another city's default stop, seen mid-swipe: its times load once it's open.
+                    Text("…").font(.system(.title3, design: .rounded).weight(.semibold)).foregroundStyle(.secondary)
                 } else if let waits = Departure.waits(departures, from: context.date, count: 3, lines: shown.isMultiLine) {
                     Text(waits)
                         .font(.system(.title3, design: .rounded).weight(.semibold))
@@ -369,8 +446,15 @@ struct ContentView: View {
                 }
             }
             .padding(.leading, 2)
-            .opacity(isStale ? 0.4 : 1)
+            .opacity(dimmed ? 0.4 : 1)
         }
+    }
+
+    /// The departures a city page shows for `open`: the open stop's live feed (dimmed while it
+    /// still holds the previous stop's), or for another city's page, what the favorites feed has.
+    private func shownDepartures(for open: Selection) -> (departures: [Departure], dimmed: Bool) {
+        if open.id == selection.id { return (departures, isStale) }
+        return (favoritesFeed.departures[open.id] ?? [], false)
     }
 
     /// On a fresh install, start with the default stop of whichever supported city the proxy
@@ -411,6 +495,7 @@ struct ContentView: View {
     /// Switching city moves the map and the card to the new city. The widgets keep the favorites' order.
     private func switchCity(to city: City) {
         guard city != selection.city else { return }
+        editingCity = nil
         Selection.setLastOpened(selection)
         select(opening(city))
     }
@@ -452,72 +537,42 @@ struct QuipText: View {
     }
 }
 
-/// Pages between cities with a finger: dragging slides the neighbor city's map in alongside the
-/// current one, and letting go past a third of the width (or with a quick flick) switches to it.
-private struct CityPager<Page: View>: View {
-    let cities: [City]
-    let city: City
-    let onSwitch: (City) -> Void
-    @ViewBuilder let page: (City) -> Page
-
-    @GestureState private var drag: CGFloat = 0
-    @State private var settle: CGFloat = 0
-    @State private var width: CGFloat = 1
-
-    private var index: CGFloat { CGFloat(cities.firstIndex(of: city) ?? 0) }
-
-    var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                ForEach(cities) { page($0).frame(width: geometry.size.width) }
-            }
-            .offset(x: -index * geometry.size.width + drag + settle)
-            .animation(.snappy(duration: 0.3), value: city)
-            .onAppear { width = geometry.size.width }
-            .onChange(of: geometry.size.width) { width = geometry.size.width }
-        }
-        .clipped()
-        // On the whole frame: the pages themselves ignore touches so a tap reaches the picker.
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 20)
-                .updating($drag) { value, state, _ in
-                    let dx = value.translation.width
-                    guard abs(dx) > abs(value.translation.height) else { return }
-                    // Rubber-band past the first and last city.
-                    let atEdge = (dx > 0 && index == 0) || (dx < 0 && Int(index) == cities.count - 1)
-                    state = atEdge ? dx / 4 : dx
-                }
-                .onEnded { value in
-                    let dx = value.predictedEndTranslation.width
-                    let target = Int(index) + (dx < -width / 3 ? 1 : dx > width / 3 ? -1 : 0)
-                    guard cities.indices.contains(target), target != Int(index) else { return }
-                    // Hand the finger's offset over to the animation so the slide doesn't jump.
-                    settle = value.translation.width + CGFloat(target - Int(index)) * width
-                    onSwitch(cities[target])
-                    withAnimation(.snappy(duration: 0.3)) { settle = 0 }
-                }
-        )
-    }
-}
-
 /// Thin red outline for the favorite open on the map. Its corners follow the section's rounded
 /// corners wherever the row is: after a drag the list doesn't redraw a moved row's background, so
 /// a shape that depended on the row's position would keep its old one and get clipped.
 private struct SelectedFavoriteFrame: View {
     private static let inset: CGFloat = 2
-
-    /// Inset-grouped sections round their corners by about 26pt on iOS 26 and 10pt before.
-    /// SwiftUI doesn't expose the value (and ConcentricRectangle doesn't see the row's
-    /// container), so it's matched by hand.
-    private static var radius: CGFloat {
-        if #available(iOS 26, *) { 26 - inset } else { 10 }
-    }
+    private static var radius: CGFloat { ListCorners.radius - inset }
 
     var body: some View {
         RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
             .strokeBorder(LineBadge.red.opacity(0.7), lineWidth: 2)
             .padding(Self.inset)
             .allowsHitTesting(false)
+    }
+}
+
+/// Inset-grouped sections round their corners by about 26pt on iOS 26 and 10pt before. SwiftUI
+/// doesn't expose the value (and ConcentricRectangle doesn't see a row's container), so it's
+/// matched by hand, for the map card and the selected favorite's frame.
+private enum ListCorners {
+    static var radius: CGFloat {
+        if #available(iOS 26, *) { 26 } else { 12 }
+    }
+}
+
+/// Reports how far a list is scrolled down from its top. Needs iOS 18; before that the header
+/// just stays where it is.
+private struct ScrollOffset: ViewModifier {
+    let onChange: (CGFloat) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, new in
+                onChange(new)
+            }
+        } else {
+            content
+        }
     }
 }

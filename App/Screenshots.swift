@@ -30,7 +30,7 @@ struct WidgetShowcase: View {
         .task {
             // The favorites with live times, like the real widget shows them.
             var rows = [WidgetRow]()
-            for selection in Selection.widgetSelections.prefix(4) {
+            for selection in Selection.widgetSelections(near: Selection.current.city).prefix(4) {
                 let departures = (try? await TransitService.departures(for: selection, client: .app)) ?? []
                 rows.append(WidgetRow(selection: selection, departures: departures))
             }

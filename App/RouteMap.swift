@@ -18,6 +18,7 @@ struct RouteMap: View {
     /// The routes of the other lines a combined stop counts (the L and M besides the K).
     @State private var otherRoutes: [[CLLocationCoordinate2D]] = []
     @State private var position: MapCameraPosition = .automatic
+    @State private var mapHeight: CGFloat = 0
     /// The selection whose route is drawn, to tell a move within a city from a fresh start.
     @State private var shownSelection: Selection?
     /// A live bus that was still on its way vanished from the latest data.
@@ -100,13 +101,20 @@ struct RouteMap: View {
                 // that collide with other labels (like the stop's name right next to it).
                 Annotation("", coordinate: bus.vehicle.coordinate, anchor: .center) {
                     BusMarker(bearing: bus.vehicle.bearing, minutes: shortMinutes(bus.departure), isLive: bus.departure.isLive,
-                              line: selection.isMultiLine ? bus.departure.line : nil)
+                              line: selection.isMultiLine ? bus.departure.line : nil, vehicle: selection.vehicle)
                 }
                 .annotationTitles(.hidden)
             }
         }
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
         .safeAreaPadding(.top, topInset)
+        // When the map changes size (pinned smaller over a scrolled list), frame the route again
+        // instead of keeping the old zoom, which would show far too much around it.
+        .onGeometryChange(for: CGFloat.self, of: \.size.height) { height in
+            defer { mapHeight = height }
+            guard mapHeight > 0, abs(mapHeight - height) > 1, let rect = Self.boundingRect(of: route.joined()) else { return }
+            withAnimation(.snappy(duration: 0.3)) { position = .rect(rect) }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 if interactive { statusCard }
@@ -150,12 +158,12 @@ struct RouteMap: View {
             LineBadge(line: selection.lineLabel, font: .system(.title3, design: .rounded).weight(.heavy))
             VStack(alignment: .leading, spacing: 2) {
                 if let next = buses.first {
-                    Text("Next bus \(minutesLabel(next.departure) == "now" ? "arriving now" : "in \(minutesLabel(next.departure))")")
+                    Text("Next \(selection.vehicle) \(minutesLabel(next.departure) == "now" ? "arriving now" : "in \(minutesLabel(next.departure))")")
                         .font(.headline)
                 } else {
-                    Text("No buses on the way. Bold of you to look.").font(.headline)
+                    Text("No \(selection.vehicles) on the way. Bold of you to look.").font(.headline)
                 }
-                Text("Live buses headed to \(selection.stopName), in theory")
+                Text("Live \(selection.vehicles) headed to \(selection.stopName), in theory")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if busVanished {
@@ -262,6 +270,8 @@ private struct BusMarker: View {
     let isLive: Bool
     /// On a combined stop, which line this bus is, shown instead of the bus icon.
     var line: String? = nil
+    /// "bus", or "train" in the subway.
+    var vehicle = "bus"
 
     var body: some View {
         ZStack {
@@ -288,7 +298,7 @@ private struct BusMarker: View {
                         .minimumScaleFactor(0.6)
                         .frame(maxWidth: 26)
                 } else {
-                    Image(systemName: "bus.fill")
+                    Image(systemName: vehicle == "train" ? "tram.fill" : "bus.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.white)
                 }
@@ -303,7 +313,7 @@ private struct BusMarker: View {
         }
         .shadow(radius: 2, y: 1)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel((line.map { "Line \($0), " } ?? "Bus, ") + (minutes == "now" ? "arriving now" : "\(minutes) minutes"))
+        .accessibilityLabel((line.map { "Line \($0), " } ?? "\(vehicle.capitalized), ") + (minutes == "now" ? "arriving now" : "\(minutes) minutes"))
     }
 }
 

@@ -2,7 +2,7 @@ import Foundation
 
 /// A city the proxy has live data for.
 enum City: String, Codable, CaseIterable, Identifiable {
-    case sf, seattle
+    case sf, seattle, nyc
 
     var id: String { rawValue }
 
@@ -10,6 +10,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .sf: "San Francisco"
         case .seattle: "Seattle"
+        case .nyc: "New York"
         }
     }
 
@@ -18,14 +19,20 @@ enum City: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .sf: "SF"
         case .seattle: "SEA"
+        case .nyc: "NYC"
         }
     }
+
+    /// What mostly runs here, for the page's wording; a stop's own is `Selection.vehicle`.
+    var vehicle: String { self == .nyc ? "train" : "bus" }
+    var vehicles: String { self == .nyc ? "trains" : "buses" }
 
     /// Where this city's endpoints live on the proxy; SF predates the others and has no prefix.
     fileprivate var pathPrefix: String {
         switch self {
         case .sf: ""
         case .seattle: "seattle/"
+        case .nyc: "nyc/"
         }
     }
 
@@ -41,6 +48,10 @@ enum City: String, Codable, CaseIterable, Identifiable {
             Selection(lineID: "8", lineName: "Seattle Center - Capitol Hill - Rainier Beach", directionID: "1",
                       destination: "Mount Baker Transit Center", stopCode: "1_2260",
                       stopName: "Denny Way & Fairview Ave", city: .seattle)
+        case .nyc:
+            // The G toward Church Av at Metropolitan Av, where everyone waits for the shortest train in New York.
+            Selection(lineID: "G", lineName: "Brooklyn-Queens Crosstown", directionID: "S", destination: "Church Av",
+                      stopCode: "G29S", stopName: "Metropolitan Av", city: .nyc)
         }
     }
 }
@@ -78,6 +89,10 @@ struct Selection: Codable, Hashable, Identifiable {
 
     var isMultiLine: Bool { !also.isEmpty }
 
+    /// "train" or "bus": New York's bus stops are MTA Bus Time's ("MTA_308214"), the rest of it rails.
+    var vehicle: String { city == .nyc && !stopCode.hasPrefix("MTA_") ? "train" : "bus" }
+    var vehicles: String { vehicle == "bus" ? "buses" : "trains" }
+
     /// The same lines, direction and stop count as one place, whatever the display names say.
     var id: String {
         let extra = also.map { "+\($0.lineID)/\($0.directionID)" + ($0.stopCode.map { "@\($0)" } ?? "") }.sorted().joined()
@@ -112,11 +127,17 @@ struct Selection: Codable, Hashable, Identifiable {
         defaults.set(try? JSONEncoder().encode(selection), forKey: "lastOpened-\(selection.city.code)")
     }
 
-    /// What the widgets show: the favorites in the order the user arranged them, so a widget with
-    /// room for one shows the top favorite. With no favorites, the open stop is all there is.
-    static var widgetSelections: [Selection] {
+    /// What the widgets show: the favorites of the city you're in, in the order you arranged them,
+    /// so a widget with room for one shows the top one. Without any there, the stop open in the app
+    /// if it's in that city, else the favorites of the city open in the app, else just its open stop.
+    static func widgetSelections(near city: City?) -> [Selection] {
         let favorites = favorites
-        return favorites.isEmpty ? [current] : favorites
+        let current = current
+        let here = favorites.filter { $0.city == city }
+        if !here.isEmpty { return here }
+        if current.city == city { return [current] }
+        let open = favorites.filter { $0.city == current.city }
+        return open.isEmpty ? [current] : open
     }
 
     /// Saved lines and stops, in the order the user arranged them.
@@ -407,10 +428,24 @@ enum TransitService {
 
     /// The supported city nearest to this device, from the proxy's rough IP-based location.
     /// No location permission is involved; the proxy doesn't store anything.
-    static func nearestCity() async -> City? {
+    static func nearestCity(client: Client = .app) async -> City? {
         struct Response: Decodable { let city: City }
-        let response: Response? = try? await get(baseURL.appending(path: "city"), client: .app)
+        let response: Response? = try? await get(baseURL.appending(path: "city"), client: client)
         return response?.city
+    }
+
+    /// The city the widgets are in, from the same rough IP guess (no location permission), asked at
+    /// most every 20 minutes. If the guess fails, the last one stands.
+    static func widgetCity() async -> City? {
+        let defaults = AppGroup.defaults
+        let saved = defaults.string(forKey: "widgetCity").flatMap(City.init(rawValue:))
+        if let saved, let at = defaults.object(forKey: "widgetCityAt") as? Date, Date.now.timeIntervalSince(at) < 20 * 60 {
+            return saved
+        }
+        guard let city = await nearestCity(client: .widget) else { return saved }
+        defaults.set(city.rawValue, forKey: "widgetCity")
+        defaults.set(Date.now, forKey: "widgetCityAt")
+        return city
     }
 
     private static func url(_ city: City, _ path: String) -> URL {

@@ -19,12 +19,11 @@ struct Provider: TimelineProvider {
         }
     }
 
-    /// The stop open in the app first (it's what the Lock Screen's single-line and round widgets
-    /// show), then the other favorites in their saved order. Fetched together, then an entry per
-    /// minute so the minutes count down between refreshes.
+    /// The favorites of the city you're in, in their saved order. Fetched together, then an entry
+    /// per minute so the minutes count down between refreshes.
     private func load() async -> [DeparturesEntry] {
         let now = Date.now
-        let selections = Array(Selection.widgetSelections.prefix(4))
+        let selections = Array(Selection.widgetSelections(near: await TransitService.widgetCity()).prefix(4))
         let rows = await withTaskGroup(of: (Int, WidgetRow).self) { group in
             for (index, selection) in selections.enumerated() {
                 group.addTask {

@@ -1,9 +1,10 @@
 # 37 Shades of Late
 
 **37 Shades of Late** is an iOS app with Home Screen and Lock Screen widgets showing the next departures for a line
-and stop you pick in the app, in San Francisco (Muni) or Seattle (King County Metro, Sound Transit, Seattle
-Streetcar). A new install starts in the nearer city: the inbound 37 Corbett at 14th St & Church St (stop 13254)
-in SF, or the 8 toward Mount Baker at Denny Way & Fairview Ave (stop 1_2260) in Seattle.
+and stop you pick in the app, in San Francisco (Muni), Seattle (King County Metro, Sound Transit, Seattle
+Streetcar) or New York (subway, Staten Island Railway, PATH and buses). A new install starts in the
+nearest city: the inbound 37 Corbett at 14th St & Church St (stop 13254) in SF, the 8 toward Mount Baker at
+Denny Way & Fairview Ave (stop 1_2260) in Seattle, or the G toward Church Av at Metropolitan Av (G29S) in New York.
 
 ## How it fits together
 
@@ -19,13 +20,14 @@ in SF, or the 8 toward Mount Baker at Denny Way & Fairview Ave (stop 1_2260) in 
   Caches and the proxy is checked for changes at most once a day. A line's stops are kept for a week once
   loaded. Refresh the snapshots before a release with `App/Snapshots/update.sh`. Debug builds launched with
   `-simulateOffline YES` fail every request, to test this.
-- **Favorites**: every line and stop picked on the map is saved as one right away; tap one to show
-  it in the app and on the widgets; swipe to delete, Edit to reorder. Stored in the same App Group.
+- **Favorites**: every line and stop picked on the map is saved as one right away, in a list per city; each
+  city is a page you swipe to, with its map pinned at the top. Hold and drag to reorder, Edit to delete.
+  Stored in the same App Group.
 - **Map** (`App/RouteMap.swift`): the route in the chosen direction (Seattle's real street shapes;
   in SF the stops joined in order), the chosen stop, and live buses on the route headed to it,
   refreshed whenever the proxy has newer data.
 - **Widget** (`Widget/`): small/medium Home Screen and rectangular/circular/inline Lock Screen. Shows the
-  favorites in their saved order (the top one where there's room for just one), as line names and minutes until the
+  favorites of the city you're in (the proxy's IP guess, checked at most every 20 minutes) in their saved order (the top one where there's room for just one), as line names and minutes until the
   next departures; a line saved twice gets its destination added. Views are in `Shared/WidgetViews.swift`.
 - **Proxy** (`proxy/`): Cloudflare Worker at https://bus37-proxy.arne-5c1.workers.dev that
   holds the 511.org API key so all installs share one key. A single Durable Object fetches
@@ -51,6 +53,17 @@ in SF, or the 8 toward Mount Baker at Denny Way & Fairview Ave (stop 1_2260) in 
   and shows on the map, once it's running that trip (`activeTripId`). The key is the `OBA_API_KEY`
   secret (`npx wrangler secret put OBA_API_KEY`); until it's set the public, heavily rate-limited
   `TEST` key is used.
+
+  **New York** (`proxy/src/nyc.ts`) serves the same endpoints under `/v1/nyc/...` for the subway, from the
+  MTA's GTFS-realtime feeds (no key needed; each feed cached in memory for 30s). The network itself (lines,
+  stops in order per direction "N"/"S", track shapes, transfers) is bundled as `proxy/src/nyc-subway.json`,
+  built from the MTA's static GTFS by `python3 -I proxy/scripts/nyc-subway.py`; rerun it when the MTA
+  publishes a new schedule. Trains have no GPS, so the map draws each at the station it last reported.
+  PATH (lines "NWK–WTC", "JSQ–33" and so on; directions "Y" to New York and "J" to New Jersey) comes from
+  the Port Authority's RidePATH feed, without train positions. Buses come from MTA Bus Time through the same
+  OneBusAway code as Seattle (`proxy/src/nyc-bus.ts`), with live times and positions from its SIRI
+  StopMonitoring call; the key is the `MTA_BUSTIME_KEY` secret (for `wrangler dev`, in the git-ignored
+  `proxy/.dev.vars`). Without it, New York is just the trains.
 
 ## Website
 
