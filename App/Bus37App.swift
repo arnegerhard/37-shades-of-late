@@ -31,6 +31,9 @@ struct ContentView: View {
     @State private var showingMap = false
     /// The stop that was open before a favorite's live map button, to go back to after the map.
     @State private var openBeforeMap: Selection?
+    @State private var sharing = false
+    /// A stop from a shared link, waiting for "Add".
+    @State private var incoming: Selection?
     @State private var favorites = Selection.favorites
     @State private var showingGuide = !WidgetGuide.hasBeenShown
     /// Whether the map has been tapped (opening the line picker) at least once; after that, the hint
@@ -84,6 +87,15 @@ struct ContentView: View {
                     .navigationTitle(selection.isMultiLine ? "\(selection.lineIDs.joined(separator: ", ")) to \(selection.destination)" : "\(selection.lineID) \(selection.lineName)")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbarBackground(.visible, for: .navigationBar)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { sharing = true } label: { Image(systemName: "square.and.arrow.up") }
+                                .accessibilityLabel("Share this stop")
+                        }
+                    }
+                    .sheet(isPresented: $sharing) {
+                        ShareSheet(selection: selection, departures: feed.loaded?.id == selection.id ? feed.departures : [])
+                    }
             }
             .onChange(of: showingMap) {
                 // Back from a favorite's live map: open what was open before, so the big card
@@ -95,15 +107,38 @@ struct ContentView: View {
             .task(id: selection) { await feed.follow(selection) }
             .task(id: favorites) { await favoritesFeed.follow(favorites) }
             .task { await startInNearestCity() }
+            // A friend's stop, from a 37shadesoflate.com/s link (or its QR code).
+            .onOpenURL { url in Task { incoming = await Selection.shared(by: url) } }
+            .alert(incoming.map { "Add the \($0.lineLabel) at \($0.stopName)?" } ?? "",
+                   isPresented: Binding(get: { incoming != nil }, set: { if !$0 { incoming = nil } })) {
+                Button("Add to favorites") {
+                    if let picked = incoming {
+                        if !favorites.contains(where: { $0.id == picked.id }) { favorites.append(picked) }
+                        select(picked)
+                    }
+                }
+                Button("Not now", role: .cancel) {}
+            } message: {
+                if let incoming { Text("To \(incoming.destination), in \(incoming.city.name). It joins your favorites there.") }
+            }
             .onChange(of: favorites) {
                 Selection.favorites = favorites
                 // The widgets list the favorites in order, so any change shows up there right away.
                 WidgetCenter.shared.reloadAllTimelines()
             }
             #if DEBUG
+            .task {
+                // `-openLink <url>`: as if a shared link were opened.
+                if let link = UserDefaults.standard.string(forKey: "openLink").flatMap(URL.init(string:)) {
+                    incoming = await Selection.shared(by: link)
+                }
+            }
             .onAppear {
                 switch ScreenshotScreen.current {
                 case .guide: showingGuide = true
+                case .share:
+                    showingMap = true
+                    Task { try? await Task.sleep(for: .seconds(1.5)); sharing = true }
                 case .lines: choosing = true
                 case .map: showingMap = true
                 case .stops:

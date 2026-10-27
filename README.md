@@ -71,6 +71,16 @@ Denny Way & Fairview Ave (stop 1_2260) in Seattle, or the G toward Church Av at 
   StopMonitoring call; the key is the `MTA_BUSTIME_KEY` secret (for `wrangler dev`, in the git-ignored
   `proxy/.dev.vars`). Without it, New York is just the trains.
 
+## Sharing
+
+The live map's share button (`App/Sharing.swift`) sends a card picture of the wait and its quip with a link,
+or shows that link as a QR code with the 37 in the middle (highest error correction, so it still scans). The
+link, `https://37shadesoflate.com/s?c=sf&l=37&s=13254&d=IB` (city, line, stop, direction), opens a web page
+with the stop's live times (`site/pages/s.html`), or, with the app installed, the app, which offers to add the
+stop to that city's favorites. That's a universal link: the site serves
+`/.well-known/apple-app-site-association` and the app has the `applinks:37shadesoflate.com` associated domain.
+Debug builds take `-openLink <url>` to try it in the simulator.
+
 ## Website
 
 `site/` is the marketing page for 37shadesoflate.com: `index.src.html` plus the two screenshots in

@@ -25,5 +25,15 @@ assert "{{" not in html, "unfilled placeholder"
 open("public/index.html", "w").write(html)
 print(f"public/index.html: {len(html) // 1024} KB")
 PY
-# Privacy and support pages are plain static files.
-cp pages/privacy.html pages/support.html public/
+# Privacy, support and the shared-stop page (/s) are plain static files.
+cp pages/privacy.html pages/support.html pages/s.html public/
+# Lets 37shadesoflate.com/s links open the app when it's installed (universal links). Apple reads it
+# as JSON, which the _headers file makes sure of.
+mkdir -p public/.well-known
+cat > public/.well-known/apple-app-site-association <<'JSON'
+{"applinks": {"details": [{"appIDs": ["DLJLEZ2Y6W.info.jetsons.bus37"], "components": [{"/": "/s", "comment": "a shared stop"}]}]}}
+JSON
+cat > public/_headers <<'TXT'
+/.well-known/apple-app-site-association
+  Content-Type: application/json
+TXT

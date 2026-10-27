@@ -13,6 +13,7 @@
 		7E8A3ED9E99110ABDDF35056 /* Departures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0D54B99A29C7D81D9A1E485 /* Departures.swift */; };
 		898E3C84015A68E8D5BA1FC6 /* Bus37Widget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68DEEC5502B95B81890DC62F /* Bus37Widget.swift */; };
 		A44E7C0A1C0B4E37A1B2C3A2 /* RouteMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */; };
+		A44E7C0A1C0B4E37A1B2C3A4 /* Sharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44E7C0A1C0B4E37A1B2C3A3 /* Sharing.swift */; };
 		B55E7C0A1C0B4E37A1B2C3B2 /* LineMapPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B55E7C0A1C0B4E37A1B2C3B1 /* LineMapPicker.swift */; };
 		B55E7C0A1C0B4E37A1B2C3D4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A55E7C0A1C0B4E37A1B2C3D4 /* Assets.xcassets */; };
 		C66E7C0A1C0B4E37A1B2C3C2 /* DepartureFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E7C0A1C0B4E37A1B2C3C1 /* DepartureFeed.swift */; };
@@ -64,6 +65,7 @@
 		68DEEC5502B95B81890DC62F /* Bus37Widget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bus37Widget.swift; sourceTree = "<group>"; };
 		A0D54B99A29C7D81D9A1E485 /* Departures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Departures.swift; sourceTree = "<group>"; };
 		A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteMap.swift; sourceTree = "<group>"; };
+		A44E7C0A1C0B4E37A1B2C3A3 /* Sharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sharing.swift; sourceTree = "<group>"; };
 		A55E7C0A1C0B4E37A1B2C3D4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B55E7C0A1C0B4E37A1B2C3B1 /* LineMapPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineMapPicker.swift; sourceTree = "<group>"; };
 		C50260F10B288288F1E6B27E /* Bus37App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bus37App.swift; sourceTree = "<group>"; };
@@ -152,6 +154,7 @@
 				C66E7C0A1C0B4E37A1B2C3C1 /* DepartureFeed.swift */,
 				B55E7C0A1C0B4E37A1B2C3B1 /* LineMapPicker.swift */,
 				A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */,
+				A44E7C0A1C0B4E37A1B2C3A3 /* Sharing.swift */,
 				D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */,
 				E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */,
 				2694D610C8E5A9E74CE27B68 /* Info.plist */,
@@ -277,6 +280,7 @@
 				C66E7C0A1C0B4E37A1B2C3C2 /* DepartureFeed.swift in Sources */,
 				B55E7C0A1C0B4E37A1B2C3B2 /* LineMapPicker.swift in Sources */,
 				A44E7C0A1C0B4E37A1B2C3A2 /* RouteMap.swift in Sources */,
+				A44E7C0A1C0B4E37A1B2C3A4 /* Sharing.swift in Sources */,
 				D11E7C0A1C0B4E37A1B2C3D5 /* StopPicker.swift in Sources */,
 				E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */,

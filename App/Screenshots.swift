@@ -7,7 +7,7 @@ import WidgetKit
 /// Home Screen and Lock Screen (iOS doesn't let automation place real widgets); `lockwidget` is a
 /// plain Lock Screen with just the clock and the rectangular widget, no captions.
 enum ScreenshotScreen: String {
-    case lines, stops, map, widgets, lock, lockwidget, guide
+    case lines, stops, map, widgets, lock, lockwidget, guide, share
 
     static var current: ScreenshotScreen? {
         UserDefaults.standard.string(forKey: "screen").flatMap(ScreenshotScreen.init)

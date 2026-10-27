@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Someone's waiting · 37 Shades of Late</title>
+<meta name="description" content="Live minutes until the next bus or train at a friend's stop, with an honest opinion about the wait.">
+<meta property="og:title" content="Someone's waiting for a bus. Live.">
+<meta property="og:description" content="Live minutes until it shows up, and how to feel about it. 37 Shades of Late.">
+<!-- Safari's "get the app" bar; with the app installed, the stop link opens it instead. -->
+<meta name="apple-itunes-app" content="app-id=6825789256">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23bf1a26'/%3E%3Ctext x='50' y='68' font-family='system-ui' font-weight='900' font-size='52' fill='white' text-anchor='middle'%3E37%3C/text%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: dark; --red: #bf1a26; --night: #0b0d17; --ink: #f4f1ea; --muted: #a8a6b3; --line: rgba(255,255,255,.12);
+          --green: #4cd964; --round: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--night); color: var(--ink); font: 17px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { width: min(520px, 100% - 32px); margin-inline: auto; padding: 28px 0 64px; }
+  header { margin-bottom: 36px; }
+  .home { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font: 800 17px/1 var(--round); }
+  .home b { background: var(--red); color: #fff; border-radius: 7px; padding: 5px 8px; font: 900 15px/1 var(--round); }
+  .kicker { color: #ff8a93; font: 800 13px/1 var(--round); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 14px; }
+  .card { background: #15172c; border: 1px solid var(--line); border-radius: 28px; padding: 26px 24px; }
+  .ride { display: flex; align-items: center; gap: 12px; }
+  .badge { background: var(--red); color: #fff; border-radius: 9px; padding: 6px 10px; font: 900 22px/1 var(--round); white-space: nowrap; }
+  .to { font: 800 21px/1.2 var(--round); }
+  .stop { color: var(--muted); margin-top: 4px; }
+  .mins { font: 900 clamp(64px, 20vw, 96px)/1 var(--round); letter-spacing: -.03em; margin: 26px 0 4px; color: var(--green); }
+  .mins.scheduled { color: var(--muted); }
+  .mins small { font-size: .32em; margin-left: 8px; letter-spacing: 0; }
+  .later { color: var(--muted); font: 600 17px/1.3 var(--round); }
+  .quip { font-style: italic; color: #dcdae3; margin-top: 18px; font-size: 19px; }
+  .cta { display: inline-flex; align-items: center; gap: 10px; margin-top: 30px; padding: 13px 20px; border-radius: 14px;
+         background: var(--ink); color: #111; text-decoration: none; font: 800 17px/1.1 var(--round); }
+  .cta small { display: block; font: 600 11px/1 system-ui; opacity: .7; margin-bottom: 3px; }
+  .pitch { color: var(--muted); margin-top: 26px; }
+  .pitch a { color: #ff8a93; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><a class="home" href="/"><b>37</b>37 Shades of Late</a></header>
+<main>
+  <div class="kicker">A friend is waiting here</div>
+  <div class="card" aria-live="polite">
+    <div class="ride"><span class="badge" id="badge">…</span><div><div class="to" id="to">Asking nicely…</div><div class="stop" id="stop">&nbsp;</div></div></div>
+    <div class="mins" id="mins">–</div>
+    <div class="later" id="later">&nbsp;</div>
+    <div class="quip" id="quip">&nbsp;</div>
+  </div>
+  <a class="cta" id="cta" href="https://apps.apple.com/app/id6825789256">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
+    <span><small>Get it on your Lock Screen</small>37 Shades of Late</span>
+  </a>
+  <p class="pitch">Minutes until your bus or train, right on your Lock Screen, in San Francisco, Seattle and New York.
+    Already have the app? This link opens this stop in it. <a href="/">What is this?</a></p>
+</main>
+</div>
+<script>
+  // /s?c=sf&l=37&s=13254&d=IB — city, line, stop and direction, as the app shares them.
+  const API = "https://bus37-proxy.arne-5c1.workers.dev/v1/";
+  const params = new URLSearchParams(location.search);
+  const city = params.get("c") || "sf", line = params.get("l") || "37", stop = params.get("s") || "13254", way = params.get("d") || "";
+  const base = API + (city === "sf" ? "" : city + "/");
+  const $ = (id) => document.getElementById(id);
+  $("badge").textContent = line;
+
+  function quip(minutes) {
+    if (minutes < 4) return `Holy shit, the ${line} is real.`;
+    if (minutes < 9) return "Stay put, lazy bastard.";
+    if (minutes < 16) return "Make coffee. Reconsider your life.";
+    return "Walking is starting to look attractive.";
+  }
+
+  // Where the line goes from this stop, once.
+  fetch(base + "lines/" + encodeURIComponent(line) + "?client=web").then((r) => r.json()).then((data) => {
+    const direction = data.directions?.find((d) => d.id === way) ?? data.directions?.find((d) => d.stops.some((s) => s.code === stop));
+    if (direction) $("to").textContent = "To " + direction.destination;
+    const name = direction?.stops.find((s) => s.code === stop)?.name;
+    if (name) { $("stop").textContent = name; document.title = `The ${line} at ${name} · 37 Shades of Late`; }
+  }).catch(() => {});
+
+  async function refresh() {
+    let next = 60_000;
+    try {
+      const query = new URLSearchParams({ stop, line, direction: way, client: "web" });
+      const response = await fetch(base + "departures?" + query, { cache: "no-store" });
+      if (!response.ok) throw new Error(response.status);
+      const data = await response.json();
+      if (data.stop?.name && $("stop").textContent.trim() === "") $("stop").textContent = data.stop.name;
+      const upcoming = data.departures.filter((d) => Date.parse(d.time) > Date.now() - 30_000);
+      const minutes = (d) => Math.max(0, Math.floor((Date.parse(d.time) - Date.now()) / 60_000));
+      if (upcoming.length) {
+        const first = minutes(upcoming[0]);
+        $("mins").innerHTML = first === 0 ? "now" : `${first}<small>min</small>`;
+        $("mins").classList.toggle("scheduled", !upcoming[0].live);
+        const later = upcoming.slice(1, 3).map(minutes);
+        $("later").textContent = later.length ? `then ${later.join(" · ")} min` : "";
+        $("quip").textContent = `“${quip(first)}”`;
+      } else {
+        $("mins").textContent = "??";
+        $("later").textContent = "";
+        $("quip").textContent = `“Schrödinger's ${line}: both coming and not coming.”`;
+      }
+      if (data.nextRefreshAt) next = Math.max(10_000, Date.parse(data.nextRefreshAt) - Date.now() + 1_000);
+    } catch {
+      $("mins").textContent = "404";
+      $("quip").textContent = `“The ${line} has entered the witness protection program.”`;
+    }
+    setTimeout(refresh, next);
+  }
+  refresh();
+</script>
+</body>
+</html>
