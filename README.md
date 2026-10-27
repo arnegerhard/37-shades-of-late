@@ -1,7 +1,7 @@
 # 37 Shades of Late
 
 **37 Shades of Late** is an iOS app with Home Screen and Lock Screen widgets showing the next departures for a line
-and stop you pick in the app, in San Francisco (Muni), Seattle (King County Metro, Sound Transit, Seattle
+and stop you pick in the app, in San Francisco (Muni and BART), Seattle (King County Metro, Sound Transit, Seattle
 Streetcar) or New York (subway, Staten Island Railway, PATH and buses). A new install starts in the
 nearest city: the inbound 37 Corbett at 14th St & Church St (stop 13254) in SF, the 8 toward Mount Baker at
 Denny Way & Fairview Ave (stop 1_2260) in Seattle, or the G toward Church Av at Metropolitan Av (G29S) in New York.
@@ -53,6 +53,12 @@ Denny Way & Fairview Ave (stop 1_2260) in Seattle, or the G toward Church Av at 
   and shows on the map, once it's running that trip (`activeTripId`). The key is the `OBA_API_KEY`
   secret (`npx wrangler secret put OBA_API_KEY`); until it's set the public, heavily rate-limited
   `TEST` key is used.
+
+  **BART** (`proxy/src/bart.ts`) is part of San Francisco, from BART's GTFS-realtime feed (no key). Its lines
+  (by color: "Yellow", ..., and "OAK"; directions "N"/"S") and a trip-to-line map are bundled as
+  `proxy/src/bart.json`, built by `python3 -I proxy/scripts/bart.py`; rerun it when BART publishes a new
+  schedule. Its stops are platform ids like "M16-1". It's served by the Worker itself rather than the
+  Durable Object, so deploys take effect at once, and added to Muni's `/v1/lines` and `/v1/map`.
 
   **New York** (`proxy/src/nyc.ts`) serves the same endpoints under `/v1/nyc/...` for the subway, from the
   MTA's GTFS-realtime feeds (no key needed; each feed cached in memory for 30s). The network itself (lines,

@@ -156,3 +156,47 @@ export function linesAtStop(visits: { line: string; direction: string; destinati
   }
   return [...seen.values()].sort((a, b) => a.line.localeCompare(b.line, "en", { numeric: true }));
 }
+
+/**
+ * A line's shapes made fit to draw on a map of every line: shapes that only retrace others (the
+ * second direction, short turns) dropped, and pieces that meet end to end joined into one. Fewer,
+ * longer lines are what keeps MapKit smooth with a city's worth of them.
+ */
+export function mergeShapes(shapes: Polyline[], toleranceMeters = 40): Polyline[] {
+  const kept: Polyline[] = [];
+  for (const shape of [...shapes].sort((a, b) => b.length - a.length)) {
+    const covered = shape.every((p) => kept.some((k) => k.some((a, i) => i > 0 && metersToSegment(p, k[i - 1], a) < toleranceMeters)));
+    if (!kept.length || !covered) kept.push(shape);
+  }
+  // Join a piece onto another whose end it starts at (or ends at, turned around).
+  const near = (a: [number, number], b: [number, number]) => metersBetween({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] }) < toleranceMeters * 1.5;
+  let joined = true;
+  while (joined) {
+    joined = false;
+    outer: for (let i = 0; i < kept.length; i++) {
+      for (let j = 0; j < kept.length; j++) {
+        if (i === j) continue;
+        const [a, b] = [kept[i], kept[j]];
+        for (const next of [b, [...b].reverse()]) {
+          if (near(a[a.length - 1], next[0])) {
+            kept[i] = [...a, ...next.slice(1)];
+            kept.splice(j, 1);
+            joined = true;
+            break outer;
+          }
+        }
+      }
+    }
+  }
+  return kept;
+}
+
+/** Meters from `p` to the segment a–b, flat-earth. */
+function metersToSegment(p: [number, number], a: [number, number], b: [number, number]): number {
+  const scale = Math.cos((p[0] * Math.PI) / 180) * 111_320;
+  const [px, py, ax, ay, bx, by] = [p[1] * scale, p[0] * 110_540, a[1] * scale, a[0] * 110_540, b[1] * scale, b[0] * 110_540];
+  const [dx, dy] = [bx - ax, by - ay];
+  const length = dx * dx + dy * dy;
+  const t = length > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / length)) : 0;
+  return Math.hypot(ax + t * dx - px, ay + t * dy - py);
+}

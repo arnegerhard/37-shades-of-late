@@ -11,6 +11,8 @@ struct LineMapPicker: View {
 
     @State private var lines: [MapLine] = []
     @State private var paths: [String: [[CLLocationCoordinate2D]]] = [:]
+    /// Bumped whenever `paths` changes, so the lines' layer can tell it's unchanged cheaply.
+    @State private var pathsVersion = 0
     @State private var candidates: [MapLine] = []
     @State private var selectedID: String?
     @State private var directions: [Direction] = []
@@ -58,9 +60,16 @@ struct LineMapPicker: View {
         otherLines.filter { alsoIDs.contains($0.id) && $0.isNearby && $0.lat != nil && $0.lon != nil }
     }
 
+    /// New York's buses, which outnumber its trains more than ten to one.
+    private func isBackground(_ line: MapLine) -> Bool {
+        city == .nyc && line.mode == "bus"
+    }
+
     private var drawOrder: [MapLine] {
         let also = alsoLineIDs
-        return lines.filter { $0.id != selectedID && !also.contains($0.id) }
+        // In New York the buses go underneath, so the trains stay readable on top of them.
+        let rest = lines.filter { $0.id != selectedID && !also.contains($0.id) }
+        return rest.filter(isBackground) + rest.filter { !isBackground($0) }
             + lines.filter { also.contains($0.id) }
             + lines.filter { $0.id == selectedID }
     }
@@ -69,19 +78,9 @@ struct LineMapPicker: View {
         MapReader { proxy in
             Map(position: $position) {
                 // Selected line last, so it's drawn on top of the lines it shares streets with.
-                ForEach(drawOrder) { line in
-                    let isSelected = line.id == selectedID || alsoLineIDs.contains(line.id)
-                    let isCandidate = !isSelected && candidates.contains { $0.id == line.id }
-                    // Many lines share a color (all Muni buses are blue), so only the selected line
-                    // keeps full strength; nearby ones stay a bit clearer than the rest.
-                    ForEach(Array((paths[line.id] ?? []).enumerated()), id: \.offset) { _, path in
-                        MapPolyline(coordinates: path)
-                            .stroke(line.mapColor.legible(on: colorScheme)
-                                        .opacity(selectedID == nil || isSelected ? 1 : isCandidate ? 0.5 : 0.22),
-                                    style: StrokeStyle(lineWidth: isSelected ? 7 : isCandidate ? 3.5 : 3,
-                                                       lineCap: .round, lineJoin: .round))
-                    }
-                }
+                LineLayer(lines: drawOrder, paths: paths, pathsVersion: pathsVersion, selectedID: selectedID,
+                          alsoLineIDs: alsoLineIDs, candidateIDs: Set(candidates.map(\.id)),
+                          colorScheme: colorScheme, isBackground: isBackground)
 
                 // Line names. While a line is picked they step back like the other lines do.
                 ForEach(labels + leavingLabels.values.map(\.label).sorted { $0.id < $1.id }) { label in
@@ -417,6 +416,7 @@ struct LineMapPicker: View {
         paths = Dictionary(uniqueKeysWithValues: loaded.map { line in
             (line.id, line.shapes.map { $0.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil } })
         })
+        pathsVersion += 1
         lines = loaded
         // A refresh may have dropped the selected line (a service change); let go of it then.
         if let selectedID, !loaded.contains(where: { $0.id == selectedID }) { deselect() }
@@ -686,6 +686,42 @@ struct LabelSpot {
 }
 
 /// A line's name badge, placed on the map.
+/// Every line on the map. Kept apart and equatable so the labels updating while you pinch don't make
+/// SwiftUI rebuild hundreds of lines (New York has over 500) each time.
+private struct LineLayer: MapContent, Equatable {
+    let lines: [MapLine]
+    let paths: [String: [[CLLocationCoordinate2D]]]
+    let pathsVersion: Int
+    let selectedID: String?
+    let alsoLineIDs: Set<String>
+    let candidateIDs: Set<String>
+    let colorScheme: ColorScheme
+    let isBackground: (MapLine) -> Bool
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.pathsVersion == b.pathsVersion && a.selectedID == b.selectedID && a.alsoLineIDs == b.alsoLineIDs
+            && a.candidateIDs == b.candidateIDs && a.colorScheme == b.colorScheme && a.lines.map(\.id) == b.lines.map(\.id)
+    }
+
+    var body: some MapContent {
+        ForEach(lines) { line in
+            let isSelected = line.id == selectedID || alsoLineIDs.contains(line.id)
+            let isCandidate = !isSelected && candidateIDs.contains(line.id)
+            // Many lines share a color (all Muni buses are blue), so only the selected line
+            // keeps full strength; nearby ones stay a bit clearer than the rest.
+            // New York's buses are a fine, faint web under the trains until one is picked.
+            let background = isBackground(line) && !isSelected
+            ForEach(Array((paths[line.id] ?? []).enumerated()), id: \.offset) { _, path in
+                MapPolyline(coordinates: path)
+                    .stroke(line.mapColor.legible(on: colorScheme)
+                                .opacity((selectedID == nil || isSelected ? 1 : isCandidate ? 0.5 : 0.22) * (background && !isCandidate ? 0.45 : 1)),
+                            style: StrokeStyle(lineWidth: isSelected ? 7 : isCandidate ? 3.5 : background ? 1.5 : 3,
+                                               lineCap: .round, lineJoin: .round))
+            }
+        }
+    }
+}
+
 /// A line badge that fades in when it appears and fades out once `leaving`.
 private struct FadingBadge<Content: View>: View {
     let leaving: Bool

@@ -11,7 +11,7 @@
  *   GET /v1/seattle/map                            every line's route shape, for picking a line on a map
  */
 
-import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, simplify, type NearbyLine, type Polyline } from "./geo";
+import { closestPerLine, hexColor, mergeShapes, linePairs, linesAtStop, metersBetween, NEARBY_METERS, simplify, type NearbyLine, type Polyline } from "./geo";
 
 const DEPARTURES_TTL_MS = 60_000;
 
@@ -106,9 +106,9 @@ export async function handleOBA(parts: string[], url: URL, baseDeps: SeattleDeps
 
   if (parts[0] === "map") {
     // A partial map (still being filled in, see fetchMap) is only kept briefly.
-    let entry = await deps.cached(`${region.cache}-map-v3`, deps.staticTTL, () => fetchMap(deps));
+    let entry = await deps.cached(`${region.cache}-map-v5`, deps.staticTTL, () => fetchMap(deps));
     if (!entry.data.complete && Date.now() - entry.fetchedAt > 20_000) {
-      entry = await deps.cached(`${region.cache}-map-v3`, 20, () => fetchMap(deps));
+      entry = await deps.cached(`${region.cache}-map-v5`, 20, () => fetchMap(deps));
     }
     return { body: { lines: entry.data.lines, complete: entry.data.complete, fetchedAt: iso(entry.fetchedAt) }, maxAge: entry.data.complete ? 3600 : 0 };
   }
@@ -284,8 +284,9 @@ async function fetchMap(deps: Deps) {
       continue;
     }
     if (!fresh && budget <= 0) complete = false;
-    // One direction is enough to draw the line; the other mostly retraces it.
-    const shapes: Polyline[] = (entry.data[0]?.shapes ?? []).map((shape: Polyline) => simplify(shape));
+    // One direction is enough to draw the line; the other mostly retraces it. Its pieces are merged
+    // into as few lines as possible, and simplified more: a city-wide map needs no street-level detail.
+    const shapes = mergeShapes((entry.data[0]?.shapes ?? []).map((shape: Polyline) => simplify(shape, 20)));
     if (shapes.length) result.push({ id: line.id, name: line.name, mode: line.mode, color: line.color, textColor: line.textColor, shapes });
   }
   return { lines: result, complete };

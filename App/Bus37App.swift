@@ -29,6 +29,9 @@ struct ContentView: View {
     @State private var openBeforeMap: Selection?
     @State private var favorites = Selection.favorites
     @State private var showingGuide = !WidgetGuide.hasBeenShown
+    /// Whether the map has been tapped (opening the line picker) at least once; after that, the hint
+    /// above it isn't needed any more.
+    @AppStorage("mapHintDone") private var mapHintDone = false
     /// The city whose favorites are in edit mode (deleting); a sideways swipe turns the page instead.
     @State private var editingCity: City?
     /// How far each city's list is scrolled; the hint and city picker slide away by as much (up to
@@ -52,13 +55,23 @@ struct ContentView: View {
                     .padding(.bottom, 8)
                     .accessibilityAddTraits(.isHeader)
                 // A page per city, each with its own map, open stop and favorites; swiping anywhere
-                // switches city and the whole page slides along.
-                TabView(selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
-                    ForEach(City.allCases) { city in
-                        cityPage(city).tag(city)
+                // switches city and the page slides along. The hint and city picker stay put above
+                // the pages (each page leaves room for them), sliding up only as the list scrolls.
+                ZStack(alignment: .top) {
+                    TabView(selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
+                        ForEach(City.allCases) { city in
+                            cityPage(city).tag(city)
+                        }
                     }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+
+                    cityHeader
+                        .background(Color(.systemGroupedBackground))
+                        .offset(y: -collapse(selection.city))
+                        .opacity(headerHeight > 0 ? 1 - collapse(selection.city) / headerHeight : 1)
+                        .allowsHitTesting(collapse(selection.city) < headerHeight / 2)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                .clipped()
             }
             .background(Color(.systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
@@ -96,6 +109,12 @@ struct ContentView: View {
                 }
             }
             #endif
+            .onChange(of: choosing) {
+                if choosing, !mapHintDone {
+                    // Shown once more under the picker sheet, then gone once it closes.
+                    Task { try? await Task.sleep(for: .seconds(0.6)); mapHintDone = true }
+                }
+            }
             .sheet(isPresented: $choosing) {
                 NavigationStack(path: $pickerPath) {
                     LinePicker { picked in
@@ -215,9 +234,8 @@ struct ContentView: View {
             // The hint and city picker, then the map. Scrolling the list slides the hint and picker
             // up out of sight (and the map with them, into their room), in step with the finger.
             VStack(alignment: .leading, spacing: 0) {
-                cityHeader
-                    .opacity(headerHeight > 0 ? 1 - collapse(city) / headerHeight : 1)
-                    .allowsHitTesting(collapse(city) < headerHeight / 2)
+                // The hint and city picker's room; they're drawn once, above the pages.
+                Color.clear.frame(height: headerHeight)
                 // Room at the top for the open favorite's card, so the route isn't under it.
                 RouteMap(selection: open, feed: feed, interactive: false, topInset: openIsFavorite ? 44 : 0)
                     .allowsHitTesting(false)
@@ -256,11 +274,13 @@ struct ContentView: View {
         .clipped()
     }
 
-    /// "Tap the map…" and the city picker, at the top of each city's page.
+    /// "Tap the map…" (until the map's been used) and the city picker, above the city pages.
     private var cityHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Tap the map to pick your next wait", systemImage: "hand.tap.fill")
-                .font(.headline)
+            if !mapHintDone {
+                Label("Tap the map to pick your next wait", systemImage: "hand.tap.fill")
+                    .font(.headline)
+            }
             Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
                 ForEach(City.allCases) { Text($0.name).tag($0) }
             }

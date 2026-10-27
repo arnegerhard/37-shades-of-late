@@ -226,12 +226,14 @@ function position(line: Line, vehicle: TrainPosition) {
 
 // MARK: - The real-time feeds
 
-interface TrainPosition {
+export interface TrainPosition {
   stop: string;
   status: number;
 }
 
-interface Trip {
+export interface Trip {
+  /** GTFS trip id; BART's feed names only this, not the route. */
+  id?: string;
   routeId: string;
   stops: { stop: string; time: number }[];
   vehicle?: TrainPosition;
@@ -355,11 +357,11 @@ class Reader {
 const decoder = new TextDecoder();
 
 /** FeedMessage → the trips with their upcoming stops, and where each running train is. */
-function decodeFeed(bytes: Uint8Array): Trip[] {
+export function decodeFeed(bytes: Uint8Array): Trip[] {
   const trips = new Map<string, Trip>();
   const trip = (id: string) => {
     let t = trips.get(id);
-    if (!t) trips.set(id, (t = { routeId: "", stops: [] }));
+    if (!t) trips.set(id, (t = { id, routeId: "", stops: [] }));
     return t;
   };
   for (const entity of new Reader(bytes).fields()) {
@@ -393,7 +395,7 @@ function decodeFeed(bytes: Uint8Array): Trip[] {
       }
     }
   }
-  return [...trips.values()].filter((t) => t.routeId && t.stops.length);
+  return [...trips.values()].filter((t) => t.stops.length);
 }
 
 /** TripDescriptor: 1 trip_id, 5 route_id. */

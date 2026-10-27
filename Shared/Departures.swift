@@ -89,8 +89,15 @@ struct Selection: Codable, Hashable, Identifiable {
 
     var isMultiLine: Bool { !also.isEmpty }
 
-    /// "train" or "bus": New York's bus stops are MTA Bus Time's ("MTA_308214"), the rest of it rails.
-    var vehicle: String { city == .nyc && !stopCode.hasPrefix("MTA_") ? "train" : "bus" }
+    /// "train" or "bus": New York's bus stops are MTA Bus Time's ("MTA_308214"), the rest of it rails;
+    /// in San Francisco, BART's platforms ("M16-1") are trains.
+    var vehicle: String {
+        switch city {
+        case .nyc: stopCode.hasPrefix("MTA_") ? "bus" : "train"
+        case .sf: stopCode.wholeMatch(of: /[A-Z]\d+-\d/) != nil ? "train" : "bus"
+        case .seattle: "bus"
+        }
+    }
     var vehicles: String { vehicle == "bus" ? "buses" : "trains" }
 
     /// The same lines, direction and stop count as one place, whatever the display names say.

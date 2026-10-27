@@ -1,10 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
+import { BART_STOP, bartLines, bartMap, handleBart, isBartLine } from "./bart";
 import { handleNYC } from "./nyc";
 import { handleSeattle } from "./seattle";
 import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, parseCSV, readZipEntry, simplify, type NearbyLine, type Polyline } from "./geo";
 
 /**
- * Caching proxy for live transit data: 511.org for SF Muni (below), OneBusAway for Seattle
+ * Caching proxy for live transit data: 511.org for SF Muni (below) and BART's own feed (bart.ts), OneBusAway for Seattle
  * (see seattle.ts, served under /v1/seattle/...) and the MTA's subway feeds for New York (see
  * nyc.ts, under /v1/nyc/...).
  *
@@ -61,10 +62,28 @@ export default {
     if (page === "") return Response.redirect(SITE, 301);
     recordUsage(request, env);
     if (pathname === "/v1/city") return json({ city: nearestCity(request) });
-    // "-v3": the shared-snapshot version runs in a fresh instance (the old per-stop one kept
-    // serving stale code while busy). Bump the suffix again for a clean cache if ever needed.
-    const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v3`));
-    return stub.fetch(request);
+    // BART lives in San Francisco next to Muni (see bart.ts) but needs nothing from the shared
+    // cache, so it's served right here, where a deploy takes effect at once: its lines and its
+    // platforms' stops ("M16-1"), and added to Muni's line list and map.
+    const url = new URL(request.url);
+    const parts = pathname.split("/").filter(Boolean);
+    const sfStop = (url.searchParams.get("stop") ?? "").split(",")[0];
+    if ((parts[1] === "lines" && parts.length === 3 && isBartLine(decodeURIComponent(parts[2])))
+        || (["stop", "nearby", "departures"].includes(parts[1] ?? "") && BART_STOP.test(sfStop))) {
+      const result = await handleBart(parts.slice(1).join("/"), url);
+      return json(result.body, result.status ?? 200, result.maxAge ?? 0);
+    }
+    // A fresh instance when its code must take over at once: a busy one (refreshing the Muni
+    // snapshot) can keep serving the old code after a deploy. "-v4" for BART. Bump the suffix again
+    // if ever needed; the new one starts with empty caches.
+    const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v4`));
+    const response = await stub.fetch(request);
+    if (response.ok && (pathname === "/v1/lines" || pathname === "/v1/map")) {
+      const body: any = await response.json();
+      body.lines = [...body.lines, ...(pathname === "/v1/map" ? bartMap() : bartLines())];
+      return json(body, 200, 3600);
+    }
+    return response;
   },
 } satisfies ExportedHandler<Env>;
 
