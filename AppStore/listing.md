@@ -7,7 +7,7 @@ Paste these into App Store Connect → your app → App Information / the 1.0 ve
 | Field | Value |
 | --- | --- |
 | Name (≤30) | 37 Shades of Late |
-| Subtitle (≤30) | SF & Seattle bus times, live |
+| Subtitle (≤30) | SF, Seattle & NYC, live |
 | Bundle ID | info.jetsons.bus37 |
 | SKU | 37shadesoflate-1 |
 | Primary category | Navigation |
@@ -16,9 +16,12 @@ Paste these into App Store Connect → your app → App Information / the 1.0 ve
 | Age rating | Answer **Profanity or Crude Humor: Infrequent/Mild** (the wait-time comments say "shit" and "bastard"), "None" to everything else; Apple then sets the rating |
 | Price | $0.99 (Tier 1) |
 
-\* The departure times come from the public 511.org open data API, which permits redistribution
-with attribution (given in the description and on the privacy page). If App Review asks, that's
-the answer.
+\* The departure times come from public transit data feeds, credited in the description and on the
+privacy page: 511.org's open data API (Muni), OneBusAway Puget Sound (Seattle), MTA's GTFS-realtime
+feeds and MTA Bus Time (New York subway and buses), BART's GTFS-realtime feed, and the Port Authority's
+RidePATH feed (PATH). All but the last are published open-data services for developers. The RidePATH
+feed is the one the Port Authority's own app uses, not a published developer service, so if App Review
+asks specifically about PATH, that's the weak spot (see "Data sources" below).
 
 ## URLs
 
@@ -46,33 +49,36 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 
 **Promotional text (≤170)**
 
-> Your bus, at a glance. Pick any line and stop in San Francisco or Seattle, then see the next departures right on your Home Screen and Lock Screen, live.
+> Your bus, train or BART, at a glance. Muni, Seattle and New York departures on your Lock Screen and Home Screen, live, with an honest opinion about the wait.
 
 **Description (≤4000)**
 
-> 37 Shades of Late puts the next San Francisco Muni and Seattle transit departures where you'll actually see them: on your Home Screen and Lock Screen.
+> 37 Shades of Late puts the next departures where you'll actually see them: on your Lock Screen and Home Screen. Raise your phone, see the minutes, put it back.
 >
-> Pick your line, direction and stop once. The widgets then show when the next buses leave — as clock times and minutes away — so you know whether to walk or run without opening an app.
+> Tap your line on a map of the whole city, tap the arrow at your stop, done. It's saved as a favorite, and your widgets show your favorites in the order you choose.
 >
-> • San Francisco: every Muni bus, rapid, express, streetcar and Metro line
-> • Seattle: King County Metro (including RapidRide), Sound Transit Link, Sounder and ST Express, and the Seattle Streetcar
-> • Starts in the city you're closest to, no location permission needed
-> • Search lines by number or name, and stops by street
-> • Live predictions, shown in green, with scheduled times for buses that haven't started their trip yet
+> • San Francisco: every Muni bus, streetcar and Metro line, plus BART
+> • Seattle: King County Metro (including RapidRide), Sound Transit Link and ST Express, and the Seattle Streetcar
+> • New York: every subway line, the Staten Island Railway, PATH, and MTA buses
+> • A favorites list per city; swipe between cities
+> • Widgets show the favorites of the city you're in, no location permission needed
+> • Minutes, not clock times: "4 min" beats "10:52" when you're deciding whether to run
+> • Live predictions in green, scheduled times in grey
 > • Live map with the route and where your bus is right now
-> • Home Screen widgets in small and medium sizes, with a refresh button
-> • Lock Screen widgets: next two departures, minutes to the next bus, or a one-line summary above the clock
+> • "Also fine with": add the other lines at your stop, or one a short walk away, and see them all as one
+> • Lock Screen widgets: under the clock, above it, or a single countdown in a circle; Home Screen widgets in two sizes
+> • Comments on every wait, from "Holy shit, the 37 is real" to "Walking is starting to look attractive"
 > • No account, no ads, no tracking
 >
-> Departure data from 511.org and OneBusAway. 37 Shades of Late is an independent app and is not affiliated with or endorsed by SFMTA, the Metropolitan Transportation Commission, King County Metro or Sound Transit.
+> Departure data from 511.org, OneBusAway, the MTA, BART and the Port Authority of New York and New Jersey. 37 Shades of Late is an independent app and is not affiliated with or endorsed by SFMTA, the Metropolitan Transportation Commission, BART, King County Metro, Sound Transit, the MTA or the Port Authority of New York and New Jersey.
 
 **Keywords (≤100, comma-separated, no space after commas)**
 
-> muni,seattle,bus,sf,san francisco,transit,king county metro,sound transit,link,widget,arrival
+> muni,bart,seattle,nyc,subway,bus,transit,path,mta,widget,lock screen,arrival,departures,sf
 
 **What's New**
 
-> First release. Now with Seattle.
+> Now in New York: every subway line, PATH and MTA buses. BART in San Francisco. Pick your stop on a map of the whole city, keep favorites per city, and let your widgets follow you to whichever city you're in.
 
 **Copyright**
 
@@ -80,10 +86,39 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 
 ## App Review notes
 
-> The app needs no login. Open it, tap the line at the top, pick San Francisco or Seattle, then any line, direction and stop; the departure list and the widgets update to that stop. On first launch it starts in the city nearest to the device's rough network location (from our server, no location permission): line 37 at 14th St & Church St in San Francisco, or route 8 at Denny Way & Fairview Ave in Seattle. Departure times come from our caching server in front of 511.org (San Francisco) and OneBusAway (Seattle).
+> 37 Shades of Late shows when the next buses and trains leave a stop the user picks, in San Francisco (Muni and BART), Seattle and New York (subway, PATH and MTA buses), in the app and in Home Screen and Lock Screen widgets. There's no login, account or purchase inside the app.
+>
+> To try it: the app opens on the main screen with a map of a stop near the top. Tap the map (or "Add favorite") to see every line in the city on a map. Tap a line, then tap the white arrow at a stop for that stop and direction (or use the list button to pick by name), then Choose. The stop is saved as a favorite and shown on the map and in the Favorites list with the next departures. Tap a favorite's full-screen button for a live map of the route with the vehicles on it. Swipe left or right to switch city; each city has its own favorites. Edit deletes favorites, hold and drag reorders them.
+>
+> The widgets show the favorites of the city the device is in. The app has no location permission: the city is a rough guess from the network address, made by our server and not stored. On first launch the app starts in the nearest city at a default stop (line 37 at 14th St & Church St in San Francisco, route 8 at Denny Way & Fairview Ave in Seattle, the G at Metropolitan Av in New York) and offers a 30-second walkthrough for adding the Lock Screen widget.
+>
+> Departure times come from our caching server in front of public transit data feeds: 511.org (Muni), OneBusAway Puget Sound (Seattle), the MTA's real-time feeds and MTA Bus Time (New York), BART's real-time feed, and the Port Authority's RidePATH feed (PATH). The short comments on each wait ("Stay put, lazy bastard.") are the app's tone; they are the reason for the mild crude-humor age rating.
+>
+> A screen recording of these steps is attached.
+
+## Data sources
+
+| City | Service | Source | Key |
+| --- | --- | --- | --- |
+| San Francisco | Muni | 511.org open data API | `API_KEY_511` secret |
+| San Francisco | BART | BART GTFS-realtime (api.bart.gov) | none |
+| Seattle | Metro, Sound Transit, Streetcar | OneBusAway Puget Sound | `OBA_API_KEY` secret |
+| New York | Subway, Staten Island Railway | MTA GTFS-realtime (api-endpoint.mta.info) | none |
+| New York | Buses | MTA Bus Time (OneBusAway and SIRI) | `MTA_BUSTIME_KEY` secret |
+| New York | PATH | Port Authority RidePATH feed (panynj.gov) | none |
+
+Each agency's open-data terms ask for credit, given in the description and on the privacy page. The PATH
+feed isn't a published developer service; if App Review questions it, PATH can be left out of a release
+without touching the other cities.
+
+## Demo video
+
+`AppStore/review-demo.mp4`: a short screen recording of the steps in the review notes, for the attachment
+field under App Review Information.
 
 ## Screenshots
 
-In `AppStore/screenshots/`. App Store Connect's "iPhone with Dynamic Island (medium display)" tab takes the
+In `AppStore/screenshots/`, from `AppStore/capture.sh` (it seeds the same favorites in every city each run; the
+seventh shot is New York). App Store Connect's "iPhone with Dynamic Island (medium display)" tab takes the
 `iphone-6.3` set (1206×2622); "iPad 13\" display" takes the `ipad-13` set (2064×2752). The `iphone-6.9` set
 (1320×2868) is for a large-display tab if Apple asks for one.

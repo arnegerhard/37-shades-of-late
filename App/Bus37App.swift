@@ -3,6 +3,10 @@ import WidgetKit
 
 @main
 struct Bus37App: App {
+    #if DEBUG
+    init() { ScreenshotScreen.seedFavoritesIfAsked() }
+    #endif
+
     var body: some Scene {
         WindowGroup {
             #if DEBUG
@@ -104,7 +108,11 @@ struct ContentView: View {
                 case .map: showingMap = true
                 case .stops:
                     choosing = true
-                    pickerPath = [Line(id: selection.lineID, name: selection.lineName, mode: "bus")]
+                    // After the sheet is up: pushed in the same moment, the title draws twice.
+                    Task {
+                        try? await Task.sleep(for: .seconds(1))
+                        pickerPath = [Line(id: selection.lineID, name: selection.lineName, mode: "bus")]
+                    }
                 default: break
                 }
             }

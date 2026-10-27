@@ -127,6 +127,9 @@ struct RouteMap: View {
                 try? await Task.sleep(until: .now + .seconds(now.addingTimeInterval(60).timeIntervalSinceNow), clock: .continuous)
             }
         }
+        // The main screen stops updating the departures while this map is pushed over it, so the
+        // full map keeps them coming itself.
+        .task(id: selection) { if interactive { await feed.follow(selection) } }
         .task(id: selection) { [previous = shownSelection] in
             busVanished = false
             // Another stop in the same city: keep the old route up while the new one loads, then glide

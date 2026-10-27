@@ -14,6 +14,36 @@ enum ScreenshotScreen: String {
     }
 }
 
+extension ScreenshotScreen {
+    /// Launched with `-seedFavorites YES` (see AppStore/capture.sh): replaces the favorites with a set
+    /// worth showing in every city, and opens San Francisco.
+    static func seedFavoritesIfAsked() {
+        // `-seedCity nyc`: open that city's first favorite.
+        if let city = UserDefaults.standard.string(forKey: "seedCity").flatMap(City.init(rawValue:)),
+           let first = Selection.favorites.first(where: { $0.city == city }) {
+            Selection.current = first
+        }
+        guard UserDefaults.standard.bool(forKey: "seedFavorites") else { return }
+        let sf = City.sf.defaultSelection
+        Selection.favorites = [
+            sf,
+            Selection(lineID: "14", lineName: "Mission", directionID: "IB", destination: "Ferry Plaza",
+                      stopCode: "17841", stopName: "Mission St & Power St"),
+            Selection(lineID: "N", lineName: "Judah", directionID: "OB", destination: "Ocean Beach",
+                      stopCode: "14447", stopName: "Duboce Ave & Church St"),
+            Selection(lineID: "Yellow", lineName: "BART", directionID: "S", destination: "San Francisco International Airport",
+                      stopCode: "M50-1", stopName: "16th Street / Mission"),
+            City.seattle.defaultSelection,
+            City.nyc.defaultSelection,
+            Selection(lineID: "B63", lineName: "Bay Ridge - Cobble Hill", directionID: "1", destination: "Bay Ridge Shore Rd via 5 Av",
+                      stopCode: "MTA_308214", stopName: "5 Av/Union St", city: .nyc),
+            Selection(lineID: "HOB–33", lineName: "PATH Hoboken - 33rd Street", directionID: "Y", destination: "33rd Street",
+                      stopCode: "PHOBY", stopName: "Hoboken", city: .nyc),
+        ]
+        Selection.current = sf
+    }
+}
+
 struct WidgetShowcase: View {
     let screen: ScreenshotScreen
     @Environment(\.colorScheme) private var colorScheme
