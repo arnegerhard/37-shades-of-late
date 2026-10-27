@@ -16,6 +16,8 @@ struct RouteMap: View {
     /// The routes of the other lines a combined stop counts (the L and M besides the K).
     @State private var otherRoutes: [[CLLocationCoordinate2D]] = []
     @State private var position: MapCameraPosition = .automatic
+    /// The selection whose route is drawn, to tell a move within a city from a fresh start.
+    @State private var shownSelection: Selection?
     /// A live bus that was still on its way vanished from the latest data.
     @State private var busVanished = false
 
@@ -114,13 +116,21 @@ struct RouteMap: View {
                 try? await Task.sleep(until: .now + .seconds(now.addingTimeInterval(60).timeIntervalSinceNow), clock: .continuous)
             }
         }
-        .task(id: selection) {
-            stops = []
-            shapes = []
-            otherRoutes = []
+        .task(id: selection) { [previous = shownSelection] in
             busVanished = false
-            position = .automatic
-            await loadRoute()
+            // Another stop in the same city: keep the old route up while the new one loads, then glide
+            // the camera over to it. Anything else starts afresh.
+            guard let previous, previous.city == selection.city, !stops.isEmpty else {
+                stops = []
+                shapes = []
+                otherRoutes = []
+                position = .automatic
+                await loadRoute()
+                shownSelection = selection
+                return
+            }
+            await loadRoute(animated: true)
+            shownSelection = selection
         }
         .onChange(of: feed.departures) { old, new in
             // Live buses that weren't due for another minute should still be in the new data;
@@ -171,28 +181,53 @@ struct RouteMap: View {
         return minutes == 0 ? "now" : "\(minutes) min"
     }
 
-    private func loadRoute() async {
+    private func loadRoute(animated: Bool = false) async {
         let line = Line(id: selection.lineID, name: selection.lineName, mode: "bus")
         guard let directions = try? await TransitService.directions(for: line, in: selection.city, client: interactive ? .map : .app)
         else { return }
         let direction = directions.first { $0.id == selection.directionID } ?? directions.first
-        stops = direction?.stops ?? []
-        shapes = (direction?.shapes ?? []).map { segment in
+        let newStops = direction?.stops ?? []
+        let newShapes = (direction?.shapes ?? []).map { segment in
             segment.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil }
         }
         // The other lines of a combined stop, drawn too so their buses show on the map.
         var others: [[CLLocationCoordinate2D]] = []
         for other in selection.also {
             let line = Line(id: other.lineID, name: "", mode: "bus")
+            let stop = other.stopCode ?? selection.stopCode
             guard let directions = try? await TransitService.directions(for: line, in: selection.city, client: interactive ? .map : .app),
-                  let direction = directions.first(where: { $0.id == other.directionID }) ?? directions.first
+                  let direction = directions.first(where: { $0.id == other.directionID && $0.stops.contains { $0.code == stop } })
+                      ?? directions.first(where: { $0.stops.contains { $0.code == stop } })
+                      ?? directions.first(where: { $0.id == other.directionID }) ?? directions.first
             else { continue }
             let shape = (direction.shapes ?? []).map { segment in
                 segment.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil }
             }
             others += shape.isEmpty ? [direction.stops.compactMap(\.coordinate)] : shape
         }
-        otherRoutes = others
+        let newRoute = (newShapes.isEmpty ? [newStops.compactMap(\.coordinate)] : newShapes) + others
+        guard animated, let rect = Self.boundingRect(of: newRoute.joined()) else {
+            stops = newStops
+            shapes = newShapes
+            otherRoutes = others
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.8)) {
+            stops = newStops
+            shapes = newShapes
+            otherRoutes = others
+            position = .rect(rect)
+        }
+    }
+
+    /// The route's extent with a margin, about what `.automatic` frames.
+    private static func boundingRect(of coordinates: some Sequence<CLLocationCoordinate2D>) -> MKMapRect? {
+        let points = coordinates.map(MKMapPoint.init)
+        guard let first = points.first else { return nil }
+        let rect = points.dropFirst().reduce(MKMapRect(origin: first, size: MKMapSize())) {
+            $0.union(MKMapRect(origin: $1, size: MKMapSize()))
+        }
+        return rect.insetBy(dx: -rect.width * 0.12, dy: -rect.height * 0.12)
     }
 
 }

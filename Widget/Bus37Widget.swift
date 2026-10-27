@@ -12,8 +12,10 @@ struct Provider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<DeparturesEntry>) -> Void) {
         Task {
             let entries = await load()
-            // Ask for fresh live data in 5 minutes; iOS may stretch this to save battery.
-            completion(Timeline(entries: entries, policy: .after(.now + 5 * 60)))
+            // Ask for fresh live data in 5 minutes; iOS may stretch this to save battery. After a failed
+            // fetch, try again in a minute.
+            let failed = entries.first?.rows.contains(where: \.stale) ?? false
+            completion(Timeline(entries: entries, policy: .after(.now + (failed ? 60 : 5 * 60))))
         }
     }
 
@@ -30,7 +32,11 @@ struct Provider: TimelineProvider {
                         let departures = try await TransitService.departures(for: selection, client: .widget)
                         return (index, WidgetRow(selection: selection, departures: departures))
                     } catch {
-                        return (index, WidgetRow(selection: selection, departures: [], failed: true))
+                        // Show the times the app (or an earlier widget update) last saw, rather than a dash.
+                        if let lastKnown = TransitService.lastKnownDepartures(for: selection) {
+                            return (index, WidgetRow(selection: selection, departures: lastKnown, stale: true))
+                        }
+                        return (index, WidgetRow(selection: selection, departures: [], failed: true, stale: true))
                     }
                 }
             }

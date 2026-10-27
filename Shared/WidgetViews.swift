@@ -10,6 +10,8 @@ struct WidgetRow: Hashable {
     let departures: [Departure]
     /// Set when this favorite's times couldn't be loaded.
     var failed = false
+    /// Set when the latest fetch failed, so the widget should try again soon.
+    var stale = false
 }
 
 /// The widgets show the favorites, in the order the user arranged them, as line names and

@@ -99,11 +99,52 @@ export function hexColor(value: unknown): string | undefined {
   return /^[0-9a-f]{6}$/i.test(hex) ? `#${hex.toUpperCase()}` : undefined;
 }
 
-/** "K,L,M" + "IB" (or "IB,IB,OB") → [{line: "K", direction: "IB"}, ...]. */
-export function linePairs(lines: string, directions: string | null): { line: string; direction?: string }[] {
-  const dirs = (directions ?? "").split(",").filter(Boolean);
+/**
+ * "K,L,M" + "IB" (or "IB,IB,OB") + "15728" (or a stop per line) → [{line: "K", direction: "IB", stop: "15728"}, ...].
+ * A single direction or stop applies to every line.
+ */
+export function linePairs(lines: string, directions: string | null, stops: string): { line: string; direction?: string; stop: string }[] {
+  const dirs = (directions ?? "").split(",");
+  const stopList = stops.split(",");
   return lines.split(",").filter(Boolean).slice(0, 8)
-    .map((line, i) => ({ line, direction: dirs.length > 1 ? dirs[i] : dirs[0] }));
+    .map((line, i) => ({
+      line,
+      direction: (dirs.length > 1 ? dirs[i] : dirs[0]) || undefined,
+      stop: (stopList.length > 1 ? stopList[i] : stopList[0]) ?? "",
+    }));
+}
+
+/** How far "Also fine with" looks for other stops: a minute or two on foot. */
+export const NEARBY_METERS = 150;
+
+/** Meters between two points; flat-earth, plenty accurate across a few blocks. */
+export function metersBetween(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const x = (b.lon - a.lon) * 111_320 * Math.cos((a.lat * Math.PI) / 180);
+  const y = (b.lat - a.lat) * 111_320;
+  return Math.hypot(x, y);
+}
+
+export interface NearbyLine {
+  line: string;
+  direction: string;
+  destination: string;
+  /** Where to catch it; the picked stop itself, or one up to NEARBY_METERS away. */
+  stop: string;
+  stopName: string;
+  distance: number;
+  lat?: number;
+  lon?: number;
+}
+
+/** One entry per line and direction, at the closest stop that has it, nearest first. */
+export function closestPerLine(lines: NearbyLine[]): NearbyLine[] {
+  const best = new Map<string, NearbyLine>();
+  for (const l of lines) {
+    const key = `${l.line}|${l.direction}`;
+    const seen = best.get(key);
+    if (l.line && (!seen || l.distance < seen.distance)) best.set(key, l);
+  }
+  return [...best.values()].sort((a, b) => a.distance - b.distance || a.line.localeCompare(b.line, "en", { numeric: true }));
 }
 
 /** Distinct line + direction pairs among a stop's upcoming visits, with a destination each. */

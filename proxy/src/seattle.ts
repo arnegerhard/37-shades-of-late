@@ -6,10 +6,11 @@
  *   GET /v1/seattle/lines                          all lines, `id` is the rider-facing code ("8", "E Line")
  *   GET /v1/seattle/lines/:line                    directions with stops and the real route shapes
  *   GET /v1/seattle/departures?stop=1_2260&line=8&direction=1
+ *   GET /v1/seattle/nearby?stop=1_2260             lines at the stop and at stops within 150 m facing the same way
  *   GET /v1/seattle/map                            every line's route shape, for picking a line on a map
  */
 
-import { hexColor, linePairs, linesAtStop, simplify, type Polyline } from "./geo";
+import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, simplify, type NearbyLine, type Polyline } from "./geo";
 
 const OBA = "https://api.pugetsound.onebusaway.org/api/where";
 /** King County Metro, Sound Transit, City of Seattle (streetcars). */
@@ -91,30 +92,57 @@ export async function handleSeattle(parts: string[], url: URL, deps: SeattleDeps
     return { body: { stop: { code: stop, name: entry.data.name }, lines: linesAtStop(visits) } };
   }
 
+  if (parts[0] === "nearby") {
+    const stop = url.searchParams.get("stop") ?? "";
+    if (!/^\d+_\w+$/.test(stop)) return { body: { error: "stop (agency_id) is required" }, status: 400 };
+    const codes = new Map((await linesCached(deps)).data.map((l) => [l.routeId, l.id]));
+    const [here, around] = await Promise.all([
+      deps.cached(`sea-stop:${stop}`, DEPARTURES_TTL_MS / 1000, () => fetchStop(stop, deps)),
+      deps.cached(`sea-nearby-v1:${stop}`, deps.staticTTL, () => fetchNearbyStops(stop, deps)),
+    ]);
+    const found: NearbyLine[] = linesAtStop(here.data.visits.map((v) => ({ ...v, line: codes.get(v.routeId) ?? "" })))
+      .map((l) => ({ ...l, stop, stopName: here.data.name, distance: 0 }));
+    // A nearby stop faces the same way, so its lines go that way there; no direction needed.
+    for (const s of around.data) {
+      for (const routeId of s.routeIds) {
+        const line = codes.get(routeId);
+        if (line) found.push({ line, direction: "", destination: "", stop: s.code, stopName: s.name, distance: s.distance, lat: s.lat, lon: s.lon });
+      }
+    }
+    // Lines already at the picked stop don't need a walk.
+    const atStop = new Set(found.filter((l) => l.distance === 0).map((l) => l.line));
+    return { body: { stop: { code: stop }, lines: closestPerLine(found.filter((l) => l.distance === 0 || !atStop.has(l.line))) } };
+  }
+
   if (parts[0] === "departures") {
     const stop = url.searchParams.get("stop") ?? "";
     const code = url.searchParams.get("line");
     const direction = url.searchParams.get("direction");
-    if (!/^\d+_\w+$/.test(stop) || !code) return { body: { error: "stop (agency_id) and line are required" }, status: 400 };
+    // `stop` may be a list too, a stop per line, for lines caught at a nearby stop.
+    if (!/^\d+_\w+(,\d+_\w+)*$/.test(stop) || !code) return { body: { error: "stop (agency_id) and line are required" }, status: 400 };
     const lines = (await linesCached(deps)).data;
-    const wanted = linePairs(code, direction)
+    const wanted = linePairs(code, direction, stop)
       .map((w) => ({ ...w, routeId: lines.find((l) => l.id === w.line)?.routeId }));
-    const entry = await deps.cached(`sea-stop:${stop}`, DEPARTURES_TTL_MS / 1000, () => fetchStop(stop, deps));
+    const stops = [...new Set(wanted.map((w) => w.stop))];
+    const entries = await Promise.all(
+      stops.map((s) => deps.cached(`sea-stop:${s}`, DEPARTURES_TTL_MS / 1000, () => fetchStop(s, deps))));
     const now = Date.now();
-    const departures = entry.data.visits
-      .flatMap((v) => {
-        const match = wanted.find((w) => w.routeId === v.routeId && (!w.direction || w.direction === v.direction));
+    const departures = entries
+      .flatMap((entry, i) => entry.data.visits.flatMap((v) => {
+        const match = wanted.find((w) => w.stop === stops[i] && w.routeId === v.routeId && (!w.direction || w.direction === v.direction));
         return match ? [{ ...v, line: match.line }] : [];
-      })
+      }))
       .filter((v) => Date.parse(v.time) > now - 30_000)
+      .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
       .map(({ line, time, live, destination, vehicle }) => ({ line, time, live, destination, vehicle }));
+    const fetchedAt = Math.min(...entries.map((e) => e.fetchedAt));
     return {
       body: {
-        stop: { code: stop, name: entry.data.name },
+        stop: { code: stops[0], name: entries[0].data.name },
         line: code,
-        fetchedAt: iso(entry.fetchedAt),
-        nextRefreshAt: iso(entry.fetchedAt + DEPARTURES_TTL_MS + 2_000),
-        stale: now - entry.fetchedAt > DEPARTURES_TTL_MS * 3,
+        fetchedAt: iso(fetchedAt),
+        nextRefreshAt: iso(fetchedAt + DEPARTURES_TTL_MS + 2_000),
+        stale: now - fetchedAt > DEPARTURES_TTL_MS * 3,
         departures,
       },
     };
@@ -226,6 +254,40 @@ async function fetchMap(deps: SeattleDeps) {
     if (shapes.length) result.push({ id: line.id, name: line.name, mode: line.mode, color: line.color, textColor: line.textColor, shapes });
   }
   return { lines: result, complete };
+}
+
+interface NearbyStop {
+  code: string;
+  name: string;
+  lat: number;
+  lon: number;
+  distance: number;
+  routeIds: string[];
+}
+
+/** OneBusAway's stop orientations, as compass bearings. */
+const HEADINGS: Record<string, number> = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
+
+/**
+ * Stops within NEARBY_METERS of `stop` that face the same way (OneBusAway gives each stop the
+ * direction its buses leave in), so the stop across the street isn't offered.
+ */
+async function fetchNearbyStops(stop: string, deps: SeattleDeps): Promise<NearbyStop[]> {
+  const here = (await callOBA(`stop/${stop}`, {}, deps)).entry;
+  const heading = HEADINGS[String(here?.direction ?? "")];
+  if (heading === undefined) return [];
+  const list: any[] = (await callOBA("stops-for-location", {
+    lat: String(here.lat), lon: String(here.lon), radius: String(NEARBY_METERS),
+  }, deps)).list ?? [];
+  return list.flatMap((s) => {
+    const other = HEADINGS[String(s.direction ?? "")];
+    if (s.id === stop || other === undefined) return [];
+    const turn = Math.abs(((other - heading + 540) % 360) - 180);
+    const distance = Math.round(metersBetween(here, s));
+    return turn <= 45 && distance <= NEARBY_METERS
+      ? [{ code: String(s.id), name: String(s.name ?? ""), lat: Number(s.lat), lon: Number(s.lon), distance, routeIds: (s.routeIds ?? []).map(String) }]
+      : [];
+  });
 }
 
 async function fetchStop(stop: string, deps: SeattleDeps): Promise<StopData> {

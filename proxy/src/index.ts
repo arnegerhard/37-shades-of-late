@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleSeattle } from "./seattle";
-import { hexColor, linePairs, linesAtStop, parseCSV, readZipEntry, simplify, type Polyline } from "./geo";
+import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, parseCSV, readZipEntry, simplify, type NearbyLine, type Polyline } from "./geo";
 
 /**
  * Caching proxy for live transit data: 511.org for SF Muni (below) and OneBusAway for Seattle
@@ -19,9 +19,13 @@ import { hexColor, linePairs, linesAtStop, parseCSV, readZipEntry, simplify, typ
  *   GET /v1/departures?stop=13254&line=37  upcoming departures at a stop for one line, with each
  *                                          live bus's current position. `line` and `direction` may
  *                                          be lists ("K,L,M" / "IB,IB,IB"): departures of all of
- *                                          them, merged by time, each tagged with its `line`
+ *                                          them, merged by time, each tagged with its `line`. So may
+ *                                          `stop`, a stop per line, for lines caught at a nearby stop
  *   GET /v1/stop?stop=15728                the lines currently serving a stop, with direction and
  *                                          destination (same for /v1/seattle/stop)
+ *   GET /v1/nearby?stop=15728&direction=IB the lines at a stop plus those at stops within 150 m going
+ *                                          the same way, each with its stop and distance (same for
+ *                                          /v1/seattle/nearby, where `direction` isn't needed)
  *   GET /v1/map                            every Muni line's route shape, for picking a line on a map
  *                                          (from DataSF's Muni Simple Routes; no 511 calls)
  *   GET /v1/city                           the supported city nearest the caller ("sf" or "seattle"),
@@ -178,24 +182,39 @@ export class TransitCache extends DurableObject<Env> {
         return json({ stop: { code: stop, name: data?.name ?? "" }, lines: linesAtStop(data?.visits ?? []) });
       }
 
+      if (parts[1] === "nearby") {
+        const stop = url.searchParams.get("stop");
+        if (!stop || !/^\d+$/.test(stop)) return json({ error: "stop (numeric) is required" }, 400);
+        const direction = url.searchParams.get("direction") ?? "";
+        const [snapshot, places] = await Promise.all([
+          this.currentSnapshot(),
+          this.cached("sf-stops-v1", this.staticTTL, () => this.fetchStopPlaces()),
+        ]);
+        return json({ stop: { code: stop }, lines: this.nearby(stop, direction, snapshot, places.data) });
+      }
+
       if (parts[1] === "departures") {
         const stop = url.searchParams.get("stop");
         const line = url.searchParams.get("line");
         const direction = url.searchParams.get("direction");
-        if (!stop || !/^\d+$/.test(stop) || !line) {
+        // `stop` may be a list too, a stop per line, for lines caught at a nearby stop.
+        if (!stop || !/^\d+(,\d+)*$/.test(stop) || !line) {
           return json({ error: "stop (numeric) and line are required" }, 400);
         }
         const snapshot = await this.currentSnapshot();
-        const data = snapshot.stops.get(stop);
+        const firstStop = stop.split(",")[0];
+        const data = snapshot.stops.get(firstStop);
         const now = Date.now();
-        const wanted = linePairs(line, direction);
-        const departures = (data?.visits ?? [])
-          .filter((v) => wanted.some((w) => w.line === v.line && (!w.direction || w.direction === v.direction)))
+        const wanted = linePairs(line, direction, stop);
+        const departures = [...new Set(wanted.map((w) => w.stop))]
+          .flatMap((code) => (snapshot.stops.get(code)?.visits ?? [])
+            .filter((v) => wanted.some((w) => w.stop === code && w.line === v.line && (!w.direction || w.direction === v.direction))))
           .filter((v) => Date.parse(v.time) > now - 30_000)
+          .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
           .map(({ line, time, live, destination, vehicle }) => ({ line, time, live, destination, vehicle }));
         const ttl = this.snapshotTTL * 1000;
         return json({
-          stop: { code: stop, name: data?.name ?? "" },
+          stop: { code: firstStop, name: data?.name ?? "" },
           line,
           fetchedAt: iso(snapshot.fetchedAt),
           // When a newer snapshot will be ready to ask for; also what the app's bar counts down to.
@@ -432,6 +451,47 @@ export class TransitCache extends DurableObject<Env> {
       if (id) colors[id] = { color: hexColor(route.route_color), textColor: hexColor(route.route_text_color) };
     }
     return colors;
+  }
+
+  /**
+   * The lines at `stop` plus those at other stops within NEARBY_METERS going the same way, for
+   * "Also fine with". Muni's IB/OB (toward or away from downtown) is the same for every line, so
+   * the same direction is a good stand-in for the same way; it also leaves out the stop across the street.
+   */
+  private nearby(stop: string, direction: string, snapshot: Snapshot, places: Record<string, [number, number]>): NearbyLine[] {
+    const here = places[stop];
+    const found: NearbyLine[] = linesAtStop(snapshot.stops.get(stop)?.visits ?? [])
+      .map((l) => ({ ...l, stop, stopName: snapshot.stops.get(stop)?.name ?? "", distance: 0 }));
+    if (here && direction) {
+      const center = { lat: here[0], lon: here[1] };
+      for (const [code, [lat, lon]] of Object.entries(places)) {
+        if (code === stop) continue;
+        const distance = metersBetween(center, { lat, lon });
+        if (distance > NEARBY_METERS) continue;
+        const data = snapshot.stops.get(code);
+        for (const l of linesAtStop(data?.visits ?? [])) {
+          if (l.direction === direction) found.push({ ...l, stop: code, stopName: data?.name ?? "", distance: Math.round(distance), lat, lon });
+        }
+      }
+    }
+    return closestPerLine(found);
+  }
+
+  /** Where every Muni stop is, from stops.txt in its GTFS feed (one 511 call a day). */
+  private async fetchStopPlaces(): Promise<Record<string, [number, number]>> {
+    await this.spendBudget();
+    const url = `https://api.511.org/transit/datafeeds?api_key=${this.env.API_KEY_511}&operator_id=${AGENCY}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new UpstreamError(response.status);
+    const stops = await readZipEntry(await response.arrayBuffer(), "stops.txt");
+    if (!stops) throw new UpstreamError(422);
+    const places: Record<string, [number, number]> = {};
+    for (const stop of parseCSV(stops)) {
+      const code = stop.stop_code || stop.stop_id;
+      const lat = Number(stop.stop_lat), lon = Number(stop.stop_lon);
+      if (code && Number.isFinite(lat) && Number.isFinite(lon)) places[code] = [lat, lon];
+    }
+    return places;
   }
 
   /** Every upcoming arrival at every stop, from one 511 call (~10 MB of JSON). */

@@ -19,7 +19,19 @@ struct LineMapPicker: View {
     /// Other lines serving the picked stop, and which of them the user also wants to count.
     @State private var otherLines: [StopLine] = []
     @State private var alsoIDs: Set<String> = []
+    /// The stops of the lines added with "Also fine with", drawn as dots in their color.
+    @State private var alsoStops: [String: [CLLocationCoordinate2D]] = [:]
+    /// The area the map showed when it last came to rest, and before the first "Also fine with" line
+    /// zoomed it out, so removing the added lines brings the user back to the spot they zoomed in to.
+    /// (An area, not a camera: a camera's center ignores the card over the bottom of the map.)
+    @State private var visibleRect: MKMapRect?
+    @State private var cameraBeforeAlso: MapCameraPosition?
     @State private var heading: CLLocationDirection = 0
+    /// Where each line's name badge may go (worked out once per line map), and the badges shown now.
+    @State private var labelSpots: [String: [LabelSpot]] = [:]
+    @State private var labels: [LineLabel] = []
+    /// The map's frame, which stops at the header above and the card below.
+    @State private var mapSize: CGSize = .zero
     @State private var error: String?
     @State private var position: MapCameraPosition
     @Environment(\.colorScheme) private var colorScheme
@@ -32,8 +44,21 @@ struct LineMapPicker: View {
 
     private var selected: MapLine? { candidates.first { $0.id == selectedID } }
 
+    /// The lines added with "Also fine with" (their map line IDs).
+    private var alsoLineIDs: Set<String> {
+        Set(otherLines.filter { alsoIDs.contains($0.id) }.map(\.line))
+    }
+
+    /// The other stops the added lines are caught at, to walk to.
+    private var walkStops: [StopLine] {
+        otherLines.filter { alsoIDs.contains($0.id) && $0.isNearby && $0.lat != nil && $0.lon != nil }
+    }
+
     private var drawOrder: [MapLine] {
-        lines.filter { $0.id != selectedID } + lines.filter { $0.id == selectedID }
+        let also = alsoLineIDs
+        return lines.filter { $0.id != selectedID && !also.contains($0.id) }
+            + lines.filter { also.contains($0.id) }
+            + lines.filter { $0.id == selectedID }
     }
 
     var body: some View {
@@ -41,7 +66,7 @@ struct LineMapPicker: View {
             Map(position: $position) {
                 // Selected line last, so it's drawn on top of the lines it shares streets with.
                 ForEach(drawOrder) { line in
-                    let isSelected = line.id == selectedID
+                    let isSelected = line.id == selectedID || alsoLineIDs.contains(line.id)
                     let isCandidate = !isSelected && candidates.contains { $0.id == line.id }
                     // Many lines share a color (all Muni buses are blue), so only the selected line
                     // keeps full strength; nearby ones stay a bit clearer than the rest.
@@ -52,6 +77,44 @@ struct LineMapPicker: View {
                                     style: StrokeStyle(lineWidth: isSelected ? 7 : isCandidate ? 3.5 : 3,
                                                        lineCap: .round, lineJoin: .round))
                     }
+                }
+
+                // Line names. While a line is picked they step back like the other lines do.
+                ForEach(labels) { label in
+                    if let line = lines.first(where: { $0.id == label.lineID }) {
+                        Annotation("", coordinate: label.coordinate, anchor: .center) {
+                            LineBadge(line: line.id, font: .system(size: 12, weight: .heavy, design: .rounded),
+                                      color: line.mapColor.legible(on: colorScheme), textColor: line.badgeTextColor)
+                                .fixedSize()
+                                .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
+                                .opacity(selectedID == nil ? 1 : 0.35)
+                                .allowsHitTesting(false)
+                        }
+                        .annotationTitles(.hidden)
+                    }
+                }
+
+                ForEach(alsoStops.sorted { $0.key < $1.key }, id: \.key) { lineID, stops in
+                    let color = (lines.first { $0.id == lineID }?.mapColor ?? LineBadge.red).legible(on: colorScheme)
+                    ForEach(Array(stops.enumerated()), id: \.offset) { _, stop in
+                        Annotation("", coordinate: stop, anchor: .center) {
+                            Circle().fill(.white).stroke(color, lineWidth: 2).frame(width: 8, height: 8)
+                        }
+                        .annotationTitles(.hidden)
+                    }
+                }
+
+                ForEach(walkStops) { other in
+                    let color = (lines.first { $0.id == other.line }?.mapColor ?? LineBadge.red).legible(on: colorScheme)
+                    Annotation(other.stopName ?? "", coordinate: CLLocationCoordinate2D(latitude: other.lat!, longitude: other.lon!), anchor: .center) {
+                        Image(systemName: "figure.walk")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .background(color, in: Circle())
+                            .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
+                    }
+                    .annotationTitles(.hidden)
                 }
 
                 ForEach(arrows) { arrow in
@@ -66,6 +129,21 @@ struct LineMapPicker: View {
             // A muted base map lets the route colors carry the picture.
             .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
             .onMapCameraChange(frequency: .continuous) { heading = $0.camera.heading }
+            .onMapCameraChange(frequency: .onEnd) {
+                visibleRect = $0.rect
+                relabel(proxy)
+            }
+            .onGeometryChange(for: CGSize.self, of: \.size) { mapSize = $0 }
+            .task(id: lines.count) {
+                // Off the main thread: a city's worth of lines takes a moment.
+                let paths = paths
+                let spots = await Task.detached(priority: .userInitiated) { LineLabels.spots(for: paths) }.value
+                guard !Task.isCancelled else { return }
+                labelSpots = spots
+                relabel(proxy)
+            }
+            .onChange(of: selectedID) { relabel(proxy) }
+            .onChange(of: alsoLineIDs) { relabel(proxy) }
             // Alongside the map's own gestures, which would otherwise swallow a plain tap.
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in handleTap(at: tap.location, proxy: proxy) })
         }
@@ -81,6 +159,8 @@ struct LineMapPicker: View {
         .task(id: city) {
             lines = []
             paths = [:]
+            labelSpots = [:]
+            labels = []
             deselect()
             error = nil
             position = .region(city.region)
@@ -96,19 +176,41 @@ struct LineMapPicker: View {
         .task(id: picked?.id) {
             otherLines = []
             alsoIDs = []
+            // Another stop: the map stays where it is, wherever that is now.
+            cameraBeforeAlso = nil
             guard let picked, let selected else { return }
-            let found = (try? await TransitService.linesAtStop(picked.stop.code, in: city)) ?? []
+            // The lines here plus those a short walk away going the same way, nearest first.
+            var found = try? await TransitService.nearbyLines(picked.stop.code, direction: picked.direction.id, in: city)
+            if found == nil { found = try? await TransitService.linesAtStop(picked.stop.code, in: city) }
             guard !Task.isCancelled else { return }
             withAnimation(.snappy(duration: 0.25)) {
-                otherLines = found.filter { $0.line != selected.id }
+                otherLines = (found ?? []).filter { $0.line != selected.id }
             }
         }
+        .task(id: alsoLineIDs) {
+            // The stops of each added line, in the direction it goes from the picked stop.
+            let wanted = otherLines.filter { alsoIDs.contains($0.id) }
+            var found: [String: [CLLocationCoordinate2D]] = [:]
+            for other in wanted {
+                let line = Line(id: other.line, name: "", mode: "bus")
+                var loaded = TransitService.cachedDirections(for: line, in: city)
+                if loaded == nil { loaded = try? await TransitService.directions(for: line, in: city) }
+                guard !Task.isCancelled else { return }
+                // The direction that serves its stop; a nearby Seattle stop doesn't say which that is.
+                let stop = other.stop ?? picked?.stop.code
+                let direction = loaded?.first { $0.id == other.direction && $0.stops.contains { $0.code == stop } }
+                    ?? loaded?.first { $0.stops.contains { $0.code == stop } }
+                    ?? loaded?.first { $0.id == other.direction } ?? loaded?.first
+                found[other.line] = direction?.stops.compactMap(\.coordinate) ?? []
+            }
+            withAnimation(.easeOut(duration: 0.25)) { alsoStops = found }
+        }
         .task(id: selectedID) {
+            // The map stays put: the user may have zoomed in to their stop before picking the line.
             directions = []
             arrows = []
             picked = nil
             guard let selected else { return }
-            zoom(to: selected)
             // Stops seen before are on the device already; others need one download.
             var loaded = TransitService.cachedDirections(for: selected.line, in: city)
             if loaded == nil { loaded = try? await TransitService.directions(for: selected.line, in: city) }
@@ -195,28 +297,38 @@ struct LineMapPicker: View {
                     ForEach(otherLines) { other in
                         let on = alsoIDs.contains(other.id)
                         let mapLine = lines.first { $0.id == other.line }
-                        Button {
-                            withAnimation(.snappy(duration: 0.2)) {
-                                if on { alsoIDs.remove(other.id) } else { alsoIDs.insert(other.id) }
-                            }
-                        } label: {
+                        Button { toggleAlso(other) } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: on ? "checkmark.circle.fill" : "plus.circle")
                                     .font(.caption)
                                 LineBadge(line: other.line, font: .system(.subheadline, design: .rounded).weight(.heavy),
                                           color: mapLine?.mapColor ?? LineBadge.red, textColor: mapLine?.badgeTextColor ?? .white)
+                                if other.isNearby {
+                                    // A short walk to another stop.
+                                    Text(walkLabel(other))
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                }
                             }
                             .padding(.horizontal, 6).padding(.vertical, 3)
                             .background(on ? Color.primary.opacity(0.15) : .clear, in: Capsule())
                             .opacity(on ? 1 : 0.7)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Also take line \(other.line) to \(other.destination)")
+                        .accessibilityLabel(other.isNearby
+                            ? "Also take line \(other.line), \(walkLabel(other)) away at \(other.stopName ?? "another stop")"
+                            : "Also take line \(other.line) to \(other.destination)")
                         .accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
             }
         }
+    }
+
+    /// "80 m", to the nearest 10 m.
+    private func walkLabel(_ line: StopLine) -> String {
+        "\(max(10, Int((Double(line.distance ?? 0) / 10).rounded()) * 10)) m"
     }
 
     /// With a line selected: an arrow within a fingertip picks that stop and direction (tapping it
@@ -263,6 +375,19 @@ struct LineMapPicker: View {
         }
     }
 
+    /// Places the line badges for what the map shows now.
+    private func relabel(_ proxy: MapProxy) {
+        guard let visibleRect, mapSize.width > 0, !labelSpots.isEmpty else { return }
+        let metersPerPoint = visibleRect.width * MKMetersPerMapPointAtLatitude(visibleRect.origin.coordinate.latitude) / mapSize.width
+        // Clear of the edges, so no badge is cut off.
+        let bounds = CGRect(origin: .zero, size: mapSize).insetBy(dx: 8, dy: 6)
+        let placed = LineLabels.place(
+            lines: lines, spots: labelSpots, excluding: alsoLineIDs.union([selectedID].compactMap { $0 }),
+            visible: visibleRect, bounds: bounds, metersPerPoint: metersPerPoint,
+            convert: { proxy.convert($0, to: .local) })
+        withAnimation(.easeOut(duration: 0.2)) { labels = placed }
+    }
+
     private func show(_ loaded: [MapLine]) {
         guard !loaded.isEmpty else { return }
         paths = Dictionary(uniqueKeysWithValues: loaded.map { line in
@@ -285,16 +410,35 @@ struct LineMapPicker: View {
         guard let selected else { return }
         // Only lines still offered for this stop (the chips reset when the arrow changes).
         let also = otherLines.filter { alsoIDs.contains($0.id) }
-            .map { Selection.OtherLine(lineID: $0.line, directionID: $0.direction) }
+            .map { Selection.OtherLine(lineID: $0.line, directionID: $0.direction, stopCode: $0.isNearby ? $0.stop : nil) }
         onPick(Selection(
             lineID: selected.id, lineName: selected.name, directionID: arrow.direction.id,
             destination: arrow.direction.destination, stopCode: arrow.stop.code, stopName: arrow.stop.name,
             city: city, also: also))
     }
 
-    /// Frame the whole line, so its arrows are big enough to tap after a little zooming.
-    private func zoom(to line: MapLine) {
-        let points = (paths[line.id] ?? []).flatMap { $0 }.map(MKMapPoint.init)
+    /// Adding a line zooms out to show all of it and its stops; removing the last one goes back to
+    /// exactly where the map was before.
+    private func toggleAlso(_ other: StopLine) {
+        let wasEmpty = alsoIDs.isEmpty
+        withAnimation(.snappy(duration: 0.2)) {
+            if alsoIDs.contains(other.id) { alsoIDs.remove(other.id) } else { alsoIDs.insert(other.id) }
+        }
+        if alsoIDs.isEmpty {
+            if let cameraBeforeAlso {
+                withAnimation(.smooth(duration: 0.6)) { position = cameraBeforeAlso }
+            }
+            cameraBeforeAlso = nil
+        } else {
+            // Before the map has moved at all, it still shows the position it opened with.
+            if wasEmpty { cameraBeforeAlso = visibleRect.map { .rect($0) } ?? position }
+            frame(alsoLineIDs, including: picked?.position)
+        }
+    }
+
+    /// Frame whole lines (and a point, like the picked stop), with a little room around them.
+    private func frame(_ lineIDs: Set<String>, including extra: CLLocationCoordinate2D?) {
+        let points = (lineIDs.flatMap { paths[$0] ?? [] }.flatMap { $0 } + [extra].compactMap { $0 }).map(MKMapPoint.init)
         guard let first = points.first else { return }
         var rect = MKMapRect(origin: first, size: MKMapSize(width: 0, height: 0))
         for point in points.dropFirst() { rect = rect.union(MKMapRect(origin: point, size: MKMapSize(width: 0, height: 0))) }
@@ -504,4 +648,150 @@ private func distanceToPath(_ point: CLLocationCoordinate2D, _ path: [CLLocation
         best = min(best, (x * x + y * y).squareRoot())
     }
     return best
+}
+
+/// A spot on a line where its name badge may go, and how much room there is around it.
+struct LabelSpot {
+    let coordinate: CLLocationCoordinate2D
+    let point: MKMapPoint
+    /// Meters to the nearest other line, up to `LineLabels.maxRoom`.
+    let room: Double
+}
+
+/// A line's name badge, placed on the map.
+struct LineLabel: Identifiable, Equatable {
+    let lineID: String
+    let spot: Int
+    let coordinate: CLLocationCoordinate2D
+
+    var id: String { "\(lineID)|\(spot)" }
+
+    static func == (a: LineLabel, b: LineLabel) -> Bool { a.id == b.id }
+}
+
+/// Line name badges, like a transit map's: at city scale only the backbone (rail, cable cars, rapid
+/// lines), every line as you zoom in, repeated along each line when close. Each badge goes where its
+/// line runs alone, and badges never overlap one another.
+enum LineLabels {
+    static let maxRoom = 400.0
+    /// One spot to consider every 150 m along each line.
+    private static let spacing = 150.0
+
+    /// 0: the backbone, labeled at any zoom. 1: regular lines. 2: express, owl and shuttle lines.
+    static func tier(of line: MapLine) -> Int {
+        let id = line.id
+        if line.mode != "bus" { return 0 }
+        if id.hasSuffix("R"), id.dropLast().allSatisfy(\.isNumber) { return 0 }   // Muni's Rapid lines
+        if id.count == 6, id.hasSuffix(" Line") { return 0 }                      // RapidRide A–H
+        if id.hasSuffix("X") || id.contains("OWL") || id.hasSuffix("BUS") || id.contains("Shuttle") || id == "Easy Loop" {
+            return 2
+        }
+        return 1
+    }
+
+    /// The candidate spots along every line. Runs once per line map, off the main thread.
+    static func spots(for paths: [String: [[CLLocationCoordinate2D]]]) -> [String: [LabelSpot]] {
+        guard let anywhere = paths.values.lazy.flatMap({ $0 }).first?.first else { return [:] }
+        let perMeter = 1 / MKMetersPerMapPointAtLatitude(anywhere.latitude)
+        let cell = maxRoom * perMeter
+
+        // Every route segment, filed in a grid of `maxRoom` cells so a spot only looks at its neighbors.
+        var segments: [(line: String, a: MKMapPoint, b: MKMapPoint)] = []
+        var grid: [Int64: [Int]] = [:]
+        func key(_ x: Int, _ y: Int) -> Int64 { Int64(x) << 32 | Int64(UInt32(bitPattern: Int32(y))) }
+        for (id, lines) in paths {
+            for path in lines {
+                for (a, b) in zip(path, path.dropFirst()) {
+                    let (p, q) = (MKMapPoint(a), MKMapPoint(b))
+                    segments.append((id, p, q))
+                    for x in Int(floor(min(p.x, q.x) / cell))...Int(floor(max(p.x, q.x) / cell)) {
+                        for y in Int(floor(min(p.y, q.y) / cell))...Int(floor(max(p.y, q.y) / cell)) {
+                            grid[key(x, y), default: []].append(segments.count - 1)
+                        }
+                    }
+                }
+            }
+        }
+
+        func room(at point: MKMapPoint, besides line: String) -> Double {
+            let (cx, cy) = (Int(floor(point.x / cell)), Int(floor(point.y / cell)))
+            var nearest = cell
+            for x in cx - 1...cx + 1 {
+                for y in cy - 1...cy + 1 {
+                    for index in grid[key(x, y)] ?? [] where segments[index].line != line {
+                        nearest = min(nearest, distance(from: point, to: segments[index].a, segments[index].b))
+                    }
+                }
+            }
+            return min(nearest / perMeter, maxRoom)
+        }
+
+        let step = spacing * perMeter
+        var result: [String: [LabelSpot]] = [:]
+        for (id, lines) in paths {
+            var spots: [LabelSpot] = []
+            for path in lines {
+                var next = step / 2
+                for (a, b) in zip(path, path.dropFirst()) {
+                    let (p, q) = (MKMapPoint(a), MKMapPoint(b))
+                    let length = hypot(q.x - p.x, q.y - p.y)
+                    while next <= length {
+                        let point = MKMapPoint(x: p.x + (q.x - p.x) * next / length, y: p.y + (q.y - p.y) * next / length)
+                        spots.append(LabelSpot(coordinate: point.coordinate, point: point, room: room(at: point, besides: id)))
+                        next += step
+                    }
+                    next -= length
+                }
+            }
+            result[id] = spots
+        }
+        return result
+    }
+
+    private static func distance(from p: MKMapPoint, to a: MKMapPoint, _ b: MKMapPoint) -> Double {
+        let (dx, dy) = (b.x - a.x, b.y - a.y)
+        let length = dx * dx + dy * dy
+        let t = length > 0 ? max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length)) : 0
+        return hypot(a.x + t * dx - p.x, a.y + t * dy - p.y)
+    }
+
+    /// The badges to show in `bounds` (screen points) at `metersPerPoint`: lines in tier order, each
+    /// at its roomiest free spot, those with the fewest spots on screen first so they aren't crowded out.
+    static func place(lines: [MapLine], spots: [String: [LabelSpot]], excluding: Set<String>,
+                      visible: MKMapRect, bounds: CGRect, metersPerPoint: Double,
+                      convert: (CLLocationCoordinate2D) -> CGPoint?) -> [LineLabel] {
+        let maxTier = metersPerPoint < 4.5 ? 2 : metersPerPoint < 22 ? 1 : 0
+        let repeats = metersPerPoint < 9
+        let candidates = lines.compactMap { line -> (line: MapLine, tier: Int, spots: [(index: Int, spot: LabelSpot, at: CGPoint, score: Double)])? in
+            let tier = tier(of: line)
+            guard tier <= maxTier, !excluding.contains(line.id) else { return nil }
+            let onScreen = (spots[line.id] ?? []).enumerated().compactMap { index, spot -> (Int, LabelSpot, CGPoint, Double)? in
+                guard visible.contains(spot.point), let at = convert(spot.coordinate), bounds.contains(at) else { return nil }
+                // Room in screen points, capped: past a badge's height, more room doesn't matter.
+                return (index, spot, at, min(spot.room / metersPerPoint, 30))
+            }
+            return onScreen.isEmpty ? nil : (line, tier, onScreen.sorted { $0.3 > $1.3 })
+        }
+        .sorted { ($0.tier, $0.spots.count) < ($1.tier, $1.spots.count) }
+
+        // The Apple Maps logo and Legal link sit in the bottom-left corner.
+        var taken = [CGRect(x: bounds.minX - 8, y: bounds.maxY - 34, width: 150, height: 40)]
+        var labels: [LineLabel] = []
+        for (line, _, spots) in candidates {
+            let size = CGSize(width: 14 + 7.5 * Double(line.id.count), height: 20)
+            var mine: [CGPoint] = []
+            for spot in spots {
+                if mine.contains(where: { hypot($0.x - spot.at.x, $0.y - spot.at.y) < 260 }) { continue }
+                let box = CGRect(x: spot.at.x - size.width / 2, y: spot.at.y - size.height / 2,
+                                 width: size.width, height: size.height).insetBy(dx: -4, dy: -3)
+                if !bounds.contains(box) || taken.contains(where: { $0.intersects(box) }) { continue }
+                taken.append(box)
+                mine.append(spot.at)
+                labels.append(LineLabel(lineID: line.id, spot: spot.index, coordinate: spot.spot.coordinate))
+                if !repeats || mine.count == 3 { break }
+            }
+            if labels.count >= 60 { break }
+        }
+        return labels
+    }
 }
