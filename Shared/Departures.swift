@@ -254,8 +254,8 @@ enum TransitError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .badResponse(503): return "Transit data busy, retrying soon"
-        case .badResponse(let code): return "Transit data unavailable (\(code))"
+        case .badResponse(503): return "Transit data is running late too. Retrying soon."
+        case .badResponse(let code): return "Transit data went missing (\(code))"
         }
     }
 }

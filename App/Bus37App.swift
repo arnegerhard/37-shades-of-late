@@ -43,12 +43,21 @@ struct ContentView: View {
                 // tapping it opens every line in the city to choose a ride, direction and stop.
                 Section {
                     CityPager(cities: City.allCases, city: selection.city, onSwitch: switchCity(to:)) { city in
-                        RouteMap(selection: preview(for: city), feed: feed, interactive: false)
+                        // Room at the top for the open favorite's card, so the route isn't under it.
+                        RouteMap(selection: preview(for: city), feed: feed, interactive: false,
+                                 topInset: isFavorite && city == selection.city ? 44 : 0)
                             .allowsHitTesting(false)
                     }
-                    .frame(height: 220)
+                    .frame(height: 260)
                     .contentShape(Rectangle())
                     .onTapGesture { choosing = true }
+                    .overlay(alignment: .topLeading) {
+                        if isFavorite {
+                            openFavoriteCard
+                                .padding(10)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
                     .overlay(alignment: .bottomTrailing) {
                         // Says out loud what tapping the map does; the map alone reads as a picture.
                         Button { choosing = true } label: {
@@ -64,7 +73,7 @@ struct ContentView: View {
                     .listRowInsets(EdgeInsets())
                 } header: {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Tap the map to add a ride and stop", systemImage: "hand.tap.fill")
+                        Label("Tap the map to pick your next wait", systemImage: "hand.tap.fill")
                             .font(.headline)
                             .foregroundStyle(.primary)
                         Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
@@ -82,7 +91,7 @@ struct ContentView: View {
                         stopCard
                     } footer: {
                         if favorites.isEmpty {
-                            Text("Your widgets show this line and stop until you save favorites.")
+                            Text("Your widgets wait for this one until you save favorites of your own.")
                         }
                     }
                 }
@@ -90,32 +99,26 @@ struct ContentView: View {
                 Section {
                     if favorites.isEmpty {
                         Button { choosing = true } label: {
-                            Label("Tap the map to add your first favorite. It shows up here and on your widgets.", systemImage: "plus.circle")
+                            Label("No favorites yet. Tap the map to start curating your suffering. It shows up here and on your widgets.", systemImage: "plus.circle")
                                 .font(.subheadline)
                                 .multilineTextAlignment(.leading)
                         }
                     }
                     ForEach(favorites) { favorite in
-                        // Tapping a favorite opens it; its own buttons open the live map, or reorder
-                        // it (hold and drag).
-                        HStack(spacing: 12) {
-                            Button { select(favorite) } label: {
-                                if favorite.id == selection.id {
-                                    // The open favorite becomes the big card, right where it sits in the order.
-                                    stopCardContent
-                                } else {
-                                    favoriteRow(favorite)
-                                }
-                            }
+                        // Tapping a favorite opens it on the map above; its own buttons open the live
+                        // map, or reorder it (hold and drag).
+                        HStack(spacing: 8) {
+                            Button { select(favorite) } label: { favoriteRow(favorite) }
                             .buttonStyle(.borderless)
                             .tint(.primary)
                             liveMapButton(for: favorite)
                             Image(systemName: "line.3.horizontal")
                                 .foregroundStyle(.tertiary)
-                                .frame(width: 24, height: 44)
+                                .frame(width: 20, height: 44)
                                 .contentShape(Rectangle())
                                 .accessibilityHidden(true)
                         }
+                        .listRowBackground(favoriteBackground(isSelected: favorite.id == selection.id))
                     }
                     .onDelete { favorites.remove(atOffsets: $0) }
                     .onMove { favorites.move(fromOffsets: $0, toOffset: $1) }
@@ -123,7 +126,7 @@ struct ContentView: View {
                     Text("Favorites").textCase(nil)
                 } footer: {
                     if !favorites.isEmpty {
-                        Text("Your widgets show your favorites in this order; the small ones show the top one. The map button shows its buses live; hold and drag to reorder, swipe to delete.")
+                        Text("Your widgets suffer in this order; the small ones only have room for the top one. The full-screen button lets you watch the bus not move, live. Hold and drag to reorder, swipe to delete.")
                     }
                 }
 
@@ -133,7 +136,7 @@ struct ContentView: View {
                             .font(.subheadline.weight(.semibold))
                     }
                 } footer: {
-                    Text("A 30-second walkthrough for adding the widget.")
+                    Text("Be let down without even unlocking your phone. Takes 30 seconds, less than any bus.")
                 }
             }
             .navigationTitle("37 Shades of Late")
@@ -195,31 +198,66 @@ struct ContentView: View {
         }
     }
 
+    /// The favorite open on the map gets a thin frame in the line-badge red. It's only a marker.
+    private func favoriteBackground(isSelected: Bool) -> some View {
+        Color(.secondarySystemGroupedBackground)
+            .overlay {
+                if isSelected { SelectedFavoriteFrame() }
+            }
+    }
+
+    /// The line and where it goes, the stop, and a comment on the wait; the next departure on the
+    /// right, big, with the two after it underneath. Everything stays on its line and truncates
+    /// instead of wrapping.
     private func favoriteRow(_ favorite: Selection) -> some View {
-        HStack(spacing: 12) {
-            // Like the widgets: tag each favorite with its city once favorites span both.
-            if Set(favorites.map(\.city)).count > 1 {
-                CityTag(code: favorite.city.code)
-            }
-            LineBadge(line: favorite.lineLabel, font: .system(.body, design: .rounded).weight(.heavy))
-                .frame(minWidth: 48, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("To \(favorite.destination)").font(.subheadline.weight(.semibold))
-                Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
-                TimelineView(.everyMinute) { context in
-                    let upcoming = favoritesFeed.departures[favorite.id] ?? []
-                    Text(Departure.waits(upcoming, from: context.date, count: 3, lines: favorite.isMultiLine) ?? (favoritesFeed.departures[favorite.id] == nil ? "…" : "none"))
-                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(upcoming.first?.isLive == true ? .green : .secondary)
+        TimelineView(.everyMinute) { context in
+            let loaded = favoritesFeed.departures[favorite.id]
+            let upcoming = (loaded ?? []).filter { $0.time > context.date.addingTimeInterval(-30) }
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        LineBadge(line: favorite.lineLabel, font: .system(.subheadline, design: .rounded).weight(.heavy))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .layoutPriority(1)
+                        Text("To \(favorite.destination)").font(.subheadline.weight(.semibold))
+                    }
+                    HStack(spacing: 6) {
+                        // Like the widgets: tag each favorite with its city once favorites span both.
+                        if Set(favorites.map(\.city)).count > 1 {
+                            Text(favorite.city.code).font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
+                        }
+                        Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if loaded != nil {
+                        // About the line that actually comes next.
+                        QuipText(upcoming.first.map { Quip.forWait(until: $0.time, from: context.date, line: $0.line ?? favorite.lineLabel) }
+                                 ?? Quip.noPrediction(line: favorite.lineLabel))
+                            // The punchline matters: it may take a second line.
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
-                .padding(.top, 2)
+                .lineLimit(1)
+                Spacer(minLength: 0)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(Departure.waits(upcoming, from: context.date, count: 1, lines: favorite.isMultiLine)
+                         ?? (loaded == nil ? "…" : "none"))
+                        .font(.system(.headline, design: .rounded).weight(.semibold))
+                        .foregroundStyle(upcoming.first?.isLive == true ? .green : .secondary)
+                    if let later = Departure.waits(Array(upcoming.dropFirst()), from: context.date, count: 2, unit: false, lines: favorite.isMultiLine) {
+                        Text(later)
+                            .font(.system(.caption, design: .rounded).weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize()
             }
-            Spacer(minLength: 0)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
         }
-        // Buttons center wrapped text; a long stop name should wrap like the rest of the list.
-        .multilineTextAlignment(.leading)
-        .contentShape(Rectangle())
     }
 
     /// A city's default stop before any favorite there: tapping it opens its live map.
@@ -257,6 +295,38 @@ struct ContentView: View {
         .contentShape(Rectangle())
     }
 
+    /// The open favorite, in one line over the top of the map: line, stop and the next departure.
+    /// Tapping it opens the live map.
+    private var openFavoriteCard: some View {
+        Button { showingMap = true } label: {
+            TimelineView(.everyMinute) { context in
+                let shown = loaded ?? selection
+                let next = departures.first { $0.time > context.date.addingTimeInterval(-30) }
+                HStack(spacing: 8) {
+                    LineBadge(line: selection.lineLabel, font: .system(.subheadline, design: .rounded).weight(.heavy))
+                    Text(selection.stopName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if feed.error == nil, let first = Departure.waits(departures, from: context.date, count: 1, lines: shown.isMultiLine) {
+                        Text(first)
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(next?.isLive == true ? .green : .secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .opacity(isStale ? 0.4 : 1)
+                    }
+                }
+                .padding(.leading, 6)
+                .padding(.trailing, 12)
+                .padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the live map")
+    }
+
     /// Opens a favorite's live map; back from it, the stop open before is open again.
     private func liveMapButton(for favorite: Selection) -> some View {
         Button {
@@ -264,12 +334,14 @@ struct ContentView: View {
             select(favorite)
             showingMap = true
         } label: {
-            Image(systemName: "map")
-                .font(.body.weight(.semibold))
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .foregroundStyle(.tertiary)
                 .frame(width: 36, height: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
+        // The same gray as the drag handle, not the accent color.
+        .tint(.primary)
         .accessibilityLabel("Live map, \(favorite.lineLabel) to \(favorite.destination)")
     }
 
@@ -292,7 +364,7 @@ struct ContentView: View {
                         QuipText(Quip.forWait(until: next.time, from: context.date, line: next.line ?? line))
                     }
                 } else {
-                    Text("No upcoming \(line)s").font(.subheadline).foregroundStyle(.secondary)
+                    Text("No \(line)s on the horizon").font(.subheadline).foregroundStyle(.secondary)
                     QuipText(Quip.noPrediction(line: line))
                 }
             }
@@ -426,5 +498,26 @@ private struct CityPager<Page: View>: View {
                     withAnimation(.snappy(duration: 0.3)) { settle = 0 }
                 }
         )
+    }
+}
+
+/// Thin red outline for the favorite open on the map. Its corners follow the section's rounded
+/// corners wherever the row is: after a drag the list doesn't redraw a moved row's background, so
+/// a shape that depended on the row's position would keep its old one and get clipped.
+private struct SelectedFavoriteFrame: View {
+    private static let inset: CGFloat = 2
+
+    /// Inset-grouped sections round their corners by about 26pt on iOS 26 and 10pt before.
+    /// SwiftUI doesn't expose the value (and ConcentricRectangle doesn't see the row's
+    /// container), so it's matched by hand.
+    private static var radius: CGFloat {
+        if #available(iOS 26, *) { 26 - inset } else { 10 }
+    }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+            .strokeBorder(LineBadge.red.opacity(0.7), lineWidth: 2)
+            .padding(Self.inset)
+            .allowsHitTesting(false)
     }
 }

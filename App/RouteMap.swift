@@ -9,6 +9,8 @@ struct RouteMap: View {
     /// Shared with the departure list, so both always show the same buses and times.
     let feed: DepartureFeed
     var interactive = true
+    /// Points at the top covered by something drawn over the map, kept clear of the route.
+    var topInset: CGFloat = 0
 
     @State private var stops: [Stop] = []
     /// The real street route where the city provides one (Seattle); empty otherwise.
@@ -104,6 +106,7 @@ struct RouteMap: View {
             }
         }
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
+        .safeAreaPadding(.top, topInset)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 if interactive { statusCard }
@@ -150,9 +153,9 @@ struct RouteMap: View {
                     Text("Next bus \(minutesLabel(next.departure) == "now" ? "arriving now" : "in \(minutesLabel(next.departure))")")
                         .font(.headline)
                 } else {
-                    Text("No buses on the way yet").font(.headline)
+                    Text("No buses on the way. Bold of you to look.").font(.headline)
                 }
-                Text("Live buses headed to \(selection.stopName)")
+                Text("Live buses headed to \(selection.stopName), in theory")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if busVanished {

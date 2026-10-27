@@ -30,6 +30,10 @@ struct LineMapPicker: View {
     /// Where each line's name badge may go (worked out once per line map), and the badges shown now.
     @State private var labelSpots: [String: [LabelSpot]] = [:]
     @State private var labels: [LineLabel] = []
+    /// Badges just taken off, kept on the map while they fade out, until the given time.
+    @State private var leavingLabels: [String: (label: LineLabel, until: Date)] = [:]
+    /// When the badges were last placed during a camera move, to do it only a few times a second.
+    @State private var liveRelabelAt: Date = .distantPast
     /// The map's frame, which stops at the header above and the card below.
     @State private var mapSize: CGSize = .zero
     @State private var error: String?
@@ -80,15 +84,17 @@ struct LineMapPicker: View {
                 }
 
                 // Line names. While a line is picked they step back like the other lines do.
-                ForEach(labels) { label in
+                ForEach(labels + leavingLabels.values.map(\.label).sorted { $0.id < $1.id }) { label in
                     if let line = lines.first(where: { $0.id == label.lineID }) {
                         Annotation("", coordinate: label.coordinate, anchor: .center) {
-                            LineBadge(line: line.id, font: .system(size: 12, weight: .heavy, design: .rounded),
-                                      color: line.mapColor.legible(on: colorScheme), textColor: line.badgeTextColor)
-                                .fixedSize()
-                                .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
-                                .opacity(selectedID == nil ? 1 : 0.35)
-                                .allowsHitTesting(false)
+                            FadingBadge(leaving: leavingLabels[label.id] != nil) {
+                                LineBadge(line: line.id, font: .system(size: 12, weight: .heavy, design: .rounded),
+                                          color: line.mapColor.legible(on: colorScheme), textColor: line.badgeTextColor)
+                                    .fixedSize()
+                                    .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
+                            }
+                            .opacity(selectedID == nil ? 1 : 0.35)
+                            .allowsHitTesting(false)
                         }
                         .annotationTitles(.hidden)
                     }
@@ -128,7 +134,13 @@ struct LineMapPicker: View {
             }
             // A muted base map lets the route colors carry the picture.
             .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
-            .onMapCameraChange(frequency: .continuous) { heading = $0.camera.heading }
+            .onMapCameraChange(frequency: .continuous) { context in
+                heading = context.camera.heading
+                // The badges follow a pinch or pan as it happens, not just once it's let go.
+                guard Date.now.timeIntervalSince(liveRelabelAt) > 0.15 else { return }
+                liveRelabelAt = .now
+                relabel(proxy, showing: context.rect)
+            }
             .onMapCameraChange(frequency: .onEnd) {
                 visibleRect = $0.rect
                 relabel(proxy)
@@ -150,7 +162,7 @@ struct LineMapPicker: View {
         .safeAreaInset(edge: .bottom) { card }
         .overlay {
             if let error {
-                ContentUnavailableView("Couldn't load the map", systemImage: "map", description: Text(error))
+                ContentUnavailableView("The map didn't show up either", systemImage: "map", description: Text(error))
                     .background(.regularMaterial)
             } else if lines.isEmpty {
                 ProgressView()
@@ -161,13 +173,14 @@ struct LineMapPicker: View {
             paths = [:]
             labelSpots = [:]
             labels = []
+            leavingLabels = [:]
             deselect()
             error = nil
             position = .region(city.region)
             // Instantly from the device (or the app's built-in snapshot), then quietly swap in newer
             // data if the proxy has it; that's checked at most once a day.
             show(TransitService.cachedLineMap(in: city))
-            if lines.isEmpty { error = "No line data yet. Check your connection." }
+            if lines.isEmpty { error = "No line data yet. Your connection is running late too." }
             if let newer = await TransitService.refreshedLineMap(in: city), !Task.isCancelled {
                 show(newer)
                 error = nil
@@ -257,7 +270,7 @@ struct LineMapPicker: View {
                             Text(picked.stop.name).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                         } else {
                             Text(selected.name).font(.headline).lineLimit(1)
-                            Text(arrows.isEmpty ? "Loading stops…" : "Tap an arrow: that stop, that direction.")
+                            Text(arrows.isEmpty ? "Counting the stops…" : "Tap an arrow: that stop, that direction.")
                                 .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                         }
                     }
@@ -276,7 +289,7 @@ struct LineMapPicker: View {
                     }
                 }
             } else {
-                Label(lines.isEmpty ? "Loading lines…" : "Tap a line on the map to pick it.", systemImage: "hand.tap")
+                Label(lines.isEmpty ? "Asking nicely for the lines…" : "Tap the line you'll be waiting for.", systemImage: "hand.tap")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -376,16 +389,27 @@ struct LineMapPicker: View {
     }
 
     /// Places the line badges for what the map shows now.
-    private func relabel(_ proxy: MapProxy) {
-        guard let visibleRect, mapSize.width > 0, !labelSpots.isEmpty else { return }
+    private func relabel(_ proxy: MapProxy, showing rect: MKMapRect? = nil) {
+        guard let visibleRect = rect ?? visibleRect, mapSize.width > 0, !labelSpots.isEmpty else { return }
         let metersPerPoint = visibleRect.width * MKMetersPerMapPointAtLatitude(visibleRect.origin.coordinate.latitude) / mapSize.width
         // Clear of the edges, so no badge is cut off.
         let bounds = CGRect(origin: .zero, size: mapSize).insetBy(dx: 8, dy: 6)
         let placed = LineLabels.place(
             lines: lines, spots: labelSpots, excluding: alsoLineIDs.union([selectedID].compactMap { $0 }),
-            visible: visibleRect, bounds: bounds, metersPerPoint: metersPerPoint,
+            previous: labels, visible: visibleRect, bounds: bounds, metersPerPoint: metersPerPoint,
             convert: { proxy.convert($0, to: .local) })
-        withAnimation(.easeOut(duration: 0.2)) { labels = placed }
+        // Map annotations can't animate coming and going, so a badge taken off stays a moment to fade out.
+        let now = Date.now
+        let placedIDs = Set(placed.map(\.id))
+        for label in labels where !placedIDs.contains(label.id) {
+            leavingLabels[label.id] = (label, now + LineLabel.fadeDuration)
+        }
+        leavingLabels = leavingLabels.filter { !placedIDs.contains($0.key) && $0.value.until > now }
+        labels = placed
+        Task {
+            try? await Task.sleep(for: .seconds(LineLabel.fadeDuration + 0.05))
+            leavingLabels = leavingLabels.filter { $0.value.until > .now }
+        }
     }
 
     private func show(_ loaded: [MapLine]) {
@@ -659,12 +683,29 @@ struct LabelSpot {
 }
 
 /// A line's name badge, placed on the map.
+/// A line badge that fades in when it appears and fades out once `leaving`.
+private struct FadingBadge<Content: View>: View {
+    let leaving: Bool
+    @ViewBuilder let content: Content
+    @State private var appeared = false
+
+    var body: some View {
+        content
+            .opacity(appeared && !leaving ? 1 : 0)
+            .animation(.easeInOut(duration: LineLabel.fadeDuration), value: appeared && !leaving)
+            .onAppear { appeared = true }
+    }
+}
+
 struct LineLabel: Identifiable, Equatable {
     let lineID: String
     let spot: Int
     let coordinate: CLLocationCoordinate2D
 
     var id: String { "\(lineID)|\(spot)" }
+
+    /// How long a badge takes to fade in or out.
+    static let fadeDuration: TimeInterval = 0.3
 
     static func == (a: LineLabel, b: LineLabel) -> Bool { a.id == b.id }
 }
@@ -755,13 +796,15 @@ enum LineLabels {
         return hypot(a.x + t * dx - p.x, a.y + t * dy - p.y)
     }
 
-    /// The badges to show in `bounds` (screen points) at `metersPerPoint`: lines in tier order, each
-    /// at its roomiest free spot, those with the fewest spots on screen first so they aren't crowded out.
+    /// The badges to show in `bounds` (screen points) at `metersPerPoint`. The badges in `previous` stay
+    /// where they are if they still fit, so nothing hops around while zooming; then the lines are placed
+    /// in tier order, each at its roomiest free spot, those with the fewest spots on screen first so they
+    /// aren't crowded out.
     static func place(lines: [MapLine], spots: [String: [LabelSpot]], excluding: Set<String>,
-                      visible: MKMapRect, bounds: CGRect, metersPerPoint: Double,
+                      previous: [LineLabel], visible: MKMapRect, bounds: CGRect, metersPerPoint: Double,
                       convert: (CLLocationCoordinate2D) -> CGPoint?) -> [LineLabel] {
         let maxTier = metersPerPoint < 4.5 ? 2 : metersPerPoint < 22 ? 1 : 0
-        let repeats = metersPerPoint < 9
+        let perLine = metersPerPoint < 9 ? 3 : 1
         let candidates = lines.compactMap { line -> (line: MapLine, tier: Int, spots: [(index: Int, spot: LabelSpot, at: CGPoint, score: Double)])? in
             let tier = tier(of: line)
             guard tier <= maxTier, !excluding.contains(line.id) else { return nil }
@@ -770,27 +813,42 @@ enum LineLabels {
                 // Room in screen points, capped: past a badge's height, more room doesn't matter.
                 return (index, spot, at, min(spot.room / metersPerPoint, 30))
             }
-            return onScreen.isEmpty ? nil : (line, tier, onScreen.sorted { $0.3 > $1.3 })
+            // Ties (common up close, where many spots hit the cap) go in a fixed order.
+            return onScreen.isEmpty ? nil : (line, tier, onScreen.sorted { ($0.3, -$0.0) > ($1.3, -$1.0) })
         }
-        .sorted { ($0.tier, $0.spots.count) < ($1.tier, $1.spots.count) }
+        .sorted { ($0.tier, $0.spots.count, $0.line.id) < ($1.tier, $1.spots.count, $1.line.id) }
 
         // The Apple Maps logo and Legal link sit in the bottom-left corner.
         var taken = [CGRect(x: bounds.minX - 8, y: bounds.maxY - 34, width: 150, height: 40)]
         var labels: [LineLabel] = []
+        var placedAt: [String: [CGPoint]] = [:]
+
+        /// Puts a badge for `line` at `at` if it's in bounds, clear of the others and far enough from
+        /// the line's other badges. One already showing may run past the edge, so it slides off with the map.
+        func add(_ line: String, spot: Int, coordinate: CLLocationCoordinate2D, at: CGPoint, showing: Bool = false) {
+            let mine = placedAt[line, default: []]
+            guard mine.count < perLine, !mine.contains(where: { hypot($0.x - at.x, $0.y - at.y) < 260 }) else { return }
+            let size = CGSize(width: 14 + 7.5 * Double(line.count), height: 20)
+            let box = CGRect(x: at.x - size.width / 2, y: at.y - size.height / 2,
+                             width: size.width, height: size.height).insetBy(dx: -4, dy: -3)
+            guard showing || bounds.contains(box), !taken.contains(where: { $0.intersects(box) }) else { return }
+            taken.append(box)
+            placedAt[line, default: []].append(at)
+            labels.append(LineLabel(lineID: line, spot: spot, coordinate: coordinate))
+        }
+
+        // First the badges already showing, in the order they were placed.
+        let byLine = Dictionary(uniqueKeysWithValues: candidates.map { ($0.line.id, $0.spots) })
+        for old in previous {
+            guard let spot = byLine[old.lineID]?.first(where: { $0.index == old.spot }) else { continue }
+            add(old.lineID, spot: spot.index, coordinate: spot.spot.coordinate, at: spot.at, showing: true)
+        }
+        // Then the room that's left.
         for (line, _, spots) in candidates {
-            let size = CGSize(width: 14 + 7.5 * Double(line.id.count), height: 20)
-            var mine: [CGPoint] = []
-            for spot in spots {
-                if mine.contains(where: { hypot($0.x - spot.at.x, $0.y - spot.at.y) < 260 }) { continue }
-                let box = CGRect(x: spot.at.x - size.width / 2, y: spot.at.y - size.height / 2,
-                                 width: size.width, height: size.height).insetBy(dx: -4, dy: -3)
-                if !bounds.contains(box) || taken.contains(where: { $0.intersects(box) }) { continue }
-                taken.append(box)
-                mine.append(spot.at)
-                labels.append(LineLabel(lineID: line.id, spot: spot.index, coordinate: spot.spot.coordinate))
-                if !repeats || mine.count == 3 { break }
-            }
             if labels.count >= 60 { break }
+            for spot in spots where placedAt[line.id, default: []].count < perLine {
+                add(line.id, spot: spot.index, coordinate: spot.spot.coordinate, at: spot.at)
+            }
         }
         return labels
     }

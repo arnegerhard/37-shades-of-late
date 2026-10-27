@@ -168,7 +168,7 @@ struct LockScreenView: View {
     private var rectangular: some View {
         VStack(alignment: .leading, spacing: 0) {
             if entry.rows.isEmpty {
-                Text(entry.error ?? "No favorites").font(.caption).foregroundStyle(.secondary)
+                Text(entry.error ?? "No favorites yet").font(.caption).foregroundStyle(.secondary)
             }
             ForEach(entry.rows.prefix(3), id: \.self) { row in
                 HStack(spacing: 6) {
@@ -223,7 +223,7 @@ struct LockScreenView: View {
             let minutes = entry.minutes(until: next)
             return "\(name) \(minutes == 0 ? "now" : "\(minutes)m")"
         }
-        return Text(parts.isEmpty ? "No favorites" : parts.joined(separator: " · "))
+        return Text(parts.isEmpty ? "No favorites yet" : parts.joined(separator: " · "))
     }
 }
 

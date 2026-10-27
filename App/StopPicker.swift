@@ -30,7 +30,7 @@ struct LinePicker: View {
                 list
             }
         }
-        .navigationTitle("Select your ride")
+        .navigationTitle("Pick your poison")
         .navigationBarTitleDisplayMode(showingMap ? .inline : .automatic)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -48,7 +48,7 @@ struct LinePicker: View {
             lines = []
             error = nil
             lines = TransitService.cachedLines(in: city)
-            if lines.isEmpty { error = "No line data yet. Check your connection." }
+            if lines.isEmpty { error = "No line data yet. Your connection is running late too." }
             if let newer = await TransitService.refreshedLines(in: city), !Task.isCancelled {
                 lines = newer
                 error = nil
@@ -82,7 +82,7 @@ struct LinePicker: View {
         }
         .overlay {
             if let error {
-                ContentUnavailableView("Couldn't load lines", systemImage: "wifi.exclamationmark", description: Text(error))
+                ContentUnavailableView("The lines didn't show up", systemImage: "wifi.exclamationmark", description: Text(error))
             } else if lines.isEmpty {
                 ProgressView()
             }
@@ -135,12 +135,12 @@ struct StopPicker: View {
         }
         .overlay {
             if let error {
-                ContentUnavailableView("Couldn't load stops", systemImage: "wifi.exclamationmark", description: Text(error))
+                ContentUnavailableView("The stops didn't show up", systemImage: "wifi.exclamationmark", description: Text(error))
             } else if directions.isEmpty {
                 ProgressView()
             }
         }
-        .searchable(text: $search, prompt: "Street name")
+        .searchable(text: $search, prompt: "Street name, if you know it")
         .navigationTitle("\(line.id) \(line.name)")
         .task {
             do {

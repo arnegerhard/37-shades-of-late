@@ -68,11 +68,11 @@ private enum Step: CaseIterable {
 
     var title: String {
         switch self {
-        case .intro: "Your bus, on your Lock Screen"
-        case .hold: "Touch and hold your Lock Screen"
+        case .intro: "Be let down without unlocking"
+        case .hold: "Press and hold the Lock Screen"
         case .customize: "Tap Customize"
         case .lockScreen: "Choose the Lock Screen"
-        case .area: "Tap the space under the clock"
+        case .area: "Tap under the clock"
         case .pick: "Pick 37 Shades of Late"
         case .done: "Tap Done. That's it."
         }
@@ -80,20 +80,20 @@ private enum Step: CaseIterable {
 
     var detail: String {
         switch self {
-        case .intro: "The best part of this app isn't in the app. Glance at your phone and see how long until your bus. No unlocking. Takes 30 seconds to set up."
-        case .hold: "Lock your iPhone, wake it, and unlock with Face ID, but don't swipe up. Then press anywhere on the Lock Screen until it shrinks."
-        case .customize: "It's at the bottom of the screen."
-        case .lockScreen: "You'll see your Lock Screen and Home Screen side by side. Tap the one on the left."
-        case .area: "It may say Add Widgets. If you already have widgets there, remove one with the minus to make room."
-        case .pick: "Scroll the list or search for it, then tap the wide widget. It shows your favorites with minutes until each bus."
-        case .done: "Top right. Your Lock Screen now shows your next buses, in the order of your favorites."
+        case .intro: "The best part of this app isn't in the app. Raise your phone, see the minutes, put it back. Setup takes 30 seconds, which is less than any bus."
+        case .hold: "Wake your iPhone and let Face ID unlock it, but don't swipe up. Then press anywhere until the screen shrinks. Firmly, like you've been waiting a while."
+        case .customize: "Bottom of the screen. It's been there the whole time."
+        case .lockScreen: "Lock Screen on the left, Home Screen on the right. Tap the left one."
+        case .area: "It may say Add Widgets. Already full? Remove one with the minus. Your bus deserves the space."
+        case .pick: "Scroll or search, then tap the wide widget: all your favorites, with minutes until each bus."
+        case .done: "Top right. Your Lock Screen now does the waiting for you, in the order of your favorites."
         }
     }
 
     var button: String {
         switch self {
         case .intro: "Show me how"
-        case .done: "Start tracking"
+        case .done: "Start waiting"
         default: "Next"
         }
     }
@@ -117,6 +117,7 @@ private struct StepPage: View {
                 Text(step.title)
                     .font(.system(.title2, design: .rounded).weight(.bold))
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(step.detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -124,7 +125,10 @@ private struct StepPage: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 28)
-            .frame(height: 150, alignment: .top)
+            // At least as tall as most steps need, so the phone above doesn't jump between pages;
+            // with large text it grows and the phone shrinks instead of cutting off the title.
+            .frame(minHeight: 150, alignment: .top)
+            .layoutPriority(1)
         }
         .padding(.vertical, 8)
     }

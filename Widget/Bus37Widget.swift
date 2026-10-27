@@ -44,7 +44,7 @@ struct Provider: TimelineProvider {
             for await row in group { rows.append(row) }
             return rows.sorted { $0.0 < $1.0 }.map(\.1)
         }
-        let error = rows.allSatisfy(\.failed) ? "Couldn't load departures" : nil
+        let error = rows.allSatisfy(\.failed) ? "Departures are late too" : nil
         return (0..<15).map { DeparturesEntry(date: now + Double($0) * 60, rows: rows, error: error) }
     }
 }
@@ -63,7 +63,7 @@ struct Bus37Widget: Widget {
             WidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Favorites")
-        .description("Minutes until the next departures for your favorites, in the order you arranged them in the app.")
+        .description("Minutes until your favorites show up, in the order you arranged them. Be let down without unlocking.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline])
     }
 }
