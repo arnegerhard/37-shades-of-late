@@ -43,7 +43,8 @@ struct ShareSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingQR = false
-    @State private var card: Image?
+    @State private var card: UIImage?
+    @State private var sending = false
 
     var body: some View {
         NavigationStack {
@@ -69,8 +70,7 @@ struct ShareSheet: View {
                         .frame(maxHeight: .infinity)
                 }
 
-                ShareLink(item: card ?? Image(systemName: "bus"), message: Text(message),
-                          preview: SharePreview("The \(selection.lineLabel) at \(selection.stopName)", image: card ?? Image(systemName: "bus"))) {
+                Button { sending = true } label: {
                     Label(showingQR ? "Send the link" : "Send to a friend", systemImage: "square.and.arrow.up")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
@@ -79,6 +79,12 @@ struct ShareSheet: View {
                 .buttonStyle(.borderedProminent)
                 .tint(LineBadge.red)
                 .disabled(card == nil)
+                // UIKit's share sheet, handed the finished picture and the text up front. (SwiftUI's
+                // ShareLink with an Image renders it when the receiving app asks, on the main thread,
+                // which hung the app when sending to Messages.)
+                .background {
+                    ActivitySheet(isPresented: $sending, items: [card as Any?, message].compactMap { $0 })
+                }
             }
             .padding(24)
             .navigationTitle("Share the suffering")
@@ -91,7 +97,7 @@ struct ShareSheet: View {
             // The card as a picture, sent with the link; at 3x it's sharp in Messages and Stories.
             let renderer = ImageRenderer(content: ShareCard(selection: selection, departures: departures, now: .now))
             renderer.scale = 3
-            if let image = renderer.uiImage { card = Image(uiImage: image) }
+            card = renderer.uiImage
         }
     }
 
@@ -101,6 +107,22 @@ struct ShareSheet: View {
         let wait = Departure.waits(departures, from: .now, count: 1, lines: selection.isMultiLine).map { ": \($0)" } ?? ""
         let quip = next.map { Quip.forWait(until: $0.time, line: $0.line ?? selection.lineLabel) } ?? Quip.noPrediction(line: selection.lineLabel)
         return "The \(selection.lineLabel) at \(selection.stopName)\(wait). “\(quip)” \(selection.shareURL.absoluteString)"
+    }
+}
+
+/// Presents UIKit's share sheet with `items` while `isPresented` is true.
+private struct ActivitySheet: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+
+    func updateUIViewController(_ host: UIViewController, context: Context) {
+        guard isPresented, host.presentedViewController == nil else { return }
+        let sheet = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        sheet.completionWithItemsHandler = { _, _, _, _ in isPresented = false }
+        sheet.popoverPresentationController?.sourceView = host.view
+        DispatchQueue.main.async { host.present(sheet, animated: true) }
     }
 }
 
