@@ -258,24 +258,36 @@ struct ContentView: View {
                     }
                     .textCase(nil)
                 } footer: {
-                    if !cityFavorites.isEmpty {
-                        Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. The full-screen button lets you watch the \(city.vehicle) not move, live. Hold and drag to reorder; Edit to delete.")
+                    // The Lock Screen button lives in the favorites' footer rather than a section of its
+                    // own: a favorite dragged past the last row would otherwise land in that section,
+                    // where it can't go, and snap back instead of moving to the end.
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !cityFavorites.isEmpty {
+                            Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. The full-screen button lets you watch the \(city.vehicle) not move, live. Hold and drag to reorder; Edit to delete.")
+                        }
+                        Button { showingGuide = true } label: {
+                            Label("Put your \(city.vehicles) on the Lock Screen", systemImage: "lock.iphone")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 14)
+                                .background(Color(.secondarySystemGroupedBackground),
+                                            in: RoundedRectangle(cornerRadius: ListCorners.radius, style: .continuous))
+                        }
+                        .tint(Color.accentColor)
+                        .padding(.horizontal, -20)
+                        .padding(.top, 14)
+                        Text("Be let down without even unlocking your phone. Takes 30 seconds, less than any \(city.vehicle).")
                     }
-                }
-
-                Section {
-                    Button { showingGuide = true } label: {
-                        Label("Put your \(city.vehicles) on the Lock Screen", systemImage: "lock.iphone")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                } footer: {
-                    Text("Be let down without even unlocking your phone. Takes 30 seconds, less than any \(city.vehicle).")
+                    .textCase(nil)
                 }
             }
             .environment(\.editMode, .constant(editingCity == city ? .active : .inactive))
             .refreshable { await feed.reload() }
             // The list starts below the hint, picker and map, and scrolls on under them.
-            .contentMargins(.top, headerHeight + 260 + 16, for: .scrollContent)
+            // As safe area rather than a content margin, so the list knows that's where its visible top is:
+            // a favorite dragged up there scrolls the list, instead of having to go up under the map.
+            .safeAreaPadding(.top, headerHeight + 260 + 16)
             .modifier(ScrollOffset { scrollOffsets[city] = $0 })
 
             // The hint and city picker, then the map. Scrolling the list slides the hint and picker
