@@ -9,7 +9,7 @@
  */
 
 import network from "./bart.json";
-import { closestPerLine, linePairs, metersBetween, NEARBY_METERS, type NearbyLine, type Polyline } from "./geo";
+import { closestPerLine, linePairs, metersBetween, NEARBY_METERS, stopsOfLines, type NearbyLine, type Polyline } from "./geo";
 import { decodeFeed, type Trip } from "./nyc";
 
 const FEED = "https://api.bart.gov/gtfsrt/tripupdate.aspx";
@@ -60,6 +60,11 @@ export function bartMap() {
     id, name, mode, color, textColor,
     shapes: [...directions].sort((a, b) => b.shapes.length - a.shapes.length)[0]?.shapes ?? [],
   }));
+}
+
+/** Every platform, for the SF map of every stop. */
+export function bartStops() {
+  return stopsOfLines(LINES);
 }
 
 export async function handleBart(path: string, url: URL): Promise<{ body: unknown; status?: number; maxAge?: number }> {

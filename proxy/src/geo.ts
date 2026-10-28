@@ -200,3 +200,25 @@ function metersToSegment(p: [number, number], a: [number, number], b: [number, n
   const t = length > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / length)) : 0;
   return Math.hypot(ax + t * dx - px, ay + t * dy - py);
 }
+
+/** A stop for the map of every stop: where it is and, where that's known without asking, its lines. */
+export interface MapStop {
+  code: string;
+  lat: number;
+  lon: number;
+  lines?: string[];
+}
+
+/** Every stop on `lines` once, with the lines that stop there. */
+export function stopsOfLines(lines: { id: string; directions: { stops: { code: string; lat?: number; lon?: number }[] }[] }[]): MapStop[] {
+  const stops = new Map<string, MapStop & { lines: string[] }>();
+  for (const line of lines) {
+    for (const stop of line.directions.flatMap((d) => d.stops)) {
+      if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lon)) continue;
+      const entry = stops.get(stop.code) ?? { code: stop.code, lat: Math.round(stop.lat! * 1e5) / 1e5, lon: Math.round(stop.lon! * 1e5) / 1e5, lines: [] };
+      if (!entry.lines.includes(line.id)) entry.lines.push(line.id);
+      stops.set(stop.code, entry);
+    }
+  }
+  return [...stops.values()];
+}

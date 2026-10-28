@@ -79,11 +79,11 @@ struct ShareSheet: View {
                 .buttonStyle(.borderedProminent)
                 .tint(LineBadge.red)
                 .disabled(card == nil)
-                // UIKit's share sheet, handed the finished picture and the text up front. (SwiftUI's
-                // ShareLink with an Image renders it when the receiving app asks, on the main thread,
-                // which hung the app when sending to Messages.)
+                // UIKit's share sheet, handed the finished picture (or the QR code's link) up front, with
+                // no text: the card says it all. (SwiftUI's ShareLink with an Image renders it when the
+                // receiving app asks, on the main thread, which hung the app when sending to Messages.)
                 .background {
-                    ActivitySheet(isPresented: $sending, items: [card as Any?, message].compactMap { $0 })
+                    ActivitySheet(isPresented: $sending, items: showingQR ? [selection.shareURL] : [card as Any?].compactMap { $0 })
                 }
             }
             .padding(24)
@@ -94,19 +94,11 @@ struct ShareSheet: View {
             }
         }
         .task {
-            // The card as a picture, sent with the link; at 3x it's sharp in Messages and Stories.
+            // The card as the picture that gets sent; at 3x it's sharp in Messages and Stories.
             let renderer = ImageRenderer(content: ShareCard(selection: selection, departures: departures, now: .now))
             renderer.scale = 3
             card = renderer.uiImage
         }
-    }
-
-    /// What goes with the picture: the wait, its quip and the link to the stop.
-    private var message: String {
-        let next = departures.first { $0.time > .now.addingTimeInterval(-30) }
-        let wait = Departure.waits(departures, from: .now, count: 1, lines: selection.isMultiLine).map { ": \($0)" } ?? ""
-        let quip = next.map { Quip.forWait(until: $0.time, line: $0.line ?? selection.lineLabel) } ?? Quip.noPrediction(line: selection.lineLabel)
-        return "The \(selection.lineLabel) at \(selection.stopName)\(wait). “\(quip)” \(selection.shareURL.absoluteString)"
     }
 }
 

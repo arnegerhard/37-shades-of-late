@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { BART_STOP, bartLines, bartMap, handleBart, isBartLine } from "./bart";
+import { BART_STOP, bartLines, bartMap, bartStops, handleBart, isBartLine } from "./bart";
 import { handleNYC } from "./nyc";
 import { handleSeattle } from "./seattle";
 import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, parseCSV, readZipEntry, simplify, type NearbyLine, type Polyline } from "./geo";
@@ -25,12 +25,15 @@ import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY
  *                                          them, merged by time, each tagged with its `line`. So may
  *                                          `stop`, a stop per line, for lines caught at a nearby stop
  *   GET /v1/stop?stop=15728                the lines currently serving a stop, with direction and
- *                                          destination (same for /v1/seattle/stop)
+ *                                          destination (same for /v1/seattle/stop). A list of stops
+ *                                          ("15728,13254") gives each line with its `stop`
  *   GET /v1/nearby?stop=15728&direction=IB the lines at a stop plus those at stops within 150 m going
  *                                          the same way, each with its stop and distance (same for
  *                                          /v1/seattle/nearby, where `direction` isn't needed)
  *   GET /v1/map                            every Muni line's route shape, for picking a line on a map
  *                                          (from DataSF's Muni Simple Routes; no 511 calls)
+ *   GET /v1/stops                          every Muni stop and BART platform (BART's with their lines), for
+ *                                          the map's stop dots (/v1/seattle/stops and /v1/nyc/stops list lines too)
  *   GET /v1/city                           the supported city nearest the caller ("sf", "seattle" or "nyc"),
  *                                          from Cloudflare's rough IP location; nothing is stored
  */
@@ -81,6 +84,11 @@ export default {
     if (response.ok && (pathname === "/v1/lines" || pathname === "/v1/map")) {
       const body: any = await response.json();
       body.lines = [...body.lines, ...(pathname === "/v1/map" ? bartMap() : bartLines())];
+      return json(body, 200, 3600);
+    }
+    if (response.ok && pathname === "/v1/stops") {
+      const body: any = await response.json();
+      body.stops = [...body.stops, ...bartStops()];
       return json(body, 200, 3600);
     }
     return response;
@@ -210,11 +218,23 @@ export class TransitCache extends DurableObject<Env> {
         return json({ lines: data, fetchedAt: iso(fetchedAt) }, 200, 3600);
       }
 
+      if (parts[1] === "stops") {
+        // Where each stop is; which lines stop there the app asks /stop, from the live snapshot.
+        const { data, fetchedAt } = await this.cached("sf-stops-v1", this.staticTTL, () => this.fetchStopPlaces());
+        const stops = Object.entries(data).map(([code, [lat, lon]]) => ({ code, lat: Math.round(lat * 1e5) / 1e5, lon: Math.round(lon * 1e5) / 1e5 }));
+        return json({ stops, fetchedAt: iso(fetchedAt) }, 200, 3600);
+      }
+
       if (parts[1] === "stop") {
         const stop = url.searchParams.get("stop");
-        if (!stop || !/^\d+$/.test(stop)) return json({ error: "stop (numeric) is required" }, 400);
-        const data = (await this.currentSnapshot()).stops.get(stop);
-        return json({ stop: { code: stop, name: data?.name ?? "" }, lines: linesAtStop(data?.visits ?? []) });
+        if (!stop || !/^\d+(,\d+)*$/.test(stop)) return json({ error: "stop (numeric) is required" }, 400);
+        const snapshot = await this.currentSnapshot();
+        const data = snapshot.stops.get(stop.split(",")[0]);
+        if (!stop.includes(",")) return json({ stop: { code: stop, name: data?.name ?? "" }, lines: linesAtStop(data?.visits ?? []) });
+        // Several stops, like those around a busy corner the map was tapped at: each line with its stop.
+        const lines = stop.split(",").slice(0, 40)
+          .flatMap((code) => linesAtStop(snapshot.stops.get(code)?.visits ?? []).map((l) => ({ ...l, stop: code })));
+        return json({ stop: { code: stop.split(",")[0], name: data?.name ?? "" }, lines });
       }
 
       if (parts[1] === "nearby") {

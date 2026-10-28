@@ -245,6 +245,16 @@ struct MapLine: Decodable, Identifiable {
 
 /// A line serving a stop, as the proxy reports it from upcoming arrivals.
 /// A line to also count at a stop: at the stop itself, or at another one a short walk away.
+/// A stop on the map of every stop.
+struct MapStop: Hashable, Decodable, Identifiable {
+    let code: String
+    let lat: Double
+    let lon: Double
+    /// The lines that stop here, where the proxy knows without asking (not for Muni: see `linesAtStop`).
+    let lines: [String]?
+    var id: String { code }
+}
+
 struct StopLine: Hashable, Decodable, Identifiable {
     let line: String
     let direction: String
@@ -304,7 +314,13 @@ struct Refresh: Equatable {
 /// Client for the bus37-proxy Cloudflare Worker (see /proxy), which caches 511.org data
 /// for every stop users have picked so all installs share one API key.
 enum TransitService {
-    static let baseURL = URL(string: "https://bus37-proxy.arne-5c1.workers.dev/v1/")!
+    static let baseURL: URL = {
+        #if DEBUG
+        // Launch with `-proxy http://localhost:8787` to try a proxy running under `wrangler dev`.
+        if let local = UserDefaults.standard.string(forKey: "proxy").flatMap(URL.init(string:)) { return local.appending(path: "v1/") }
+        #endif
+        return URL(string: "https://bus37-proxy.arne-5c1.workers.dev/v1/")!
+    }()
 
     static func departures(for selection: Selection = .current, client: Client) async throws -> [Departure] {
         try await snapshot(for: selection, client: client).departures
@@ -372,6 +388,7 @@ enum TransitService {
     private struct LinesResponse: Decodable { let lines: [Line] }
     private struct MapResponse: Decodable { let lines: [MapLine] }
     private struct DirectionsResponse: Decodable { let directions: [Direction] }
+    private struct StopsResponse: Decodable { let stops: [MapStop] }
 
     /// Every line in `city`, from the device without waiting for the network.
     static func cachedLines(in city: City) -> [Line] {
@@ -394,6 +411,16 @@ enum TransitService {
         var components = URLComponents(url: url(city, "map"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "v", value: "2")]
         return await LineData.refresh("linemap-\(city.rawValue)", from: components.url!, as: MapResponse.self)?.lines
+    }
+
+    /// Every stop in `city`, from the device without waiting (none before the first download).
+    static func cachedStops(in city: City) -> [MapStop] {
+        (LineData.load("stops-\(city.rawValue)", as: StopsResponse.self))?.stops ?? []
+    }
+
+    /// Newer stops from the proxy, or nil when the last check was recent or nothing changed.
+    static func refreshedStops(in city: City) async -> [MapStop]? {
+        await LineData.refresh("stops-\(city.rawValue)", from: url(city, "stops"), as: StopsResponse.self)?.stops
     }
 
     /// A line's directions and stops: from the device if they were loaded before (and are under a
@@ -424,6 +451,15 @@ enum TransitService {
         struct Response: Decodable { let lines: [StopLine] }
         var components = URLComponents(url: url(city, "stop"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "stop", value: stop)]
+        let response: Response = try await get(components.url!, client: .app)
+        return response.lines
+    }
+
+    /// The lines currently serving any of `stops` (Muni's, up to 40), each with its `stop`.
+    static func linesAtStops(_ stops: [String], in city: City) async throws -> [StopLine] {
+        struct Response: Decodable { let lines: [StopLine] }
+        var components = URLComponents(url: url(city, "stop"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "stop", value: stops.prefix(40).joined(separator: ","))]
         let response: Response = try await get(components.url!, client: .app)
         return response.lines
     }

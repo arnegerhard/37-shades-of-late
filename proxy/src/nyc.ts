@@ -13,6 +13,7 @@
  *   GET /v1/nyc/nearby?stop=G29S               lines at the platform, at the station's other platforms
  *                                              and at transfer stations, the same way (N or S)
  *   GET /v1/nyc/map                            every line's track shape, for picking a line on a map
+ *   GET /v1/nyc/stops                          every platform and bus stop with its lines, for the map's stop dots
  *
  * Subway trains have no GPS; a train on the map is drawn at the station it's at, or partway to
  * the one it's heading for.
@@ -21,7 +22,7 @@
 import network from "./nyc-subway.json";
 import { NYC_BUS } from "./nyc-bus";
 import { handleOBA, type SeattleDeps } from "./seattle";
-import { closestPerLine, linePairs, metersBetween, NEARBY_METERS, type NearbyLine, type Polyline } from "./geo";
+import { closestPerLine, linePairs, metersBetween, NEARBY_METERS, stopsOfLines, type NearbyLine, type Polyline } from "./geo";
 
 const FEEDS = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2F";
 /** What the RidePATH app shows: per station and direction, the next trains with seconds to arrival. */
@@ -98,6 +99,13 @@ export async function handleNYC(parts: string[], url: URL, bus?: SeattleDeps): P
     return { body: { lines, complete, fetchedAt: (rail.body as any).fetchedAt }, maxAge: complete ? 3600 : 0 };
   }
 
+  if (parts[0] === "stops") {
+    const [rail, road] = await Promise.all([handleRail(parts, url), buses(parts).catch(() => undefined)]);
+    const roadBody = road?.body as any;
+    const complete = Boolean(roadBody?.complete);
+    return { body: { stops: [...(rail.body as any).stops, ...(roadBody?.stops ?? [])], complete, fetchedAt: iso(Date.now()) }, maxAge: complete ? 3600 : 0 };
+  }
+
   const stop = url.searchParams.get("stop") ?? "";
   return NYC_BUS.stopPattern.test(stop.split(",")[0]) ? buses(parts) : handleRail(parts, url);
 }
@@ -120,6 +128,10 @@ async function handleRail(parts: string[], url: URL) {
       shapes: [...directions].sort((a, b) => b.shapes.length - a.shapes.length)[0]?.shapes ?? [],
     }));
     return { body: { lines, complete: true, fetchedAt: iso(Date.now()) }, maxAge: 3600 };
+  }
+
+  if (parts[0] === "stops") {
+    return { body: { stops: stopsOfLines(LINES), complete: true, fetchedAt: iso(Date.now()) }, maxAge: 3600 };
   }
 
   const stop = url.searchParams.get("stop") ?? "";

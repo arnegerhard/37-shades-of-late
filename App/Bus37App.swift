@@ -28,18 +28,15 @@ struct ContentView: View {
     @State private var favoritesFeed = FavoritesFeed()
     @State private var choosing = false
     @State private var pickerPath: [Line] = []
+    /// The live map, blown up from the home map.
     @State private var showingMap = false
-    /// The stop that was open before a favorite's live map button, to go back to after the map.
-    @State private var openBeforeMap: Selection?
+    @Namespace private var mapZoom
     /// The stop being shared, from the home map or the live map.
     @State private var sharing: Selection?
     /// A stop from a shared link, waiting for "Add".
     @State private var incoming: Selection?
     @State private var favorites = Selection.favorites
     @State private var showingGuide = !WidgetGuide.hasBeenShown
-    /// Whether the map has been tapped (opening the line picker) at least once; after that, the hint
-    /// above it isn't needed any more.
-    @AppStorage("mapHintDone") private var mapHintDone = false
     /// The city whose favorites are in edit mode (deleting); a sideways swipe turns the page instead.
     @State private var editingCity: City?
     /// How far each city's list is scrolled; the hint and city picker slide away by as much (up to
@@ -84,28 +81,19 @@ struct ContentView: View {
             .background(Color(.systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $showingMap) {
-                RouteMap(selection: selection, feed: feed)
-                    .navigationTitle(selection.isMultiLine ? "\(selection.lineIDs.joined(separator: ", ")) to \(selection.destination)" : "\(selection.lineID) \(selection.lineName)")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbarBackground(.visible, for: .navigationBar)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button { sharing = selection } label: { Image(systemName: "square.and.arrow.up") }
-                                .accessibilityLabel("Share this stop")
-                        }
-                    }
+                RouteMap(selection: selection, feed: feed, onClose: { showingMap = false }, onShare: { sharing = selection })
+                    // The map draws its own header, with a button that shrinks it back.
+                    .toolbar(.hidden, for: .navigationBar)
                     .sheet(item: $sharing) { stop in
                         ShareSheet(selection: stop, departures: shownDepartures(for: stop).departures)
                     }
+                    // Grows out of the home map it was tapped on; its header or card pulled down shrinks it back.
+                    .modifier(ZoomTransition(id: selection.city, in: mapZoom))
             }
-            .onChange(of: showingMap) {
-                // Back from a favorite's live map: open what was open before, so the big card
-                // stays the one you chose.
-                guard !showingMap, let previous = openBeforeMap else { return }
-                openBeforeMap = nil
-                select(previous)
+            // Only a favorite's times are shown on the home screen; the live map follows its own.
+            .task(id: favorites.contains { $0.id == selection.id } ? selection : nil) {
+                if favorites.contains(where: { $0.id == selection.id }) { await feed.follow(selection) }
             }
-            .task(id: selection) { await feed.follow(selection) }
             .task(id: favorites) { await favoritesFeed.follow(favorites) }
             .task { await startInNearestCity() }
             .onOpenURL { url in
@@ -157,16 +145,11 @@ struct ContentView: View {
                 }
             }
             #endif
-            .onChange(of: choosing) {
-                if choosing, !mapHintDone {
-                    // Shown once more under the picker sheet, then gone once it closes.
-                    Task { try? await Task.sleep(for: .seconds(0.6)); mapHintDone = true }
-                }
-            }
             .sheet(item: Binding(get: { showingMap ? nil : sharing }, set: { sharing = $0 })) { stop in
                 ShareSheet(selection: stop, departures: shownDepartures(for: stop).departures)
             }
-            .sheet(isPresented: $choosing) {
+            // Like the live map, the line picker grows out of the home map.
+            .fullScreenCover(isPresented: $choosing) {
                 NavigationStack(path: $pickerPath) {
                     LinePicker { picked in
                         // Picking a stop saves it: it joins the favorites (at the end) and opens.
@@ -179,6 +162,7 @@ struct ContentView: View {
                         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { choosing = false } }
                     }
                 }
+                .modifier(ZoomTransition(id: selection.city, in: mapZoom))
             }
             .fullScreenCover(isPresented: $showingGuide) {
                 WidgetGuide {
@@ -189,8 +173,9 @@ struct ContentView: View {
         }
     }
 
-    /// One city: the map previewing its open stop (tap it to pick another), that stop's departures
-    /// while it isn't a favorite, and the city's favorites.
+    /// One city: the map showing its open favorite (tap it for the live map; Add favorite picks
+    /// another stop) and the city's favorites. Before there are any, the map shows the city's main
+    /// lines and the list says how it all works.
     private func cityPage(_ city: City) -> some View {
         let open = preview(for: city)
         let cityFavorites = favorites.filter { $0.city == city }
@@ -199,33 +184,37 @@ struct ContentView: View {
         // scrolls, so a favorite picked far down a long list still shows on it.
         return ZStack(alignment: .top) {
             List {
-                // The city's default stop, before you've picked anything there.
-                if !openIsFavorite {
-                    Section {
-                        stopCard(open)
-                    } footer: {
-                        if cityFavorites.isEmpty {
-                            Text("Your widgets wait for this one in \(city.name) until you save favorites of your own.")
-                        }
-                    }
-                }
-
                 Section {
                     if cityFavorites.isEmpty {
-                        Button { choosing = true } label: {
-                            Label("No favorites in \(city.name) yet. Tap the map to start curating your suffering. It shows up here and on your widgets.", systemImage: "plus.circle")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Where do you wait?").font(.headline)
+                            Text("Tap Add favorite, then your line where you get on, to start curating your suffering in \(city.name). Your stops land here and on your widgets. Tap one to put it on the map, then the map to watch the \(city.vehicles) not come, live.")
                                 .font(.subheadline)
-                                .multilineTextAlignment(.leading)
+                                .foregroundStyle(.secondary)
                         }
+                        .padding(.vertical, 4)
                     }
                     ForEach(cityFavorites) { favorite in
-                        // Tapping a favorite opens it on the map above; its own buttons open the live
-                        // map, or reorder it (hold and drag).
+                        // Tapping a favorite opens it on the map above (tap that for the live map);
+                        // hold and drag to reorder.
                         HStack(spacing: 8) {
+                            if editingCity == city {
+                                // Deletes at once: no Delete button to confirm with, it's only a favorite.
+                                Button {
+                                    withAnimation { favorites.removeAll { $0.id == favorite.id } }
+                                    if !favorites.contains(where: { $0.city == city }) { editingCity = nil }
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(.white, .red)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Delete \(favorite.lineLabel) to \(favorite.destination)")
+                                .transition(.move(edge: .leading).combined(with: .opacity))
+                            }
                             Button { select(favorite) } label: { favoriteRow(favorite) }
                             .buttonStyle(.borderless)
                             .tint(.primary)
-                            liveMapButton(for: favorite)
                             // In edit mode the list draws its own handle.
                             if editingCity != city {
                                 Image(systemName: "line.3.horizontal")
@@ -236,12 +225,9 @@ struct ContentView: View {
                             }
                         }
                         .listRowBackground(favoriteBackground(isSelected: favorite.id == open.id))
-                        // Only in edit mode: otherwise a sideways swipe on a row is for turning the page.
-                        .deleteDisabled(editingCity != city)
-                    }
-                    .onDelete { offsets in
-                        let gone = Set(offsets.map { cityFavorites[$0].id })
-                        favorites.removeAll { gone.contains($0.id) }
+                        // The row's own minus button deletes, not the list's: a sideways swipe on a row is
+                        // for turning the page, and the list's minus would only reveal a Delete button.
+                        .deleteDisabled(true)
                     }
                     .onMove { from, to in
                         // Only this city's order changes; each city keeps its own list.
@@ -267,7 +253,7 @@ struct ContentView: View {
                     // where it can't go, and snap back instead of moving to the end.
                     VStack(alignment: .leading, spacing: 10) {
                         if !cityFavorites.isEmpty {
-                            Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. The full-screen button lets you watch the \(city.vehicle) not move, live. Hold and drag to reorder; Edit to delete.")
+                            Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. Tap the map to watch the \(city.vehicle) not move, live. Hold and drag to reorder; Edit to delete.")
                         }
                         Button { showingGuide = true } label: {
                             Label("Put your \(city.vehicles) on the Lock Screen", systemImage: "lock.iphone")
@@ -299,12 +285,21 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // The hint and city picker's room; they're drawn once, above the pages.
                 Color.clear.frame(height: headerHeight)
-                // Room at the top for the open favorite's card, so the route isn't under it.
-                RouteMap(selection: open, feed: feed, interactive: false, topInset: openIsFavorite ? 44 : 0)
+                // The open favorite (with room at the top for its card, so the route isn't under it),
+                // or before there is one, the city's main lines.
+                Group {
+                    if openIsFavorite {
+                        RouteMap(selection: open, feed: feed, interactive: false, topInset: 44)
+                    } else {
+                        CityLinesMap(city: city)
+                    }
+                }
                     .allowsHitTesting(false)
                     .frame(height: 260)
                     .contentShape(Rectangle())
-                    .onTapGesture { choosing = true }
+                    .onTapGesture { if openIsFavorite { openLiveMap() } }
+                    .accessibilityAddTraits(openIsFavorite ? .isButton : [])
+                    .accessibilityLabel(openIsFavorite ? "Live map, \(open.lineLabel) to \(open.destination)" : "\(city.name)'s main lines")
                     .overlay(alignment: .topLeading) {
                         if openIsFavorite {
                             openFavoriteCard(open)
@@ -315,6 +310,7 @@ struct ContentView: View {
                         }
                     }
                     .overlay(alignment: .topTrailing) {
+                        if openIsFavorite {
                         Button { sharing = open } label: {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.subheadline.weight(.semibold))
@@ -324,6 +320,7 @@ struct ContentView: View {
                         .buttonStyle(.borderless)
                         .padding(10)
                         .accessibilityLabel("Share this stop")
+                        }
                     }
                     .overlay(alignment: .bottomTrailing) {
                         // Says out loud what tapping the map does; the map alone reads as a picture.
@@ -338,6 +335,7 @@ struct ContentView: View {
                         .padding(12)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: ListCorners.radius, style: .continuous))
+                    .modifier(ZoomSource(id: city, in: mapZoom))
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
             }
@@ -350,13 +348,9 @@ struct ContentView: View {
         .clipped()
     }
 
-    /// "Tap the map…" (until the map's been used) and the city picker, above the city pages.
+    /// The city picker, above the city pages.
     private var cityHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if !mapHintDone {
-                Label("Tap the map to pick your next wait", systemImage: "hand.tap.fill")
-                    .font(.headline)
-            }
             Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
                 ForEach(City.allCases) { Text($0.name).tag($0) }
             }
@@ -428,42 +422,10 @@ struct ContentView: View {
         }
     }
 
-    /// A city's default stop before any favorite there: tapping it opens its live map.
-    private func stopCard(_ open: Selection) -> some View {
-        Button { showingMap = true } label: {
-            HStack(spacing: 12) {
-                stopCardContent(open)
-                Image(systemName: "map")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .accessibilityLabel("Live map")
-            }
-        }
-        .tint(.primary)
-    }
-
-    /// The open stop: line, destination and stop, then the next three departures.
-    private func stopCardContent(_ open: Selection) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                LineBadge(line: open.lineLabel, font: .system(.title3, design: .rounded).weight(.heavy))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("To \(open.destination)").font(.headline)
-                    Text(open.stopName).font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-            }
-            nextDepartures(open)
-        }
-        .multilineTextAlignment(.leading)
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-
     /// The open favorite, in one line over the top of the map: line, stop and the next departure.
     /// Tapping it opens the live map.
     private func openFavoriteCard(_ open: Selection) -> some View {
-        Button { showingMap = true } label: {
+        Button { openLiveMap() } label: {
             TimelineView(.everyMinute) { context in
                 let (departures, dimmed) = shownDepartures(for: open)
                 let next = departures.first { $0.time > context.date.addingTimeInterval(-30) }
@@ -495,57 +457,6 @@ struct ContentView: View {
         .accessibilityHint("Opens the live map")
     }
 
-    /// Opens a favorite's live map; back from it, the stop open before is open again.
-    private func liveMapButton(for favorite: Selection) -> some View {
-        Button {
-            if favorite.id != selection.id { openBeforeMap = selection }
-            select(favorite)
-            showingMap = true
-        } label: {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                .foregroundStyle(.tertiary)
-                .frame(width: 36, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        // The same gray as the drag handle, not the accent color.
-        .tint(.primary)
-        .accessibilityLabel("Live map, \(favorite.lineLabel) to \(favorite.destination)")
-    }
-
-    /// The next three departures as minutes, like the widgets ("4 · 16 · 31 min"), plus a comment
-    /// on the first. Recounted every minute between data refreshes.
-    private func nextDepartures(_ open: Selection) -> some View {
-        TimelineView(.everyMinute) { context in
-            let isOpen = open.id == selection.id
-            let shown = isOpen ? loaded ?? selection : open
-            let line = shown.lineLabel
-            let (departures, dimmed) = shownDepartures(for: open)
-            VStack(alignment: .leading, spacing: 3) {
-                if isOpen, let error = feed.error {
-                    Text(error).font(.subheadline).foregroundStyle(.secondary)
-                } else if !isOpen && departures.isEmpty {
-                    // Another city's default stop, seen mid-swipe: its times load once it's open.
-                    Text("…").font(.system(.title3, design: .rounded).weight(.semibold)).foregroundStyle(.secondary)
-                } else if let waits = Departure.waits(departures, from: context.date, count: 3, lines: shown.isMultiLine) {
-                    Text(waits)
-                        .font(.system(.title3, design: .rounded).weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(departures.first?.isLive == true ? .green : .secondary)
-                    if let next = departures.first(where: { $0.time > context.date.addingTimeInterval(-30) }) {
-                        // About the line that actually comes next.
-                        QuipText(Quip.forWait(until: next.time, from: context.date, line: next.line ?? line))
-                    }
-                } else {
-                    Text("No \(line)s on the horizon").font(.subheadline).foregroundStyle(.secondary)
-                    QuipText(Quip.noPrediction(line: line))
-                }
-            }
-            .padding(.leading, 2)
-            .opacity(dimmed ? 0.4 : 1)
-        }
-    }
-
     /// The departures a city page shows for `open`: the open stop's live feed (dimmed while it
     /// still holds the previous stop's), or for another city's page, what the favorites feed has.
     private func shownDepartures(for open: Selection) -> (departures: [Departure], dimmed: Bool) {
@@ -571,8 +482,13 @@ struct ContentView: View {
         choosing = false
         sharing = nil
         editingCity = nil
-        openBeforeMap = nil
         select(tapped)
+        showingMap = true
+    }
+
+    /// Blows the home map up into the live map.
+    private func openLiveMap() {
+        editingCity = nil
         showingMap = true
     }
 
@@ -647,6 +563,47 @@ struct QuipText: View {
 /// Thin red outline for the favorite open on the map. Its corners follow the section's rounded
 /// corners wherever the row is: after a drag the list doesn't redraw a moved row's background, so
 /// a shape that depended on the row's position would keep its old one and get clipped.
+/// The live map and the line picker grow out of the home map and shrink back into it (iOS 18; before,
+/// they slide in as usual).
+private struct ZoomTransition: ViewModifier {
+    let id: City
+    let namespace: Namespace.ID
+
+    init(id: City, in namespace: Namespace.ID) {
+        self.id = id
+        self.namespace = namespace
+    }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.navigationTransition(.zoom(sourceID: id, in: namespace))
+        } else {
+            content
+        }
+    }
+}
+
+/// The home map a city's live map zooms out of and back into.
+private struct ZoomSource: ViewModifier {
+    let id: City
+    let namespace: Namespace.ID
+
+    init(id: City, in namespace: Namespace.ID) {
+        self.id = id
+        self.namespace = namespace
+    }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.matchedTransitionSource(id: id, in: namespace) {
+                $0.clipShape(RoundedRectangle(cornerRadius: ListCorners.radius, style: .continuous))
+            }
+        } else {
+            content
+        }
+    }
+}
+
 private struct SelectedFavoriteFrame: View {
     private static let inset: CGFloat = 2
     private static var radius: CGFloat { ListCorners.radius - inset }

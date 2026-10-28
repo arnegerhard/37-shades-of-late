@@ -1,10 +1,12 @@
 import MapKit
 import SwiftUI
 
-/// Every line in a city drawn on one map. Tap near a line to select it (lines running close
-/// together are offered as chips). The selected line then shows each stop as a white arrow per
-/// direction of travel: tap one to pick that stop and direction together, tap anywhere else to
-/// let go of the line.
+/// Every line in a city drawn on one map. Tap a line where you catch it: that selects the line
+/// (lines running close together are offered as chips) and its stop nearest the tap. The card then
+/// offers the ways it goes from there, each with an arrow that points like the map, where it heads,
+/// its next stop and its live minutes; the same arrows sit at the stop on the map. Tap along the
+/// line for another stop, anywhere else to let go of it. Zoomed in to a neighborhood, every stop shows
+/// as a white dot; tapping one selects a line that stops there (the others as chips) and that stop.
 struct LineMapPicker: View {
     let city: City
     let onPick: (Selection) -> Void
@@ -17,7 +19,17 @@ struct LineMapPicker: View {
     @State private var selectedID: String?
     @State private var directions: [Direction] = []
     @State private var arrows: [StopArrow] = []
+    /// The selected line's stops as dots, one per corner (both directions' stops near each other).
+    @State private var stopDots: [StopDot] = []
+    /// Where the last tap on a line landed, so the line it selects (or a chip) opens on the stop there.
+    @State private var tapCoordinate: CLLocationCoordinate2D?
+    /// The stop picked on the selected line: one arrow per direction there.
+    @State private var corner: [StopArrow] = []
+    /// The next departures each of those directions has, by arrow id.
+    @State private var cornerTimes: [String: [Departure]] = [:]
     @State private var picked: StopArrow?
+    /// Fetching the stops of a line about to be selected.
+    @State private var lineLoad: Task<Void, Never>?
     /// Other lines serving the picked stop, and which of them the user also wants to count.
     @State private var otherLines: [StopLine] = []
     @State private var alsoIDs: Set<String> = []
@@ -38,7 +50,16 @@ struct LineMapPicker: View {
     @State private var liveRelabelAt: Date = .distantPast
     /// The map's frame, which stops at the header above and the card below.
     @State private var mapSize: CGSize = .zero
+    /// The room kept for the card under the map (see the card's inset).
+    @State private var cardRoom: CGFloat = 0
+    /// How zoomed in the map is; stop dots show once stops are a fingertip apart.
+    @State private var metersPerPoint: Double = .infinity
+    /// Every stop in the city, and those in view once zoomed in far enough to show them.
+    @State private var allStops: [MapStop] = []
+    @State private var shownStops: [MapStop] = []
     @State private var error: String?
+    /// The lines and their badges blend in once the map is up (after it zooms out of the home screen's).
+    @State private var fade: Double = 0
     @State private var position: MapCameraPosition
     @Environment(\.colorScheme) private var colorScheme
 
@@ -80,7 +101,7 @@ struct LineMapPicker: View {
                 // Selected line last, so it's drawn on top of the lines it shares streets with.
                 LineLayer(lines: drawOrder, paths: paths, pathsVersion: pathsVersion, selectedID: selectedID,
                           alsoLineIDs: alsoLineIDs, candidateIDs: Set(candidates.map(\.id)),
-                          colorScheme: colorScheme, isBackground: isBackground)
+                          colorScheme: colorScheme, isBackground: isBackground, fade: fade)
 
                 // Line names. While a line is picked they step back like the other lines do.
                 ForEach(labels + leavingLabels.values.map(\.label).sorted { $0.id < $1.id }) { label in
@@ -92,7 +113,7 @@ struct LineMapPicker: View {
                                     .fixedSize()
                                     .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
                             }
-                            .opacity(selectedID == nil ? 1 : 0.35)
+                            .opacity((selectedID == nil ? 1 : 0.35) * fade)
                             .allowsHitTesting(false)
                         }
                         .annotationTitles(.hidden)
@@ -122,7 +143,30 @@ struct LineMapPicker: View {
                     .annotationTitles(.hidden)
                 }
 
-                ForEach(arrows) { arrow in
+                // Every stop around, underneath the selected line's own.
+                ForEach(shownStops) { stop in
+                    Annotation("", coordinate: stop.coordinate, anchor: .center) {
+                        Circle().fill(.white).stroke(.gray, lineWidth: 1.5).frame(width: 8, height: 8)
+                            .allowsHitTesting(false)
+                    }
+                    .annotationTitles(.hidden)
+                }
+
+                // The selected line's stops, once zoomed in far enough to tell them apart.
+                if metersPerPoint < Self.dotsBelowMetersPerPoint {
+                    let color = (selected?.mapColor ?? LineBadge.red).legible(on: colorScheme)
+                    // By place, so switching lines fades dots out and in rather than sliding them across.
+                    ForEach(stopDots, id: \.self) { dot in
+                        Annotation("", coordinate: dot.coordinate, anchor: .center) {
+                            Circle().fill(.white).stroke(color, lineWidth: 2).frame(width: 9, height: 9)
+                                .allowsHitTesting(false)
+                        }
+                        .annotationTitles(.hidden)
+                    }
+                }
+
+                // The picked stop's directions, on the side of the street each stops on.
+                ForEach(corner) { arrow in
                     Annotation("", coordinate: arrow.position, anchor: .center) {
                         StopArrowMark(rotation: arrow.bearing - heading, isPicked: arrow.id == picked?.id,
                                       offset: arrow.screenOffset(heading: heading),
@@ -138,10 +182,12 @@ struct LineMapPicker: View {
                 // The badges follow a pinch or pan as it happens, not just once it's let go.
                 guard Date.now.timeIntervalSince(liveRelabelAt) > 0.15 else { return }
                 liveRelabelAt = .now
+                measure(context.rect)
                 relabel(proxy, showing: context.rect)
             }
             .onMapCameraChange(frequency: .onEnd) {
                 visibleRect = $0.rect
+                measure($0.rect)
                 relabel(proxy)
             }
             .onGeometryChange(for: CGSize.self, of: \.size) { mapSize = $0 }
@@ -158,7 +204,15 @@ struct LineMapPicker: View {
             // Alongside the map's own gestures, which would otherwise swallow a plain tap.
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in handleTap(at: tap.location, proxy: proxy) })
         }
-        .safeAreaInset(edge: .bottom) { card }
+        .safeAreaInset(edge: .bottom) {
+            // The map fits itself to the space above the card, so a card changing height moves the map.
+            // While a line is selected the space only grows: switching lines or stops leaves it be.
+            card
+                .onGeometryChange(for: CGFloat.self, of: \.size.height) { height in
+                    if selectedID == nil || height > cardRoom { cardRoom = height }
+                }
+                .frame(height: max(cardRoom, 1), alignment: .bottom)
+        }
         .overlay {
             if let error {
                 ContentUnavailableView("The map didn't show up either", systemImage: "map", description: Text(error))
@@ -180,9 +234,21 @@ struct LineMapPicker: View {
             // data if the proxy has it; that's checked at most once a day.
             show(TransitService.cachedLineMap(in: city))
             if lines.isEmpty { error = "No line data yet. Your connection is running late too." }
+            await blendIn()
             if let newer = await TransitService.refreshedLineMap(in: city), !Task.isCancelled {
                 show(newer)
                 error = nil
+            }
+        }
+        .task(id: city) {
+            allStops = []
+            shownStops = []
+            // Thousands of them (New York's buses): read off the main thread.
+            allStops = await Task.detached(priority: .userInitiated) { TransitService.cachedStops(in: city) }.value
+            if let visibleRect { showStops(in: visibleRect) }
+            if let newer = await TransitService.refreshedStops(in: city), !Task.isCancelled {
+                allStops = newer
+                if let visibleRect { showStops(in: visibleRect) }
             }
         }
         .task(id: picked?.id) {
@@ -217,19 +283,22 @@ struct LineMapPicker: View {
             }
             withAnimation(.easeOut(duration: 0.25)) { alsoStops = found }
         }
-        .task(id: selectedID) {
-            // The map stays put: the user may have zoomed in to their stop before picking the line.
-            directions = []
-            arrows = []
-            picked = nil
+        .task(id: corner.map(\.id)) {
+            // Live minutes for each way from the picked stop, side by side. Times already fetched stay
+            // (they're by stop and direction), so going back to a stop shows them right away.
             guard let selected else { return }
-            // Stops seen before are on the device already; others need one download.
-            var loaded = TransitService.cachedDirections(for: selected.line, in: city)
-            if loaded == nil { loaded = try? await TransitService.directions(for: selected.line, in: city) }
-            guard let loaded, !Task.isCancelled else { return }
-            directions = loaded
-            withAnimation(.easeOut(duration: 0.25)) {
-                arrows = StopArrow.arrows(for: loaded, lineShape: paths[selected.id] ?? [])
+            let wanted = corner.map { arrow in
+                (arrow.id, Selection(lineID: selected.id, lineName: selected.name, directionID: arrow.direction.id,
+                                     destination: arrow.direction.destination, stopCode: arrow.stop.code,
+                                     stopName: arrow.stop.name, city: city))
+            }
+            await withTaskGroup(of: (String, [Departure]?).self) { group in
+                for (id, selection) in wanted {
+                    group.addTask { (id, try? await TransitService.departures(for: selection, client: .map)) }
+                }
+                for await (id, departures) in group where !Task.isCancelled {
+                    if let departures { cornerTimes[id] = departures }
+                }
             }
         }
     }
@@ -243,7 +312,7 @@ struct LineMapPicker: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(candidates) { line in
-                                Button { selectedID = line.id } label: {
+                                Button { select(line, among: candidates) } label: {
                                     LineBadge(line: line.id, font: .system(.subheadline, design: .rounded).weight(.heavy),
                                               color: line.mapColor, textColor: line.badgeTextColor)
                                         .opacity(line.id == selectedID ? 1 : 0.55)
@@ -264,31 +333,34 @@ struct LineMapPicker: View {
                     LineBadge(line: selected.id, font: .system(.title3, design: .rounded).weight(.heavy),
                               color: selected.mapColor, textColor: selected.badgeTextColor)
                     VStack(alignment: .leading, spacing: 2) {
-                        if let picked {
-                            Text("To \(picked.direction.destination)").font(.headline).lineLimit(1)
-                            Text(picked.stop.name).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        if let stop = (picked ?? corner.first)?.stop {
+                            Text(stop.name).font(.headline).lineLimit(1)
+                            Text(picked == nil ? "Which way are you going?" : "Good choice. Probably.")
+                                .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                         } else {
                             Text(selected.name).font(.headline).lineLimit(1)
-                            Text(arrows.isEmpty ? "Counting the stops…" : "Tap an arrow: that stop, that direction.")
+                            Text(arrows.isEmpty ? "Counting the stops…" : "Tap the line where you get on.")
                                 .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                         }
                     }
                     Spacer(minLength: 0)
-                    if let picked {
-                        Button("Choose") { choose(picked) }
-                            .font(.subheadline.weight(.semibold))
-                            .buttonStyle(.borderedProminent)
-                            .tint(LineBadge.red)
-                    } else {
-                        // The list is still there for anyone who'd rather read street names.
-                        NavigationLink(value: selected.line) {
-                            Image(systemName: "list.bullet").accessibilityLabel("Stop list")
-                        }
-                        .buttonStyle(.bordered)
+                }
+                if !corner.isEmpty {
+                    VStack(spacing: 6) {
+                        ForEach(corner) { directionRow($0, color: selected.mapColor) }
                     }
                 }
+                if let picked {
+                    Button { choose(picked) } label: {
+                        Text("That's my stop").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(LineBadge.red)
+                }
             } else {
-                Label(lines.isEmpty ? "Asking nicely for the lines…" : "Tap the line you'll be waiting for.", systemImage: "hand.tap")
+                Label(lines.isEmpty ? "Asking nicely for the lines…"
+                      : shownStops.isEmpty ? "Tap your line where you get on." : "Tap your stop, or your line.",
+                      systemImage: "hand.tap")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -297,6 +369,48 @@ struct LineMapPicker: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .padding()
+    }
+
+    /// One way from the picked stop: an arrow pointing the way it goes on the map as it's turned now,
+    /// where it ends up, its next stop (which riders know better than the end of the line), and the
+    /// minutes until the next ones.
+    private func directionRow(_ arrow: StopArrow, color: Color) -> some View {
+        let isPicked = arrow.id == picked?.id
+        let departures = (cornerTimes[arrow.id] ?? []).filter { $0.time > .now.addingTimeInterval(-30) }
+        let stops = arrow.direction.stops
+        let next = stops.firstIndex { $0.code == arrow.stop.code }.flatMap { stops.indices.contains($0 + 1) ? stops[$0 + 1].name : nil }
+        return Button { withAnimation(.snappy(duration: 0.2)) { picked = arrow } } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(isPicked ? color.legible(on: colorScheme) : .secondary)
+                    .rotationEffect(.degrees(arrow.bearing - heading))
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("To \(arrow.direction.destination)").font(.headline).lineLimit(1)
+                    Text(next.map { "Next: \($0)" } ?? "Last stop. Everybody off.")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Text(cornerTimes[arrow.id] == nil ? "…" : Departure.waits(departures, from: .now, count: 2) ?? "none")
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .foregroundStyle(departures.first?.isLive == true ? .green : .secondary)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .background(.primary.opacity(isPicked ? 0.12 : 0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                if isPicked {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(color.legible(on: colorScheme), lineWidth: 2)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("To \(arrow.direction.destination)\(next.map { ", next stop \($0)" } ?? "")")
+        .accessibilityAddTraits(isPicked ? .isSelected : [])
     }
 
     /// "Also take" chips: the other lines at the picked stop, which the user can add so the stop
@@ -343,29 +457,122 @@ struct LineMapPicker: View {
         "\(max(10, Int((Double(line.distance ?? 0) / 10).rounded()) * 10)) m"
     }
 
-    /// With a line selected: an arrow within a fingertip picks that stop and direction (tapping it
-    /// again chooses it); anywhere else lets go of the line. Without one: select the nearest line.
+    /// An arrow at the picked stop picks that direction. Along the selected line, its stop nearest
+    /// the tap. Anywhere else, the line nearest the tap and its stop there (or none: let go).
     private func handleTap(at point: CGPoint, proxy: MapProxy) {
-        guard selectedID == nil else {
-            let hit = arrows
-                .compactMap { arrow -> (StopArrow, CGFloat)? in
-                    // Measure to where the arrow is drawn, not to the stop it belongs to.
-                    guard let stop = proxy.convert(arrow.position, to: .local) else { return nil }
-                    let shift = arrow.screenOffset(heading: heading)
-                    let spot = CGPoint(x: stop.x + shift.width, y: stop.y + shift.height)
-                    let distance = hypot(spot.x - point.x, spot.y - point.y)
-                    return distance <= 24 ? (arrow, distance) : nil
-                }
-                .min { $0.1 < $1.1 }?.0
-            if let hit {
-                if hit.id == picked?.id { choose(hit) } else { withAnimation(.snappy(duration: 0.2)) { picked = hit } }
-            } else {
-                withAnimation(.snappy(duration: 0.25)) { deselect() }
+        guard let coordinate = proxy.convert(point, from: .local),
+              let edge = proxy.convert(CGPoint(x: point.x + 24, y: point.y), from: .local)
+        else { return }
+        let hit = corner
+            .compactMap { arrow -> (StopArrow, CGFloat)? in
+                // Measure to where the arrow is drawn, not to the stop it belongs to.
+                guard let stop = proxy.convert(arrow.position, to: .local) else { return nil }
+                let shift = arrow.screenOffset(heading: heading)
+                let distance = hypot(stop.x + shift.width - point.x, stop.y + shift.height - point.y)
+                return distance <= 22 ? (arrow, distance) : nil
             }
+            .min { $0.1 < $1.1 }?.0
+        if let hit {
+            withAnimation(.snappy(duration: 0.2)) { picked = hit }
+            return
+        }
+        // A stop dot: the lines around it as chips, the selected one kept if it stops there (and
+        // moved to that stop at once, while the others are looked up).
+        if let stop = shownStops
+            .compactMap({ stop -> (MapStop, CGFloat)? in
+                guard let spot = proxy.convert(stop.coordinate, to: .local) else { return nil }
+                let distance = hypot(spot.x - point.x, spot.y - point.y)
+                return distance <= 16 ? (stop, distance) : nil
+            })
+            .min(by: { $0.1 < $1.1 })?.0 {
+            tapCoordinate = stop.coordinate
+            if arrows.contains(where: { $0.stop.code == stop.code }) {
+                withAnimation(.snappy(duration: 0.25)) { pickCorner(near: stop.coordinate) }
+            }
+            selectStop(stop, proxy: proxy)
+            return
+        }
+        tapCoordinate = coordinate
+        if let selectedID, !arrows.isEmpty,
+           (paths[selectedID] ?? []).map({ distanceToPath(coordinate, $0) }).min() ?? .infinity <= meters(coordinate, edge) {
+            withAnimation(.snappy(duration: 0.25)) { pickCorner(near: coordinate) }
             return
         }
         selectLine(near: point, proxy: proxy)
     }
+
+    /// Picks the selected line's stop nearest `coordinate`, with its directions; a stop served one way
+    /// only (a terminal, a loop) has its one direction picked already.
+    private func pickCorner(near coordinate: CLLocationCoordinate2D) {
+        corner = StopArrow.corner(near: coordinate, in: arrows)
+        picked = corner.count == 1 ? corner.first : nil
+        // From the whole city, zoom in to the stop, so its arrows and the stops around it can be
+        // told apart (and another one tapped instead).
+        if let stop = corner.first?.position, metersPerPoint > Self.dotsBelowMetersPerPoint {
+            withAnimation(.smooth(duration: 0.6)) {
+                position = .region(MKCoordinateRegion(center: stop, latitudinalMeters: 900, longitudinalMeters: 900))
+            }
+        }
+    }
+
+    /// Notes how zoomed in the map is, for the stop dots.
+    private func measure(_ rect: MKMapRect) {
+        guard mapSize.width > 0 else { return }
+        metersPerPoint = rect.width * MKMetersPerMapPointAtLatitude(rect.origin.coordinate.latitude) / mapSize.width
+        showStops(in: rect)
+    }
+
+    /// The stops in (and just around) `rect`, once zoomed in to a neighborhood; none from further out,
+    /// where a city's worth would bury the lines (and slow the map down).
+    private func showStops(in rect: MKMapRect) {
+        guard metersPerPoint < Self.allStopsBelowMetersPerPoint else {
+            if !shownStops.isEmpty { shownStops = [] }
+            return
+        }
+        let area = rect.insetBy(dx: -rect.width * 0.15, dy: -rect.height * 0.15)
+        let inView = allStops.filter { area.contains(MKMapPoint($0.coordinate)) }
+        if inView.map(\.code) != shownStops.map(\.code) { shownStops = inView }
+    }
+
+    /// Every stop shows from about this far in: a few dozen blocks across.
+    private static let allStopsBelowMetersPerPoint = 4.0
+
+    /// Selects a line that stops at `stop`, with every line at the stops around it as chips (a busy
+    /// corner like Market and Church has a stop per line and direction), and opens on that stop.
+    /// Which lines stop where comes with the stops, or else from the proxy (Muni's, from the live
+    /// times); if none are running, the lines passing by will do.
+    private func selectStop(_ stop: MapStop, proxy: MapProxy) {
+        lineLoad?.cancel()
+        lineLoad = Task {
+            // Nearest first, so the tapped stop's own lines lead.
+            let around = allStops
+                .map { ($0, meters($0.coordinate, stop.coordinate)) }
+                .filter { $0.1 <= Self.cornerMeters }
+                .sorted { $0.1 < $1.1 }
+                .map(\.0)
+            var linesAt = Dictionary(around.compactMap { s in s.lines.map { (s.code, $0) } }, uniquingKeysWith: { a, _ in a })
+            let asking = around.filter { $0.lines == nil }.map(\.code)
+            if !asking.isEmpty, let found = try? await TransitService.linesAtStops(asking, in: city) {
+                for line in found { linesAt[line.stop ?? asking[0], default: []].append(line.line) }
+            }
+            guard !Task.isCancelled else { return }
+            let here = around.flatMap { linesAt[$0.code] ?? [] }.reduce(into: [MapLine]()) { found, id in
+                if let line = lines.first(where: { $0.id == id }), !found.contains(where: { $0.id == id }) { found.append(line) }
+            }
+            if let first = here.first(where: { $0.id == selectedID }) ?? here.first {
+                select(first, among: here)
+            } else if let point = proxy.convert(stop.coordinate, to: .local) {
+                selectLine(near: point, proxy: proxy)
+            }
+        }
+    }
+
+    /// How far around a tapped stop its corner reaches: as far as "Also fine with" looks (the proxy's
+    /// NEARBY_METERS), a minute or two on foot.
+    private static let cornerMeters = 150.0
+
+    /// Stops along a line are a few hundred meters apart; this far in, that's a fingertip or more.
+    private static let dotsBelowMetersPerPoint = 6.0
 
     /// Lines within about a fingertip (24 pt) of the tap, nearest first.
     private func selectLine(near point: CGPoint, proxy: MapProxy) {
@@ -381,9 +588,44 @@ struct LineMapPicker: View {
             .sorted { $0.1 < $1.1 }
             .prefix(8)
             .map(\.0)
-        withAnimation(.snappy(duration: 0.25)) {
-            candidates = Array(nearby)
-            selectedID = nearby.first?.id
+        guard let nearest = nearby.first else { return withAnimation(.snappy(duration: 0.25)) { deselect() } }
+        select(nearest, among: Array(nearby))
+    }
+
+    /// Selects `line` and its stop nearest the last tap together, once its stops are at hand, so the
+    /// card and map change once, straight from the old line to the new one. Stops seen before are on
+    /// the device already; others need one download, during which the old line stays up.
+    private func select(_ line: MapLine, among nearby: [MapLine]) {
+        lineLoad?.cancel()
+        let show = { (loaded: [Direction]) in
+            let lineArrows = StopArrow.arrows(for: loaded, lineShape: paths[line.id] ?? [])
+            withAnimation(.snappy(duration: 0.25)) {
+                candidates = nearby
+                selectedID = line.id
+                directions = loaded
+                arrows = lineArrows
+                stopDots = StopArrow.corners(of: lineArrows)
+                corner = []
+                picked = nil
+                if let tapCoordinate { pickCorner(near: tapCoordinate) }
+            }
+        }
+        if let cached = TransitService.cachedDirections(for: line.line, in: city) { return show(cached) }
+        lineLoad = Task {
+            guard let loaded = try? await TransitService.directions(for: line.line, in: city), !Task.isCancelled else { return }
+            show(loaded)
+        }
+    }
+
+    /// Brings the lines up from nothing in a few steps (map lines don't animate on their own), after
+    /// the map has had a moment to zoom in and draw its streets.
+    private func blendIn() async {
+        fade = 0
+        try? await Task.sleep(for: .seconds(0.35))
+        for step in 1...6 {
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.06)) { fade = Double(step) / 6 }
+            try? await Task.sleep(for: .seconds(0.06))
         }
     }
 
@@ -423,10 +665,13 @@ struct LineMapPicker: View {
     }
 
     private func deselect() {
+        lineLoad?.cancel()
         candidates = []
         selectedID = nil
         directions = []
         arrows = []
+        stopDots = []
+        corner = []
         picked = nil
     }
 
@@ -496,6 +741,26 @@ struct StopArrow: Identifiable, Equatable {
 
     static func == (a: StopArrow, b: StopArrow) -> Bool { a.id == b.id }
 
+    /// A stop as riders think of it: the stop nearest `point`, plus for each other direction its stop
+    /// closest to that one, if it's within a short walk (the other way may run a street over, or not
+    /// pass by at all). Ordered by direction, so the rows don't swap places from stop to stop.
+    static func corner(near point: CLLocationCoordinate2D, in arrows: [StopArrow]) -> [StopArrow] {
+        guard let nearest = arrows.min(by: { meters($0.position, point) < meters($1.position, point) }) else { return [] }
+        return Dictionary(grouping: arrows, by: \.direction.id).values
+            .compactMap { way in way.min { meters($0.position, nearest.position) < meters($1.position, nearest.position) } }
+            .filter { $0.id == nearest.id || meters($0.position, nearest.position) < 200 }
+            .sorted { $0.direction.id < $1.direction.id }
+    }
+
+    /// One spot per corner: stops of either direction within 40 m of one already kept are left out.
+    static func corners(of arrows: [StopArrow]) -> [StopDot] {
+        var kept: [StopDot] = []
+        for arrow in arrows where !kept.contains(where: { meters($0.coordinate, arrow.position) < 40 }) {
+            kept.append(StopDot(latitude: arrow.position.latitude, longitude: arrow.position.longitude))
+        }
+        return kept
+    }
+
     /// Arrows for every stop of every direction. Each arrow follows the street at its stop: the
     /// route shape's segment nearest the stop (the direction's own shape where the city provides
     /// one, else the line's), turned around if it points against the direction of travel. Where
@@ -535,7 +800,8 @@ struct StopArrow: Identifiable, Equatable {
     }
 }
 
-/// White arrow with a dark rim, readable on any map; the picked one grows and takes the line's color.
+/// White arrow with a dark rim, readable on any map, for a direction at the picked stop; the picked
+/// direction grows and takes the line's color.
 private struct StopArrowMark: View {
     let rotation: Double
     let isPicked: Bool
@@ -548,7 +814,7 @@ private struct StopArrowMark: View {
                 Circle().fill(.white).frame(width: 36, height: 36).shadow(color: .black.opacity(0.5), radius: 3)
             }
             Image(systemName: "location.north.fill")
-                .font(.system(size: isPicked ? 20 : 13, weight: .bold))
+                .font(.system(size: isPicked ? 20 : 17, weight: .bold))
                 .foregroundStyle(isPicked ? color : .white)
                 .shadow(color: .black.opacity(isPicked ? 0 : 0.9), radius: 1.2)
                 .rotationEffect(.degrees(rotation))
@@ -697,9 +963,11 @@ private struct LineLayer: MapContent, Equatable {
     let candidateIDs: Set<String>
     let colorScheme: ColorScheme
     let isBackground: (MapLine) -> Bool
+    /// 0 to 1 as the lines blend in.
+    let fade: Double
 
     static func == (a: Self, b: Self) -> Bool {
-        a.pathsVersion == b.pathsVersion && a.selectedID == b.selectedID && a.alsoLineIDs == b.alsoLineIDs
+        a.fade == b.fade && a.pathsVersion == b.pathsVersion && a.selectedID == b.selectedID && a.alsoLineIDs == b.alsoLineIDs
             && a.candidateIDs == b.candidateIDs && a.colorScheme == b.colorScheme && a.lines.map(\.id) == b.lines.map(\.id)
     }
 
@@ -714,7 +982,7 @@ private struct LineLayer: MapContent, Equatable {
             ForEach(Array((paths[line.id] ?? []).enumerated()), id: \.offset) { _, path in
                 MapPolyline(coordinates: path)
                     .stroke(line.mapColor.legible(on: colorScheme)
-                                .opacity((selectedID == nil || isSelected ? 1 : isCandidate ? 0.5 : 0.22) * (background && !isCandidate ? 0.45 : 1)),
+                                .opacity((selectedID == nil || isSelected ? 1 : isCandidate ? 0.5 : 0.22) * (background && !isCandidate ? 0.45 : 1) * fade),
                             style: StrokeStyle(lineWidth: isSelected ? 7 : isCandidate ? 3.5 : background ? 1.5 : 3,
                                                lineCap: .round, lineJoin: .round))
             }
@@ -896,4 +1164,16 @@ enum LineLabels {
         }
         return labels
     }
+}
+
+extension MapStop {
+    var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+}
+
+/// A stop dot on the map, identified by where it is.
+struct StopDot: Hashable {
+    let latitude: Double
+    let longitude: Double
+
+    var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
 }

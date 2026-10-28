@@ -9,9 +9,10 @@
  *   GET /v1/seattle/departures?stop=1_2260&line=8&direction=1
  *   GET /v1/seattle/nearby?stop=1_2260             lines at the stop and at stops within 150 m facing the same way
  *   GET /v1/seattle/map                            every line's route shape, for picking a line on a map
+ *   GET /v1/seattle/stops                          every stop with its lines, for the map's stop dots
  */
 
-import { closestPerLine, hexColor, mergeShapes, linePairs, linesAtStop, metersBetween, NEARBY_METERS, simplify, type NearbyLine, type Polyline } from "./geo";
+import { closestPerLine, hexColor, mergeShapes, linePairs, linesAtStop, metersBetween, NEARBY_METERS, simplify, stopsOfLines, type MapStop, type NearbyLine, type Polyline } from "./geo";
 
 const DEPARTURES_TTL_MS = 60_000;
 
@@ -111,6 +112,15 @@ export async function handleOBA(parts: string[], url: URL, baseDeps: SeattleDeps
       entry = await deps.cached(`${region.cache}-map-v5`, 20, () => fetchMap(deps));
     }
     return { body: { lines: entry.data.lines, complete: entry.data.complete, fetchedAt: iso(entry.fetchedAt) }, maxAge: entry.data.complete ? 3600 : 0 };
+  }
+
+  if (parts[0] === "stops") {
+    // Like the map: partial until every line's stops are cached, and then only kept briefly.
+    let entry = await deps.cached(`${region.cache}-stops-v1`, deps.staticTTL, () => fetchStops(deps));
+    if (!entry.data.complete && Date.now() - entry.fetchedAt > 20_000) {
+      entry = await deps.cached(`${region.cache}-stops-v1`, 20, () => fetchStops(deps));
+    }
+    return { body: { stops: entry.data.stops, complete: entry.data.complete, fetchedAt: iso(entry.fetchedAt) }, maxAge: entry.data.complete ? 3600 : 0 };
   }
 
   if (parts[0] === "stop") {
@@ -290,6 +300,20 @@ async function fetchMap(deps: Deps) {
     if (shapes.length) result.push({ id: line.id, name: line.name, mode: line.mode, color: line.color, textColor: line.textColor, shapes });
   }
   return { lines: result, complete };
+}
+
+/**
+ * Every stop with its lines, from the lines' stops the map has cached (see fetchMap), so it costs no
+ * OneBusAway calls; incomplete while the map is still filling in.
+ */
+async function fetchStops(deps: Deps): Promise<{ stops: MapStop[]; complete: boolean }> {
+  const lines = (await linesCached(deps)).data;
+  const found: { id: string; directions: any[] }[] = [];
+  for (const line of lines) {
+    const entry = await deps.peek<any[]>(`${deps.region.cache}-line:${line.routeId}`);
+    if (entry) found.push({ id: line.id, directions: entry.data });
+  }
+  return { stops: stopsOfLines(found), complete: found.length === lines.length };
 }
 
 interface NearbyStop {

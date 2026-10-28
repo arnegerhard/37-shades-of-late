@@ -11,6 +11,11 @@ struct RouteMap: View {
     var interactive = true
     /// Points at the top covered by something drawn over the map, kept clear of the route.
     var topInset: CGFloat = 0
+    /// Puts the live map away again. With it, the map gets its own header with a shrink button, and
+    /// the header and the card can be pulled down to close it (the map itself takes swipes for panning).
+    var onClose: (() -> Void)? = nil
+    /// Shares the stop, from the header's button.
+    var onShare: (() -> Void)? = nil
 
     @State private var stops: [Stop] = []
     /// The real street route where the city provides one (Seattle); empty otherwise.
@@ -23,9 +28,13 @@ struct RouteMap: View {
     @State private var shownSelection: Selection?
     /// A live bus that was still on its way vanished from the latest data.
     @State private var busVanished = false
+    /// How far the header or card has been pulled down, on its way to closing the map.
+    @State private var pull: CGFloat = 0
 
     /// The line to draw: the real route shape if there is one, else the stops joined in order.
     private var departures: [Departure] { feed.loaded?.id == selection.id ? feed.departures : [] }
+    /// Departures still ahead (or just leaving).
+    private var upcoming: [Departure] { departures.filter { $0.time > now.addingTimeInterval(-30) } }
     private var refresh: Refresh? { feed.loaded?.id == selection.id ? feed.refresh : nil }
     /// The current minute, ticking on the minute mark like the departure list's TimelineView,
     /// so the minutes on the map always match the list's.
@@ -117,10 +126,17 @@ struct RouteMap: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
-                if interactive { statusCard }
+                if interactive { statusCard.gesture(pullToClose, isEnabled: onClose != nil) }
                 RefreshBar(refresh: refresh)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if onClose != nil { header.gesture(pullToClose) }
+        }
+        // Pulled down, the whole map follows the finger and shrinks a little, like a sheet.
+        .clipShape(RoundedRectangle(cornerRadius: min(pull / 3, 40), style: .continuous))
+        .scaleEffect(1 - min(pull, 400) / 2000, anchor: .bottom)
+        .offset(y: pull / 2)
         .task {
             while !Task.isCancelled {
                 now = .currentMinute
@@ -157,21 +173,93 @@ struct RouteMap: View {
     }
 
     private var statusCard: some View {
+        VStack(spacing: 8) {
+            if onClose != nil {
+                // Says the card can be pulled down, like a sheet's.
+                Capsule().fill(.primary.opacity(0.45)).frame(width: 40, height: 5)
+            }
+            statusText
+        }
+        .padding()
+        .padding(.top, onClose == nil ? 0 : -8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding()
+        .accessibilityAction(named: "Back to your favorites") { onClose?() }
+    }
+
+    /// Instead of a navigation bar: shrink back to the home screen, where it's going, share. Pulling it
+    /// down closes the map too.
+    private var header: some View {
+        HStack(spacing: 12) {
+            Button { onClose?() } label: {
+                Image(systemName: "chevron.down")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .accessibilityLabel("Back to your favorites")
+            Spacer(minLength: 0)
+            Text(selection.isMultiLine ? "\(selection.lineIDs.joined(separator: ", ")) to \(selection.destination)" : "\(selection.lineID) to \(selection.destination)")
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .frame(height: 40)
+                .background(.regularMaterial, in: Capsule())
+            Spacer(minLength: 0)
+            Button { onShare?() } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .accessibilityLabel("Share this stop")
+            .opacity(onShare == nil ? 0 : 1)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+
+    /// Down on the header or the card: past a short pull (or a flick), the map shrinks back home.
+    private var pullToClose: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { pull = max(0, $0.translation.height) }
+            .onEnded { drag in
+                if let onClose, drag.translation.height > 80 || drag.predictedEndTranslation.height > 220 {
+                    onClose()
+                } else {
+                    withAnimation(.snappy) { pull = 0 }
+                }
+            }
+    }
+
+    private var statusText: some View {
         HStack(spacing: 12) {
             LineBadge(line: selection.lineLabel, font: .system(.title3, design: .rounded).weight(.heavy))
             VStack(alignment: .leading, spacing: 2) {
-                if let next = buses.first {
-                    Text("Next \(selection.vehicle) \(minutesLabel(next.departure) == "now" ? "arriving now" : "in \(minutesLabel(next.departure))")")
+                // The next one on the map, else the next time even without a position to draw: BART
+                // doesn't say where its trains are, and scheduled times have no vehicle at all.
+                if let next = buses.first?.departure ?? upcoming.first {
+                    Text("Next \(selection.vehicle) \(minutesLabel(next) == "now" ? "arriving now" : "in \(minutesLabel(next))")")
                         .font(.headline)
                 } else {
                     Text("No \(selection.vehicles) on the way. Bold of you to look.").font(.headline)
                 }
-                Text("Live \(selection.vehicles) headed to \(selection.stopName), in theory")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Group {
+                    if !buses.isEmpty || upcoming.isEmpty {
+                        Text("Live \(selection.vehicles) headed to \(selection.stopName), in theory")
+                    } else if upcoming.first?.isLive == true {
+                        Text("Live times for \(selection.stopName), but no \(selection.vehicle) on the map to point at")
+                    } else {
+                        Text("Just the schedule for \(selection.stopName). No \(selection.vehicle) has owned up to it yet.")
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
                 if busVanished {
                     QuipText(Quip.vanished(line: selection.lineLabel))
-                } else if let next = departures.first {
+                } else if let next = upcoming.first {
                     QuipText(Quip.forWait(until: next.time, from: now, line: next.line ?? selection.lineLabel))
                 } else {
                     QuipText(Quip.noPrediction(line: selection.lineLabel))
@@ -179,9 +267,6 @@ struct RouteMap: View {
             }
             Spacer(minLength: 0)
         }
-        .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .padding()
     }
 
     /// "7" or "now", for the compact labels next to buses (no "min", to save space).
@@ -335,5 +420,34 @@ extension Date {
     /// The start of the current minute, the same moment `TimelineView(.everyMinute)` reports.
     static var currentMinute: Date {
         Calendar.current.dateInterval(of: .minute, for: .now)?.start ?? .now
+    }
+}
+
+/// A city's main lines (trains, rapid and select buses) on one quiet map, for the home screen
+/// before any stop there is a favorite: what there is to pick from, in its own colors.
+struct CityLinesMap: View {
+    let city: City
+    @State private var lines: [MapLine] = []
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Map(initialPosition: .region(city.region), interactionModes: []) {
+            ForEach(lines) { line in
+                let color = line.mapColor.legible(on: colorScheme)
+                ForEach(Array(line.shapes.enumerated()), id: \.offset) { _, shape in
+                    MapPolyline(coordinates: shape.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil })
+                        .stroke(color, style: StrokeStyle(lineWidth: line.mode == "bus" ? 2 : 3, lineCap: .round, lineJoin: .round))
+                }
+            }
+        }
+        .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
+        .task(id: city) {
+            // Buses underneath, so the trains read on top of them.
+            // Off the main thread: New York's map is big.
+            let main = await Task.detached(priority: .userInitiated) {
+                TransitService.cachedLineMap(in: city).filter { LineLabels.tier(of: $0) == 0 }
+            }.value
+            lines = main.filter { $0.mode == "bus" } + main.filter { $0.mode != "bus" }
+        }
     }
 }
