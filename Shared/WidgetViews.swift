@@ -65,6 +65,52 @@ struct DeparturesEntry: TimelineEntry {
     }
 }
 
+extension Selection {
+    /// bus37://open?s=… with the whole choice inside, so a widget tap opens exactly this line and
+    /// stop on the live map, favorite or not.
+    var openURL: URL {
+        var components = URLComponents()
+        components.scheme = "bus37"
+        components.host = "open"
+        let data = (try? JSONEncoder().encode(self)) ?? Data()
+        components.queryItems = [URLQueryItem(name: "s", value: data.base64EncodedString())]
+        return components.url!
+    }
+
+    /// The choice a widget tap's `openURL` carries, or nil for any other link.
+    init?(openURL url: URL) {
+        guard url.scheme == "bus37", url.host() == "open",
+              let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "s" })?.value,
+              let data = Data(base64Encoded: value),
+              let selection = try? JSONDecoder().decode(Selection.self, from: data)
+        else { return nil }
+        self = selection
+    }
+}
+
+/// A tap target for one row: the whole widget opens the first row, and where iOS allows it each
+/// row opens its own line. The medium widget takes a Link per row; the Lock Screen and small widget
+/// only take one URL for the whole widget, but from iOS 18 a button can open a URL there too.
+private struct OpensRow: ViewModifier {
+    let row: WidgetRow
+    let family: WidgetFamily
+
+    func body(content: Content) -> some View {
+        switch family {
+        case .systemMedium, .systemLarge:
+            Link(destination: row.selection.openURL) { content }
+        case .accessoryRectangular:
+            if #available(iOS 18, *) {
+                Button(intent: OpenURLIntent(row.selection.openURL)) { content }.buttonStyle(.plain)
+            } else {
+                content
+            }
+        default:
+            content
+        }
+    }
+}
+
 struct RefreshIntent: AppIntent {
     static var title: LocalizedStringResource = "Refresh departures"
     func perform() async throws -> some IntentResult { .result() }
@@ -92,10 +138,11 @@ struct Bus37WidgetView: View {
                 Text(error).font(.caption).foregroundStyle(.secondary)
                 Spacer()
             } else {
-                ForEach(entry.rows.prefix(maxRows), id: \.self) { row($0) }
+                ForEach(entry.rows.prefix(maxRows), id: \.self) { row($0).modifier(OpensRow(row: $0, family: family)) }
                 Spacer(minLength: 0)
             }
         }
+        .widgetURL(entry.rows.first?.selection.openURL)
         .overlay(alignment: .bottomTrailing) {
             Button(intent: RefreshIntent()) {
                 Image(systemName: "arrow.clockwise").font(.caption2)
@@ -163,6 +210,7 @@ struct LockScreenView: View {
             }
         }
         .containerBackground(for: .widget) { Color.clear }
+        .widgetURL(entry.rows.first?.selection.openURL)
     }
 
     private var rectangular: some View {
@@ -189,6 +237,7 @@ struct LockScreenView: View {
                 }
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+                .modifier(OpensRow(row: row, family: family))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

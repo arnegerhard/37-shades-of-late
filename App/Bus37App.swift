@@ -108,8 +108,12 @@ struct ContentView: View {
             .task(id: selection) { await feed.follow(selection) }
             .task(id: favorites) { await favoritesFeed.follow(favorites) }
             .task { await startInNearestCity() }
-            // A friend's stop, from a 37shadesoflate.com/s link (or its QR code).
-            .onOpenURL { url in Task { incoming = await Selection.shared(by: url) } }
+            .onOpenURL { url in
+                // A widget tap: that line and stop on the live map.
+                if let tapped = Selection(openURL: url) { return openFromWidget(tapped) }
+                // A friend's stop, from a 37shadesoflate.com/s link (or its QR code).
+                Task { incoming = await Selection.shared(by: url) }
+            }
             .alert(incoming.map { "Add the \($0.lineLabel) at \($0.stopName)?" } ?? "",
                    isPresented: Binding(get: { incoming != nil }, set: { if !$0 { incoming = nil } })) {
                 Button("Add to favorites") {
@@ -559,6 +563,17 @@ struct ContentView: View {
             withAnimation(Self.switchAnimation) { selection = start }
             WidgetCenter.shared.reloadAllTimelines()
         }
+    }
+
+    /// Opens the line a widget row showed on its live map, over whatever was on screen. Back from
+    /// the map, it stays the open stop: it's the one you came for.
+    private func openFromWidget(_ tapped: Selection) {
+        choosing = false
+        sharing = nil
+        editingCity = nil
+        openBeforeMap = nil
+        select(tapped)
+        showingMap = true
     }
 
     /// Makes `picked` the line and stop shown in the app.
