@@ -285,9 +285,17 @@ struct LineMapPicker: View {
             // The lines here plus those a short walk away going the same way, nearest first.
             var found = try? await TransitService.nearbyLines(picked.stop.code, direction: picked.direction.id, in: city)
             if found == nil { found = try? await TransitService.linesAtStop(picked.stop.code, in: city) }
+            let others = await goingTheSameWay((found ?? []).filter { $0.line != selected.id }, as: picked)
             guard !Task.isCancelled else { return }
+            // First the lines here that end up where the picked one does (the 132 for the 131), then the
+            // rest here, then those a walk away, each by line number.
+            let rank = { (line: StopLine) in
+                line.isNearby ? 2 : Self.sameEnd(line.destination, picked.direction.destination) ? 0 : 1
+            }
             withAnimation(.snappy(duration: 0.25)) {
-                otherLines = (found ?? []).filter { $0.line != selected.id }
+                otherLines = others.sorted {
+                    rank($0) != rank($1) ? rank($0) < rank($1) : $0.line.localizedStandardCompare($1.line) == .orderedAscending
+                }
             }
         }
         .task(id: alsoLineIDs) {
@@ -504,6 +512,47 @@ struct LineMapPicker: View {
                 }
             }
         }
+    }
+
+    /// `lines` without those at the picked stop that leave it the other way, or hardly leave it at
+    /// all: a stop served both ways (as some of Seattle's are) lists the lines going back where the
+    /// picked one came from too, and those ending there or at the next stop (3rd Ave S & S Main St is
+    /// where the 40 to Downtown ends). Those a walk away already face the same way; a line whose way
+    /// can't be told stays.
+    private func goingTheSameWay(_ lines: [StopLine], as picked: StopArrow) async -> [StopLine] {
+        guard let ours = Self.leavingBearing(at: picked.stop.code, along: picked.direction) else { return lines }
+        var kept: [StopLine] = []
+        for other in lines {
+            guard !other.isNearby else { kept.append(other); continue }
+            let line = Line(id: other.line, name: "", mode: "bus")
+            var directions = TransitService.cachedDirections(for: line, in: city)
+            if directions == nil { directions = try? await TransitService.directions(for: line, in: city) }
+            let stop = other.stop ?? picked.stop.code
+            let way = directions?.first { $0.id == other.direction && $0.stops.contains { $0.code == stop } }
+            guard let way, let theirs = Self.leavingBearing(at: stop, along: way),
+                  let here = way.stops.firstIndex(where: { $0.code == stop }) else { kept.append(other); continue }
+            if way.stops.count - here > 2, abs((theirs - ours + 540).truncatingRemainder(dividingBy: 360) - 180) <= 100 { kept.append(other) }
+        }
+        return kept
+    }
+
+    /// Which way `direction` heads from `stop`: toward its next stop (from the one before, at the end).
+    static func leavingBearing(at stop: String, along direction: Direction) -> Double? {
+        let stops = direction.stops
+        guard let i = stops.firstIndex(where: { $0.code == stop }), let here = stops[i].coordinate else { return nil }
+        if i + 1 < stops.count, let next = stops[i + 1].coordinate { return bearingBetween(here, next, ifSame: nil) }
+        if i > 0, let previous = stops[i - 1].coordinate { return bearingBetween(previous, here, ifSame: nil) }
+        return nil
+    }
+
+    /// Whether two destinations are the same place, which Seattle's say along with the way there:
+    /// "Burien Transit Center Highland Park" and "Burien Transit Center South Park" are. The first two
+    /// words have to match (or all of a one-word one).
+    static func sameEnd(_ a: String, _ b: String) -> Bool {
+        let words = { (name: String) in name.lowercased().split(separator: " ") }
+        let x = words(a), y = words(b)
+        let needed = min(2, x.count, y.count)
+        return needed > 0 && x.prefix(needed) == y.prefix(needed)
     }
 
     /// "80 m", to the nearest 10 m.

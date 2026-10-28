@@ -1,4 +1,5 @@
 import CoreImage.CIFilterBuiltins
+import LinkPresentation
 import SwiftUI
 
 // Sharing a stop with a friend: a link to 37shadesoflate.com/s that shows the stop's live times on the web
@@ -6,16 +7,25 @@ import SwiftUI
 // with the 37 in the middle for showing in person.
 
 extension Selection {
-    /// https://37shadesoflate.com/s?c=sf&l=37&s=13254&d=IB — city, line, stop and direction.
+    /// https://37shadesoflate.com/s?c=sf&l=37&s=13254&d=IB — city, line, stop and direction. Lines
+    /// combined with it come along as lists, as the proxy takes them: l=K,L,M&d=IB,IB,IB (and a stop
+    /// per line, when one is caught at a nearby stop).
     var shareURL: URL {
         var components = URLComponents(string: "https://37shadesoflate.com/s")!
+        let query = Dictionary(uniqueKeysWithValues: TransitService.departuresQuery(for: self).map { ($0.key, $0.value) })
         components.queryItems = [
             URLQueryItem(name: "c", value: city.rawValue),
-            URLQueryItem(name: "l", value: lineID),
-            URLQueryItem(name: "s", value: stopCode),
-            URLQueryItem(name: "d", value: directionID),
+            URLQueryItem(name: "l", value: query["line"]),
+            URLQueryItem(name: "s", value: query["stop"]),
+            URLQueryItem(name: "d", value: query["direction"]),
         ]
         return components.url!
+    }
+
+    /// "37", or "K, L or M" for combined lines.
+    var spokenLines: String {
+        let ids = lineIDs
+        return ids.count == 1 ? ids[0] : ids.dropLast().joined(separator: ", ") + " or " + ids.last!
     }
 
     /// The stop a shared link points to, with its names looked up like the line picker does, or nil if
@@ -24,15 +34,23 @@ extension Selection {
         guard url.host()?.hasSuffix("37shadesoflate.com") == true, url.path() == "/s",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return nil }
         let value = { (name: String) in items.first { $0.name == name }?.value }
-        guard let city = value("c").flatMap(City.init(rawValue:)), let lineID = value("l"), let stopCode = value("s") else { return nil }
+        let list = { (name: String) in (value(name) ?? "").split(separator: ",", omittingEmptySubsequences: false).map(String.init) }
+        let lineIDs = list("l"), directionIDs = list("d"), stopCodes = list("s")
+        guard let city = value("c").flatMap(City.init(rawValue:)), let lineID = lineIDs.first, !lineID.isEmpty,
+              let stopCode = stopCodes.first, !stopCode.isEmpty else { return nil }
+        // The lines combined with the first one, each with its direction, and its own stop if that's another.
+        let also = lineIDs.indices.dropFirst().map { i in
+            OtherLine(lineID: lineIDs[i], directionID: directionIDs.indices.contains(i) ? directionIDs[i] : "",
+                      stopCode: stopCodes.indices.contains(i) && stopCodes[i] != stopCode ? stopCodes[i] : nil)
+        }
         let line = TransitService.cachedLines(in: city).first { $0.id == lineID } ?? Line(id: lineID, name: "", mode: "bus")
         guard let directions = try? await TransitService.directions(for: line, in: city),
-              let direction = directions.first(where: { $0.id == value("d") && $0.stops.contains { $0.code == stopCode } })
+              let direction = directions.first(where: { $0.id == directionIDs.first && $0.stops.contains { $0.code == stopCode } })
                 ?? directions.first(where: { $0.stops.contains { $0.code == stopCode } }),
               let stop = direction.stops.first(where: { $0.code == stopCode })
         else { return nil }
         return Selection(lineID: line.id, lineName: line.name, directionID: direction.id, destination: direction.destination,
-                         stopCode: stop.code, stopName: stop.name, city: city)
+                         stopCode: stop.code, stopName: stop.name, city: city, also: also)
     }
 }
 
@@ -79,11 +97,13 @@ struct ShareSheet: View {
                 .buttonStyle(.borderedProminent)
                 .tint(LineBadge.red)
                 .disabled(card == nil)
-                // UIKit's share sheet, handed the finished picture (or the QR code's link) up front, with
-                // no text: the card says it all. (SwiftUI's ShareLink with an Image renders it when the
-                // receiving app asks, on the main thread, which hung the app when sending to Messages.)
+                // UIKit's share sheet with just the stop's link, which opens the stop in the app or its
+                // live times on the web, and the card as its preview: Messages sends them as one bubble,
+                // the card with the stop's name under it. No text: the card says it all. (SwiftUI's
+                // ShareLink with an Image renders it when the receiving app asks, on the main thread,
+                // which hung the app when sending to Messages.)
                 .background {
-                    ActivitySheet(isPresented: $sending, items: showingQR ? [selection.shareURL] : [card as Any?].compactMap { $0 })
+                    ActivitySheet(isPresented: $sending, items: [StopLink(selection: selection, card: showingQR ? nil : card)])
                 }
             }
             .padding(24)
@@ -99,6 +119,37 @@ struct ShareSheet: View {
             renderer.scale = 3
             card = renderer.uiImage
         }
+    }
+}
+
+/// A stop's link for the share sheet, with its title ("The 37 at 14th St & Church St") and the card as
+/// its picture, so the sheet and Messages show them without fetching the page.
+private final class StopLink: NSObject, UIActivityItemSource {
+    let selection: Selection
+    /// The link's picture: big in Messages, small in the share sheet.
+    let card: UIImage?
+
+    init(selection: Selection, card: UIImage?) {
+        self.selection = selection
+        self.card = card
+    }
+
+    func activityViewControllerPlaceholderItem(_ controller: UIActivityViewController) -> Any { selection.shareURL }
+
+    func activityViewController(_ controller: UIActivityViewController, itemForActivityType type: UIActivity.ActivityType?) -> Any? {
+        selection.shareURL
+    }
+
+    func activityViewControllerLinkMetadata(_ controller: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.originalURL = selection.shareURL
+        metadata.url = selection.shareURL
+        metadata.title = "The \(selection.spokenLines) at \(selection.stopName)"
+        if let card {
+            metadata.imageProvider = NSItemProvider(object: card)
+            metadata.iconProvider = NSItemProvider(object: card)
+        }
+        return metadata
     }
 }
 

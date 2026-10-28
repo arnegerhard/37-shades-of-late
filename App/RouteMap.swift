@@ -195,12 +195,36 @@ struct RouteMap: View {
                 Capsule().fill(.primary.opacity(0.45)).frame(width: 40, height: 5)
             }
             statusText
+            if BusActivities.shared.isAvailable, !upcoming.isEmpty || BusActivities.shared.isWatching(selection) {
+                watchButton
+            }
         }
         .padding()
         .padding(.top, onClose == nil ? 0 : -8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .padding()
         .accessibilityAction(named: "Back to your favorites") { onClose?() }
+    }
+
+    /// Puts the next departure on the Dynamic Island and the Lock Screen, for watching it from another
+    /// app, or takes it off again.
+    private var watchButton: some View {
+        let watching = BusActivities.shared.isWatching(selection)
+        return Button {
+            if watching {
+                BusActivities.shared.stop(selection)
+            } else {
+                BusActivities.shared.start(selection, departures: departures, fetchedAt: refresh?.fetchedAt ?? .now)
+            }
+        } label: {
+            Label(watching ? "On your Dynamic Island. Tap to let go." : "Watch it from any app",
+                  systemImage: watching ? "checkmark.circle.fill" : "platter.filled.top.iphone")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(.primary.opacity(watching ? 0.15 : 0.08), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Instead of a navigation bar: shrink back to the home screen, where it's going, share. Pulling it

@@ -103,14 +103,19 @@ struct ContentView: View {
             .task { await startInNearestCity() }
             // A Lock Screen row's tap (see OpenStopIntent): as the app opens, or once it's open.
             .onReceive(NotificationCenter.default.publisher(for: WidgetTap.notification)) { _ in takeWidgetTap() }
-            .onChange(of: scenePhase) { if scenePhase == .active { takeWidgetTap() } }
+            .onChange(of: scenePhase) {
+                guard scenePhase == .active else { return }
+                takeWidgetTap()
+                // Live Activities can't end themselves once their bus is gone.
+                BusActivities.shared.endFinished()
+            }
             .onOpenURL { url in
                 // A widget tap: that line and stop on the live map.
                 if let tapped = Selection(openURL: url) { return openFromWidget(tapped) }
                 // A friend's stop, from a 37shadesoflate.com/s link (or its QR code).
                 Task { incoming = await Selection.shared(by: url) }
             }
-            .alert(incoming.map { "Add the \($0.lineLabel) at \($0.stopName)?" } ?? "",
+            .alert(incoming.map { "Add the \($0.spokenLines) at \($0.stopName)?" } ?? "",
                    isPresented: Binding(get: { incoming != nil }, set: { if !$0 { incoming = nil } })) {
                 Button("Add to favorites") {
                     if let picked = incoming {

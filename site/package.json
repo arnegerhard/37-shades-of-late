@@ -1,0 +1,8 @@
+{
+  "name": "37shadesoflate-site",
+  "private": true,
+  "description": "37shadesoflate.com; the worker draws shared stops' link previews with resvg (src/card.ts).",
+  "dependencies": {
+    "@resvg/resvg-wasm": "2.6.2"
+  }
+}

@@ -58,6 +58,13 @@ the city you're in. The server answers from the rough location our hosting provi
 your internet connection, typically accurate to a city or region. It doesn't ask for your device's
 location, and nothing is stored. You can switch cities anytime in the app.</p>
 
+<h2>Watching a stop from the Dynamic Island</h2>
+<p>When you tap "Watch it from any app" on the live map, the app sends our server that stop, line and
+direction, when you started watching, and a push token that Apple creates for this one Live Activity.
+The server uses them to send the updated times to your Dynamic Island and Lock Screen through Apple's
+push service, and deletes them when the watch ends, after 15 minutes at most. The push token only
+reaches that Live Activity; it isn't connected to your install ID or anything else.</p>
+
 <h2>This website</h2>
 <p>The live departure box on 37shadesoflate.com asks our server for the next 37 at Church &amp; 14th St.
 That request contains no ID, and the site sets no cookies and uses no analytics.</p>
@@ -72,13 +79,14 @@ provider (Cloudflare) keeps short-lived request logs to operate the service.</p>
 San Francisco Municipal Transportation Agency, and from BART. Seattle data comes from OneBusAway, with
 schedules and real-time information from King County Metro, Sound Transit and the City of Seattle.
 New York data comes from the Metropolitan Transportation Authority (subway, Staten Island Railway and
-MTA Bus Time) and the Port Authority of New York and New Jersey (PATH).
+MTA Bus Time), the Port Authority of New York and New Jersey (PATH), NYC Ferry and the New York City
+Department of Transportation (Staten Island Ferry).
 37 Shades of Late is not affiliated with or endorsed by any of them.</p>
 
 <h2>Questions</h2>
 <p>Ask on <a href="https://github.com/arnegerhard/37-shades-of-late/issues">GitHub</a>.</p>
 
-<p class="updated">Last updated October 27, 2026, for New York and BART.</p>
+<p class="updated">Last updated October 28, 2026, for the Dynamic Island and New York's ferries.</p>
 </main>
 </div>
 </body>

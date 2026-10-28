@@ -67,9 +67,51 @@ struct Bus37Widget: Widget {
     }
 }
 
+/// A watched stop on the Dynamic Island and the Lock Screen (see BusActivity.swift).
+struct BusActivityWidget: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: BusActivity.self) { context in
+            BusActivityView(attributes: context.attributes, state: context.state, isStale: context.isStale)
+                .padding()
+                .activityBackgroundTint(Color.black.opacity(0.75))
+                .activitySystemActionForegroundColor(.white)
+                .widgetURL(context.attributes.link)
+        } dynamicIsland: { context in
+            let state = context.state
+            return DynamicIsland {
+                DynamicIslandExpandedRegion(.bottom) {
+                    // Clear of the island's rounded ends.
+                    BusActivityView(attributes: context.attributes, state: state, isStale: context.isStale)
+                        .padding(.horizontal, 10)
+                }
+            } compactLeading: {
+                LineBadge(line: context.attributes.line, font: .system(.caption, design: .rounded).weight(.heavy))
+                    .fixedSize()
+            } compactTrailing: {
+                if context.isStale {
+                    Text("gone")
+                } else {
+                    Countdown(date: state.next, from: context.attributes.startedAt)
+                        .foregroundStyle(state.nextIsLive ? .green : .secondary)
+                        .frame(maxWidth: 44)
+                }
+            } minimal: {
+                LineBadge(line: context.attributes.line, font: .system(.caption2, design: .rounded).weight(.heavy))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            .widgetURL(context.attributes.link)
+            .keylineTint(LineBadge.red)
+        }
+    }
+}
+
 @main
 struct Bus37WidgetBundle: WidgetBundle {
-    var body: some Widget { Bus37Widget() }
+    var body: some Widget {
+        Bus37Widget()
+        BusActivityWidget()
+    }
 }
 
 #Preview(as: .systemSmall) {

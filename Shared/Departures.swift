@@ -329,6 +329,48 @@ enum TransitService {
         return URL(string: "https://bus37-proxy.arne-5c1.workers.dev/v1/")!
     }()
 
+    /// The stop, line and direction a selection's departures are asked for with (and its share link carries).
+    static func departuresQuery(for selection: Selection) -> KeyValuePairs<String, String> {
+        [
+            // A stop per line once a line is caught at a nearby stop; one stop for all of them otherwise.
+            "stop": selection.also.contains { $0.stopCode != nil }
+                ? ([selection.stopCode] + selection.also.map { $0.stopCode ?? selection.stopCode }).joined(separator: ",")
+                : selection.stopCode,
+            "line": selection.lineIDs.joined(separator: ","),
+            "direction": ([selection.directionID] + selection.also.map(\.directionID)).joined(separator: ","),
+        ]
+    }
+
+    /// Has the proxy keep a Live Activity watching `selection` current with pushes to `token`.
+    static func watch(_ selection: Selection, token: Data, startedAt: Date) async throws {
+        var body: [String: Any] = [
+            "token": token.map { String(format: "%02x", $0) }.joined(),
+            "city": selection.city.rawValue,
+            "startedAt": startedAt.timeIntervalSince1970,
+        ]
+        #if DEBUG
+        body["environment"] = "sandbox"
+        #else
+        body["environment"] = "production"
+        #endif
+        for (key, value) in departuresQuery(for: selection) { body[key] = value }
+        try await post("activity", body)
+    }
+
+    /// Stops the pushes to `token`: its activity has ended.
+    static func unwatch(token: Data) async throws {
+        try await post("activity/end", ["token": token.map { String(format: "%02x", $0) }.joined()])
+    }
+
+    private static func post(_ path: String, _ body: [String: Any]) async throws {
+        var request = URLRequest(url: baseURL.appending(path: path))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+    }
+
     static func departures(for selection: Selection = .current, client: Client) async throws -> [Departure] {
         try await snapshot(for: selection, client: client).departures
     }
@@ -348,14 +390,7 @@ enum TransitService {
             let nextRefreshAt: Date
         }
         var components = URLComponents(url: url(selection.city, "departures"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [
-            // A stop per line once a line is caught at a nearby stop; one stop for all of them otherwise.
-            URLQueryItem(name: "stop", value: selection.also.contains { $0.stopCode != nil }
-                ? ([selection.stopCode] + selection.also.map { $0.stopCode ?? selection.stopCode }).joined(separator: ",")
-                : selection.stopCode),
-            URLQueryItem(name: "line", value: selection.lineIDs.joined(separator: ",")),
-            URLQueryItem(name: "direction", value: ([selection.directionID] + selection.also.map(\.directionID)).joined(separator: ",")),
-        ]
+        components.queryItems = departuresQuery(for: selection).map { URLQueryItem(name: $0.key, value: $0.value) }
         let response: Response = try await get(components.url!, client: client)
         let departures = response.departures.map { Departure(time: $0.time, isLive: $0.live, vehicle: $0.vehicle, line: $0.line) }
         saveLastKnown(departures, for: selection)

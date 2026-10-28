@@ -7,6 +7,12 @@
 <meta name="description" content="Live minutes until the next bus or train at a friend's stop, with an honest opinion about the wait.">
 <meta property="og:title" content="Someone's waiting for a bus. Live.">
 <meta property="og:description" content="Live minutes until it shows up, and how to feel about it. 37 Shades of Late.">
+<!-- The worker (src/worker.ts) points these at the shared stop's own card. -->
+<meta property="og:image" content="">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="">
 <!-- Safari's "get the app" bar; with the app installed, the stop link opens it instead. -->
 <meta name="apple-itunes-app" content="app-id=6825789256">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23bf1a26'/%3E%3Ctext x='50' y='68' font-family='system-ui' font-weight='900' font-size='52' fill='white' text-anchor='middle'%3E37%3C/text%3E%3C/svg%3E">
@@ -57,16 +63,23 @@
 </main>
 </div>
 <script>
-  // /s?c=sf&l=37&s=13254&d=IB — city, line, stop and direction, as the app shares them.
+  // /s?c=sf&l=37&s=13254&d=IB — city, line, stop and direction, as the app shares them. Lines combined
+  // with it come as lists (l=K,L,M&d=IB,IB,IB, and a stop per line when one is a short walk away),
+  // as the proxy's departures take them; the first one is the line the stop and direction are for.
   const API = "https://bus37-proxy.arne-5c1.workers.dev/v1/";
   const params = new URLSearchParams(location.search);
-  const city = params.get("c") || "sf", line = params.get("l") || "37", stop = params.get("s") || "13254", way = params.get("d") || "";
+  const city = params.get("c") || "sf", lines = params.get("l") || "37", stops = params.get("s") || "13254", ways = params.get("d") || "";
+  const ids = lines.split(","), line = ids[0], stop = stops.split(",")[0], way = ways.split(",")[0];
+  const combined = ids.length > 1;
+  // "37", or "KLM" / "5·21" as on the app's badges; "K, L or M" in sentences.
+  const badge = ids.join(ids.every((id) => id.length === 1) ? "" : "·");
+  const spoken = combined ? ids.slice(0, -1).join(", ") + " or " + ids[ids.length - 1] : line;
   const base = API + (city === "sf" ? "" : city + "/");
   const $ = (id) => document.getElementById(id);
-  $("badge").textContent = line;
+  $("badge").textContent = badge;
 
-  function quip(minutes) {
-    if (minutes < 4) return `Holy shit, the ${line} is real.`;
+  function quip(minutes, which) {
+    if (minutes < 4) return `Holy shit, the ${which} is real.`;
     if (minutes < 9) return "Stay put, lazy bastard.";
     if (minutes < 16) return "Make coffee. Reconsider your life.";
     return "Walking is starting to look attractive.";
@@ -77,13 +90,13 @@
     const direction = data.directions?.find((d) => d.id === way) ?? data.directions?.find((d) => d.stops.some((s) => s.code === stop));
     if (direction) $("to").textContent = "To " + direction.destination;
     const name = direction?.stops.find((s) => s.code === stop)?.name;
-    if (name) { $("stop").textContent = name; document.title = `The ${line} at ${name} · 37 Shades of Late`; }
+    if (name) { $("stop").textContent = name; document.title = `The ${spoken} at ${name} · 37 Shades of Late`; }
   }).catch(() => {});
 
   async function refresh() {
     let next = 60_000;
     try {
-      const query = new URLSearchParams({ stop, line, direction: way, client: "web" });
+      const query = new URLSearchParams({ stop: stops, line: lines, direction: ways, client: "web" });
       const response = await fetch(base + "departures?" + query, { cache: "no-store" });
       if (!response.ok) throw new Error(response.status);
       const data = await response.json();
@@ -94,18 +107,21 @@
         const first = minutes(upcoming[0]);
         $("mins").innerHTML = first === 0 ? "now" : `${first}<small>min</small>`;
         $("mins").classList.toggle("scheduled", !upcoming[0].live);
-        const later = upcoming.slice(1, 3).map(minutes);
-        $("later").textContent = later.length ? `then ${later.join(" · ")} min` : "";
-        $("quip").textContent = `“${quip(first)}”`;
+        const later = upcoming.slice(1, 3);
+        // Combined lines say which one each time is for: "the K, then L 9 · M 14 min".
+        const then = later.map((d) => (combined ? `${d.line} ` : "") + minutes(d)).join(" · ");
+        $("later").textContent = (combined ? `the ${upcoming[0].line}` : "") + (combined && later.length ? ", " : "")
+          + (later.length ? `then ${then} min` : "");
+        $("quip").textContent = `“${quip(first, upcoming[0].line || line)}”`;
       } else {
         $("mins").textContent = "??";
         $("later").textContent = "";
-        $("quip").textContent = `“Schrödinger's ${line}: both coming and not coming.”`;
+        $("quip").textContent = `“Schrödinger's ${spoken}: both coming and not coming.”`;
       }
       if (data.nextRefreshAt) next = Math.max(10_000, Date.parse(data.nextRefreshAt) - Date.now() + 1_000);
     } catch {
       $("mins").textContent = "404";
-      $("quip").textContent = `“The ${line} has entered the witness protection program.”`;
+      $("quip").textContent = `“The ${spoken} ${combined ? "have" : "has"} entered the witness protection program.”`;
     }
     setTimeout(refresh, next);
   }

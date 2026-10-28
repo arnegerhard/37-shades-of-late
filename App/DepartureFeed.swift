@@ -54,6 +54,8 @@ final class DepartureFeed {
                 loaded = selection
                 updatedAt = .now
             }
+            // A stop being watched from the Dynamic Island gets the new times too.
+            BusActivities.shared.update(selection, departures: latest.departures, fetchedAt: latest.refresh.fetchedAt)
         } catch {
             // Switching stops cancels the previous load; that's not an error to show.
             guard !Task.isCancelled, following?.id == selection.id else { return }

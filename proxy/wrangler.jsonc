@@ -4,9 +4,16 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "durable_objects": {
-    "bindings": [{ "name": "CACHE", "class_name": "TransitCache" }]
+    "bindings": [
+      { "name": "CACHE", "class_name": "TransitCache" },
+      // The Live Activities being kept current with pushes (src/activities.ts).
+      { "name": "ACTIVITIES", "class_name": "LiveActivities" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TransitCache"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TransitCache"] },
+    { "tag": "v2", "new_sqlite_classes": ["LiveActivities"] }
+  ],
   // Anonymous usage events (see recordUsage in src/index.ts); query with the Analytics Engine SQL API.
   "analytics_engine_datasets": [{ "binding": "ANALYTICS_ENGINE", "dataset": "37ShadesOfLate" }],
   "vars": {
@@ -16,5 +23,6 @@
     "SNAPSHOT_TTL_SECONDS": "70",
     "STATIC_TTL_SECONDS": "86400"
   }
-  // Secret (set with `wrangler secret put API_KEY_511`): API_KEY_511
+  // Secrets (set with `wrangler secret put …`): API_KEY_511, OBA_API_KEY, MTA_BUSTIME_KEY, and APNS_KEY
+  // (the APNs auth key's .p8) with APNS_KEY_ID, for Live Activity pushes.
 }

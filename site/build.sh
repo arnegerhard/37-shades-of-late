@@ -2,6 +2,8 @@
 # Builds public/index.html: one self-contained file with the screenshots inlined as base64.
 set -e
 cd "${0:A:h}"
+# The worker's card renderer (src/card.ts).
+[ -d node_modules ] || npm install --no-audit --no-fund
 APP_STORE_URL="https://apps.apple.com/app/id6825789256"
 API_URL="https://bus37-proxy.arne-5c1.workers.dev"
 mkdir -p public
