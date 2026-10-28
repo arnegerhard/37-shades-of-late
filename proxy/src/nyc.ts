@@ -13,7 +13,10 @@
  *   GET /v1/nyc/nearby?stop=G29S               lines at the platform, at the station's other platforms
  *                                              and at transfer stations, the same way (N or S)
  *   GET /v1/nyc/map                            every line's track shape, for picking a line on a map
- *   GET /v1/nyc/stops                          every platform and bus stop with its lines, for the map's stop dots
+ *   GET /v1/nyc/stops                          every platform, bus stop and ferry landing with its lines, for the map's stop dots
+ *
+ * The ferries (NYC Ferry and the Staten Island Ferry, see nyc-ferry.ts) are part of every list and
+ * map; a ferry line or landing ("NYCF_4", "SIF_stgeorge") is theirs to answer.
  *
  * Subway trains have no GPS; a train on the map is drawn at the station it's at, or partway to
  * the one it's heading for.
@@ -21,6 +24,7 @@
 
 import network from "./nyc-subway.json";
 import { NYC_BUS } from "./nyc-bus";
+import { FERRY_STOP, ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry } from "./nyc-ferry";
 import { handleOBA, type SeattleDeps } from "./seattle";
 import { closestPerLine, linePairs, metersBetween, NEARBY_METERS, stopsOfLines, type NearbyLine, type Polyline } from "./geo";
 
@@ -75,6 +79,20 @@ const station = (stop: string) => stop.slice(0, -1);
  * and the map list both; a stop's requests go to whichever its id belongs to ("MTA_…" is a bus stop).
  */
 export async function handleNYC(parts: string[], url: URL, bus?: SeattleDeps): Promise<{ body: unknown; status?: number; maxAge?: number }> {
+  const result = await handleNYCWithoutFerries(parts, url, bus);
+  // The ferries join the lists and maps, unless they can't be had today.
+  const body = result.body as any;
+  if (!result.status && parts[0] === "lines" && parts.length === 1) body.lines = [...body.lines, ...(await ferryLines().catch(() => []))];
+  if (!result.status && parts[0] === "map") body.lines = [...body.lines, ...(await ferryMap().catch(() => []))];
+  if (!result.status && parts[0] === "stops") body.stops = [...body.stops, ...(await ferryStops().catch(() => []))];
+  return result;
+}
+
+async function handleNYCWithoutFerries(parts: string[], url: URL, bus?: SeattleDeps): Promise<{ body: unknown; status?: number; maxAge?: number }> {
+  if (parts[0] === "lines" && parts.length === 2 && (await ferryLineIds().catch(() => new Set<string>())).has(decodeURIComponent(parts[1]))) {
+    return handleFerry(parts, url);
+  }
+  if (FERRY_STOP.test((url.searchParams.get("stop") ?? "").split(",")[0])) return handleFerry(parts, url);
   const buses = (path: string[]) => handleOBA(path, url, bus!, NYC_BUS);
   if (!bus) return handleRail(parts, url);
 
@@ -328,7 +346,7 @@ function pathTrips(feed: any): Trip[] {
 
 const INCOMING_AT = 0, STOPPED_AT = 1;
 
-class Reader {
+export class Reader {
   pos: number;
   constructor(readonly bytes: Uint8Array, start = 0, readonly end = bytes.length) {
     this.pos = start;
@@ -356,7 +374,12 @@ class Reader {
         this.pos += length;
         yield { field, wire, value: length, sub };
       } else if (wire === 1) this.pos += 8;
-      else if (wire === 5) this.pos += 4;
+      else if (wire === 5) {
+        // A float (a vehicle's latitude, longitude or bearing).
+        const value = new DataView(this.bytes.buffer, this.bytes.byteOffset + this.pos, 4).getFloat32(0, true);
+        this.pos += 4;
+        yield { field, wire, value };
+      }
       else throw new Error(`unsupported wire type ${wire}`);
     }
   }

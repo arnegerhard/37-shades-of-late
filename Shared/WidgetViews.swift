@@ -100,14 +100,57 @@ private struct OpensRow: ViewModifier {
         case .systemMedium, .systemLarge:
             Link(destination: row.selection.openURL) { content }
         case .accessoryRectangular:
-            if #available(iOS 18, *) {
-                Button(intent: OpenURLIntent(row.selection.openURL)) { content }.buttonStyle(.plain)
-            } else {
-                content
-            }
+            // Not OpenURLIntent: from the Lock Screen it runs (the row blinks) but doesn't open the app
+            // for a bus37:// link. An intent that opens the app and leaves the stop for it does.
+            Button(intent: OpenStopIntent(row.selection)) { content }.buttonStyle(.plain)
         default:
             content
         }
+    }
+}
+
+/// A Lock Screen row's tap: opens the app, which then shows that row's line and stop on the live map.
+/// The stop waits in the App Group until the app takes it (see `WidgetTap`), so it gets there whether
+/// iOS runs this in the app or in the widget.
+struct OpenStopIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open stop"
+    static var openAppWhenRun = true
+    static var isDiscoverable = false
+
+    @Parameter(title: "Stop") var link: String
+
+    init() {}
+
+    init(_ selection: Selection) {
+        link = selection.openURL.absoluteString
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        AppGroup.defaults.set(link, forKey: WidgetTap.linkKey)
+        AppGroup.defaults.set(Date.now, forKey: WidgetTap.dateKey)
+        NotificationCenter.default.post(name: WidgetTap.notification, object: nil)
+        return .result()
+    }
+}
+
+/// The stop a Lock Screen row was tapped for, handed from `OpenStopIntent` to the app.
+enum WidgetTap {
+    static let linkKey = "widgetTapLink"
+    static let dateKey = "widgetTapDate"
+    static let notification = Notification.Name("widgetTap")
+
+    /// The tapped stop, once: taken out as it's read, and only if it was tapped just now.
+    static func take() -> Selection? {
+        let defaults = AppGroup.defaults
+        defer {
+            defaults.removeObject(forKey: linkKey)
+            defaults.removeObject(forKey: dateKey)
+        }
+        guard let link = defaults.string(forKey: linkKey).flatMap(URL.init(string:)),
+              let date = defaults.object(forKey: dateKey) as? Date, Date.now.timeIntervalSince(date) < 60
+        else { return nil }
+        return Selection(openURL: link)
     }
 }
 

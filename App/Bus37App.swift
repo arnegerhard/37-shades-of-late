@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var selection = Selection.current
     @State private var feed = DepartureFeed()
     @State private var favoritesFeed = FavoritesFeed()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var choosing = false
     @State private var pickerPath: [Line] = []
     /// The live map, blown up from the home map.
@@ -43,6 +44,10 @@ struct ContentView: View {
     /// their own height) to give the pinned map their room.
     @State private var scrollOffsets: [City: CGFloat] = [:]
     @State private var headerHeight: CGFloat = 0
+    /// The height of a city's page, for the map's two thirds of it.
+    @State private var pageHeight: CGFloat = 0
+    /// How much each city's map has shrunk, once its list is at rest.
+    @State private var restingShrink: [City: CGFloat] = [:]
 
     private var departures: [Departure] { feed.departures }
     private var loaded: Selection? { feed.loaded }
@@ -96,6 +101,9 @@ struct ContentView: View {
             }
             .task(id: favorites) { await favoritesFeed.follow(favorites) }
             .task { await startInNearestCity() }
+            // A Lock Screen row's tap (see OpenStopIntent): as the app opens, or once it's open.
+            .onReceive(NotificationCenter.default.publisher(for: WidgetTap.notification)) { _ in takeWidgetTap() }
+            .onChange(of: scenePhase) { if scenePhase == .active { takeWidgetTap() } }
             .onOpenURL { url in
                 // A widget tap: that line and stop on the live map.
                 if let tapped = Selection(openURL: url) { return openFromWidget(tapped) }
@@ -180,8 +188,8 @@ struct ContentView: View {
         let open = preview(for: city)
         let cityFavorites = favorites.filter { $0.city == city }
         let openIsFavorite = cityFavorites.contains { $0.id == open.id }
-        // The map stays pinned above the list, moving up into the header's room once the list
-        // scrolls, so a favorite picked far down a long list still shows on it.
+        // The map takes two thirds of the page. As a long list scrolls, the map shrinks with it,
+        // then moves up into the header's room, so a favorite picked far down the list still shows on it.
         return ZStack(alignment: .top) {
             List {
                 Section {
@@ -247,6 +255,8 @@ struct ContentView: View {
                         }
                     }
                     .textCase(nil)
+                    // Under the tall map, until scrolled away.
+                    .padding(.top, tallMap - Self.shortMap)
                 } footer: {
                     // The Lock Screen button lives in the favorites' footer rather than a section of its
                     // own: a favorite dragged past the last row would otherwise land in that section,
@@ -274,10 +284,12 @@ struct ContentView: View {
             }
             .environment(\.editMode, .constant(editingCity == city ? .active : .inactive))
             .refreshable { await feed.reload() }
-            // The list starts below the hint, picker and map, and scrolls on under them.
+            // The list starts below the hint, picker and map, and scrolls on under them. The safe area
+            // only goes down to the short map, as rows under it don't take touches: the tall map's extra
+            // room is space above the favorites, which shrinks the map as it scrolls away.
             // As safe area rather than a content margin, so the list knows that's where its visible top is:
             // a favorite dragged up there scrolls the list, instead of having to go up under the map.
-            .safeAreaPadding(.top, headerHeight + 260 + 16)
+            .safeAreaPadding(.top, headerHeight + Self.shortMap + 16)
             .modifier(ScrollOffset { scrollOffsets[city] = $0 })
 
             // The hint and city picker, then the map. Scrolling the list slides the hint and picker
@@ -287,15 +299,28 @@ struct ContentView: View {
                 Color.clear.frame(height: headerHeight)
                 // The open favorite (with room at the top for its card, so the route isn't under it),
                 // or before there is one, the city's main lines.
-                Group {
-                    if openIsFavorite {
-                        RouteMap(selection: open, feed: feed, interactive: false, topInset: 44)
-                    } else {
-                        CityLinesMap(city: city)
+                // The map keeps its full height and is cut off at the top as it shrinks, so it slides
+                // up with the list instead of being laid out again at every step of the scroll (which
+                // stutters). Once the list is at rest, the route is framed in what's left.
+                Color.clear
+                    .frame(height: tallMap - shrink(city))
+                    .overlay(alignment: .bottom) {
+                        Group {
+                            if openIsFavorite {
+                                RouteMap(selection: open, feed: feed, interactive: false, topInset: 44,
+                                         cropped: restingShrink[city] ?? 0)
+                            } else {
+                                CityLinesMap(city: city)
+                            }
+                        }
+                        .frame(height: tallMap)
+                        .allowsHitTesting(false)
                     }
-                }
-                    .allowsHitTesting(false)
-                    .frame(height: 260)
+                    .task(id: shrink(city)) {
+                        let shrunk = shrink(city)
+                        try? await Task.sleep(for: .milliseconds(250))
+                        if !Task.isCancelled { restingShrink[city] = shrunk }
+                    }
                     .contentShape(Rectangle())
                     .onTapGesture { if openIsFavorite { openLiveMap() } }
                     .accessibilityAddTraits(openIsFavorite ? .isButton : [])
@@ -346,6 +371,7 @@ struct ContentView: View {
             .offset(y: -collapse(city))
         }
         .clipped()
+        .onGeometryChange(for: CGFloat.self, of: \.size.height) { pageHeight = $0 }
     }
 
     /// The city picker, above the city pages.
@@ -361,9 +387,20 @@ struct ContentView: View {
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { headerHeight = $0 }
     }
 
-    /// How far the header has slid away for `city`: as far as its list is scrolled, up to its height.
+    /// The map's height before the list scrolls: down to two thirds of the page.
+    private var tallMap: CGFloat { max(Self.shortMap, (pageHeight * 2 / 3 - headerHeight).rounded()) }
+    /// How small the map gets with the list scrolled.
+    private static let shortMap: CGFloat = 260
+
+    /// How much the map has shrunk for `city`: as far as its list is scrolled, down to the short map.
+    private func shrink(_ city: City) -> CGFloat {
+        min(max(scrollOffsets[city] ?? 0, 0), tallMap - Self.shortMap)
+    }
+
+    /// How far the header has slid away for `city`: as far as its list is scrolled past the map's
+    /// shrinking, up to its height.
     private func collapse(_ city: City) -> CGFloat {
-        min(max(scrollOffsets[city] ?? 0, 0), headerHeight)
+        min(max((scrollOffsets[city] ?? 0) - (tallMap - Self.shortMap), 0), headerHeight)
     }
 
     /// The favorite open on the map gets a thin frame in the line-badge red. It's only a marker.
@@ -484,6 +521,10 @@ struct ContentView: View {
         editingCity = nil
         select(tapped)
         showingMap = true
+    }
+
+    private func takeWidgetTap() {
+        if let tapped = WidgetTap.take() { openFromWidget(tapped) }
     }
 
     /// Blows the home map up into the live map.

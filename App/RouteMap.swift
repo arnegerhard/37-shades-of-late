@@ -11,6 +11,9 @@ struct RouteMap: View {
     var interactive = true
     /// Points at the top covered by something drawn over the map, kept clear of the route.
     var topInset: CGFloat = 0
+    /// Points at the top cut off by whatever holds the map (the home screen's, shrunk over a scrolled
+    /// list), also kept clear of the route. Only changed once the list is at rest.
+    var cropped: CGFloat = 0
     /// Puts the live map away again. With it, the map gets its own header with a shrink button, and
     /// the header and the card can be pulled down to close it (the map itself takes swipes for panning).
     var onClose: (() -> Void)? = nil
@@ -23,7 +26,9 @@ struct RouteMap: View {
     /// The routes of the other lines a combined stop counts (the L and M besides the K).
     @State private var otherRoutes: [[CLLocationCoordinate2D]] = []
     @State private var position: MapCameraPosition = .automatic
-    @State private var mapHeight: CGFloat = 0
+    @State private var mapSize: CGSize = .zero
+    /// The height of map showing that the route was last framed for.
+    @State private var fittedRoom: CGFloat = 0
     /// The selection whose route is drawn, to tell a move within a city from a fresh start.
     @State private var shownSelection: Selection?
     /// A live bus that was still on its way vanished from the latest data.
@@ -117,12 +122,23 @@ struct RouteMap: View {
         }
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
         .safeAreaPadding(.top, topInset)
-        // When the map changes size (pinned smaller over a scrolled list), frame the route again
-        // instead of keeping the old zoom, which would show far too much around it.
-        .onGeometryChange(for: CGFloat.self, of: \.size.height) { height in
-            defer { mapHeight = height }
-            guard mapHeight > 0, abs(mapHeight - height) > 1, let rect = Self.boundingRect(of: route.joined()) else { return }
-            withAnimation(.snappy(duration: 0.3)) { position = .rect(rect) }
+        // When the map's room changes (its size, or how much of it is cut off), frame the route again
+        // instead of keeping the old zoom, which would show far too much around it, or cut it off.
+        .onGeometryChange(for: CGSize.self, of: \.size) { mapSize = $0 }
+        .task(id: mapSize.height - cropped) {
+            let room = mapSize.height - cropped
+            // Without a route yet, it'll be framed for this room once it loads.
+            guard fittedRoom > 0, abs(fittedRoom - room) > 1, let route = Self.boundingRect(of: route.joined()) else {
+                fittedRoom = room
+                return
+            }
+            fittedRoom = room
+            // Cut off at the top, the route goes in what's left: a frame for the whole map with the
+            // route in its lower part. (Changing the map's safe area instead would jump the camera.)
+            let rect = Self.frame(route, in: CGSize(width: mapSize.width, height: mapSize.height - topInset), showing: room - topInset)
+            // The same frame as a region when it's already this rect: setting an equal position again
+            // wouldn't move the camera.
+            withAnimation(.smooth(duration: 0.6)) { position = position == .rect(rect) ? .region(MKCoordinateRegion(rect)) : .rect(rect) }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
@@ -315,8 +331,18 @@ struct RouteMap: View {
             stops = newStops
             shapes = newShapes
             otherRoutes = others
-            position = .rect(rect)
+            position = .rect(cropped > 0 ? Self.frame(rect, in: CGSize(width: mapSize.width, height: mapSize.height - topInset),
+                                                      showing: mapSize.height - cropped - topInset) : rect)
         }
+    }
+
+    /// A frame for a map of `size` (points) that fits `route` into its bottom `height` points.
+    private static func frame(_ route: MKMapRect, in size: CGSize, showing height: CGFloat) -> MKMapRect {
+        guard size.width > 0, height > 0 else { return route }
+        let scale = max(route.width / size.width, route.height / height)
+        let width = size.width * scale, fullHeight = size.height * scale
+        let bottom = route.midY + height / 2 * scale
+        return MKMapRect(x: route.midX - width / 2, y: bottom - fullHeight, width: width, height: fullHeight)
     }
 
     /// The route's extent with a margin, about what `.automatic` frames.
@@ -358,7 +384,7 @@ private struct BusMarker: View {
     let isLive: Bool
     /// On a combined stop, which line this bus is, shown instead of the bus icon.
     var line: String? = nil
-    /// "bus", or "train" in the subway.
+    /// "bus", "train" in the subway, or "ferry".
     var vehicle = "bus"
 
     var body: some View {
@@ -386,7 +412,7 @@ private struct BusMarker: View {
                         .minimumScaleFactor(0.6)
                         .frame(maxWidth: 26)
                 } else {
-                    Image(systemName: vehicle == "train" ? "tram.fill" : "bus.fill")
+                    Image(systemName: vehicle == "train" ? "tram.fill" : vehicle == "ferry" ? "ferry.fill" : "bus.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.white)
                 }
@@ -436,7 +462,8 @@ struct CityLinesMap: View {
                 let color = line.mapColor.legible(on: colorScheme)
                 ForEach(Array(line.shapes.enumerated()), id: \.offset) { _, shape in
                     MapPolyline(coordinates: shape.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil })
-                        .stroke(color, style: StrokeStyle(lineWidth: line.mode == "bus" ? 2 : 3, lineCap: .round, lineJoin: .round))
+                        .stroke(color, style: StrokeStyle(lineWidth: line.mode == "bus" ? 2 : 3, lineCap: line.mode == "ferry" ? .butt : .round,
+                                                          lineJoin: .round, dash: line.mode == "ferry" ? [7, 4] : []))
                 }
             }
         }
