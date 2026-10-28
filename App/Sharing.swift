@@ -22,6 +22,14 @@ extension Selection {
         return components.url!
     }
 
+    /// The card the website draws for `shareURL`, with the wait and a map of the buses on their way:
+    /// what WhatsApp and the like show for the link, and so what the app shows and sends too.
+    var shareCardURL: URL {
+        var components = URLComponents(url: shareURL, resolvingAgainstBaseURL: false)!
+        components.path = "/s/card.png"
+        return components.url!
+    }
+
     /// "37", or "K, L or M" for combined lines.
     var spokenLines: String {
         let ids = lineIDs
@@ -62,6 +70,8 @@ struct ShareSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingQR = false
     @State private var card: UIImage?
+    /// The website's card, with the map, once it's here; the app's own card until then (or without a connection).
+    @State private var webCard: UIImage?
     @State private var sending = false
 
     var body: some View {
@@ -82,10 +92,26 @@ struct ShareSheet: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 } else {
-                    ShareCard(selection: selection, departures: departures, now: .now)
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    // Exactly what they get: the card, map and all, on a link that opens the stop live.
+                    VStack(spacing: 14) {
+                        Group {
+                            if let webCard {
+                                Image(uiImage: webCard)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .transition(.opacity)
+                            } else {
+                                ShareCard(selection: selection, departures: departures, now: .now)
+                            }
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .shadow(color: .black.opacity(0.4), radius: 16, y: 8)
-                        .frame(maxHeight: .infinity)
+                        Text("They get this card, and a tap opens the stop live: the minutes and the map, in the app or on the web.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxHeight: .infinity)
                 }
 
                 Button { sending = true } label: {
@@ -103,7 +129,7 @@ struct ShareSheet: View {
                 // ShareLink with an Image renders it when the receiving app asks, on the main thread,
                 // which hung the app when sending to Messages.)
                 .background {
-                    ActivitySheet(isPresented: $sending, items: [StopLink(selection: selection, card: showingQR ? nil : card)])
+                    ActivitySheet(isPresented: $sending, items: [StopLink(selection: selection, card: showingQR ? nil : webCard ?? card)])
                 }
             }
             .padding(24)
@@ -114,10 +140,15 @@ struct ShareSheet: View {
             }
         }
         .task {
-            // The card as the picture that gets sent; at 3x it's sharp in Messages and Stories.
+            // The app's own card first, so there's something to send right away; at 3x it's sharp.
             let renderer = ImageRenderer(content: ShareCard(selection: selection, departures: departures, now: .now))
             renderer.scale = 3
             card = renderer.uiImage
+            // Then the website's, with the map, as the link's preview shows it everywhere else.
+            if let (data, response) = try? await URLSession.shared.data(from: selection.shareCardURL),
+               (response as? HTTPURLResponse)?.statusCode == 200, let image = UIImage(data: data) {
+                withAnimation(.easeInOut(duration: 0.3)) { webCard = image }
+            }
         }
     }
 }

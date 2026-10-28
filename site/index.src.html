@@ -207,21 +207,21 @@
   .stage.soon .pill { background: #2a2550; color: #c9c2ff; animation: none; }
   @keyframes pillPulse { 50% { box-shadow: 0 0 0 8px #ffd23f00, 0 0 18px #ffd23f88; } }
 
-  /* ---------- Live ticker ---------- */
+  /* ---------- Sharing: the 37's share card, live, as a friend would get it ---------- */
   .live {
-    position: relative; z-index: 3; margin-top: -48px;
+    position: relative; margin-top: 34px;
     background: #12142a; border: 1px solid var(--line); border-radius: 22px;
-    padding: 20px 22px; display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center;
+    padding: 22px; display: grid; grid-template-columns: 1fr 1.35fr; gap: 26px; align-items: center;
     box-shadow: 0 30px 60px #0009;
   }
-  .live .dot { width: 12px; height: 12px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 0 #3ddc8488; animation: pulse 2s infinite; }
+  .live .label { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+  .live .dot { width: 10px; height: 10px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 0 #3ddc8488; animation: pulse 2s infinite; flex: none; }
   .live.offline .dot { background: var(--muted); animation: none; }
   @keyframes pulse { 70% { box-shadow: 0 0 0 12px #3ddc8400; } 100% { box-shadow: 0 0 0 0 #3ddc8400; } }
-  .live .label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
-  .live .now { font: 800 clamp(20px, 3vw, 26px)/1.2 var(--round); }
-  .live .quip { font-style: italic; color: var(--fog); }
-  .live .mins { font: 900 clamp(34px, 6vw, 54px)/1 var(--round); color: #3ddc84; font-variant-numeric: tabular-nums; text-align: right; }
-  .live .mins span { font-size: .4em; color: var(--muted); margin-left: 4px; }
+  .live p { color: var(--muted); margin: 12px 0 0; font-size: 18px; }
+  .live .watch { display: inline-block; margin-top: 14px; color: var(--red-glow); font: 800 16px/1 var(--round); text-decoration: none; }
+  .live .card { display: block; border-radius: 14px; overflow: hidden; aspect-ratio: 800 / 420; background: #1a1c33; }
+  .live .card img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
   /* ---------- The shades: sticky countdown ---------- */
   section { padding: 120px 0; }
@@ -361,8 +361,7 @@
     .lock { padding-top: 84px; }
     .lock-grid { grid-template-columns: 1fr; justify-items: center; }
     .lock-copy { order: -1; }
-    .live { grid-template-columns: auto 1fr; }
-    .live .mins { grid-column: 1 / -1; text-align: left; }
+    .live { grid-template-columns: 1fr; }
     .plan-grid { grid-template-columns: 1fr; }
     /* On phones the panel sits above the plan and stays pinned to the top while it scrolls under. */
     .flatten { top: 12px; order: -1; z-index: 2; box-shadow: 0 20px 40px #000c; }
@@ -467,18 +466,6 @@
 </header>
 
 <main>
-  <div class="wrap">
-    <div class="live offline" id="live" aria-live="polite">
-      <div class="dot"></div>
-      <div>
-        <div class="label">Live · 37 at Church &amp; 14th St, toward the Haight</div>
-        <div class="now" id="live-now">Asking Muni nicely…</div>
-        <div class="quip" id="live-quip">&nbsp;</div>
-      </div>
-      <div class="mins" id="live-mins">–</div>
-    </div>
-  </div>
-
   <section class="lock" id="lockscreen">
     <div class="wrap lock-grid">
       <figure class="lock-phone phone-wrap" data-speed="-0.05">
@@ -614,6 +601,25 @@
           <div class="phone"><img src="{{IMG_HOME}}" alt="The app in New York: the G at Metropolitan Av on the map, and favorites for the G, the B63 bus and PATH with minutes until each"></div>
           <figcaption><b>The app.</b>A page per city, your stops in your order, and commentary nobody asked for.</figcaption>
         </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="share">
+    <div class="wrap">
+      <div class="kicker">Sharing</div>
+      <h2>Shared suffering is half the suffering.</h2>
+      <div class="live" id="live">
+        <div>
+          <div class="label"><span class="dot"></span>Live · 37 at Church &amp; 14th St, toward the Haight</div>
+          <p>Send a friend your stop and they get the minutes, how to feel about them, and the bus on a map, not moving. One tap opens it live, in the app or right in their browser.</p>
+          <p>This is the real 37, right now. Sorry.</p>
+          <a class="watch" href="/s?c=sf&amp;l=37&amp;s=13254&amp;d=IB">Watch it not come →</a>
+        </div>
+        <a class="card" href="/s?c=sf&amp;l=37&amp;s=13254&amp;d=IB">
+          <img id="live-card" src="/s/card.png?c=sf&amp;l=37&amp;s=13254&amp;d=IB" width="800" height="420"
+               alt="The card a friend gets for the 37 at Church &amp; 14th St: minutes until the next one, how to feel about it, and a map of where it is">
+        </a>
       </div>
     </div>
   </section>
@@ -838,49 +844,19 @@
     }
   }
 
-  // ---------- Live: the actual next 37 at Church & 14th ----------
-  const API = "{{API_URL}}/v1/departures?stop=13254&line=37&direction=IB&client=web";
+  // ---------- Live: the actual next 37 at Church & 14th, as its share card ----------
+  // The site draws it (/s/card.png) with the current wait and the buses on the map, and keeps it for a
+  // minute; asking again each minute keeps it moving. Without it, the dot goes gray.
   const live = document.getElementById("live");
-  const liveNow = document.getElementById("live-now");
-  const liveQuip = document.getElementById("live-quip");
-  const liveMins = document.getElementById("live-mins");
-
-  function quip(minutes) {
-    if (minutes < 4) return "Holy shit, the 37 is real.";
-    if (minutes < 9) return "Stay put, lazy bastard.";
-    if (minutes < 16) return "Make coffee. Reconsider your life.";
-    return "Walking is starting to look attractive.";
-  }
-
-  async function refresh() {
-    let next = 60_000;
-    try {
-      const response = await fetch(API, { cache: "no-store" });
-      if (!response.ok) throw new Error(response.status);
-      const data = await response.json();
-      const upcoming = data.departures.find((d) => Date.parse(d.time) > Date.now() - 30_000);
-      live.classList.remove("offline");
-      if (upcoming) {
-        const minutes = Math.max(0, Math.floor((Date.parse(upcoming.time) - Date.now()) / 60_000));
-        const at = new Date(upcoming.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-        liveNow.textContent = `Next 37 at ${at}${upcoming.live ? "" : " (scheduled)"}`;
-        liveQuip.textContent = `“${quip(minutes)}”`;
-        liveMins.innerHTML = minutes === 0 ? "now" : `${minutes}<span>min</span>`;
-      } else {
-        liveNow.textContent = "No 37s predicted right now";
-        liveQuip.textContent = "“Schrödinger's 37: both coming and not coming.”";
-        liveMins.textContent = "??";
-      }
-      if (data.nextRefreshAt) next = Math.max(10_000, Date.parse(data.nextRefreshAt) - Date.now() + 1_000);
-    } catch {
-      live.classList.add("offline");
-      liveNow.textContent = "Muni isn't answering";
-      liveQuip.textContent = "“The 37 has entered the witness protection program.”";
-      liveMins.textContent = "404";
-    }
-    setTimeout(refresh, next);
-  }
-  refresh();
+  const liveCard = document.getElementById("live-card");
+  const cardURL = "/s/card.png?c=sf&l=37&s=13254&d=IB";
+  liveCard.addEventListener("error", () => live.classList.add("offline"));
+  liveCard.addEventListener("load", () => live.classList.remove("offline"));
+  setInterval(() => {
+    const next = new Image();
+    next.onload = () => { liveCard.src = next.src; };
+    next.src = `${cardURL}&m=${Math.floor(Date.now() / 60_000)}`;
+  }, 60_000);
 </script>
 </body>
 </html>
