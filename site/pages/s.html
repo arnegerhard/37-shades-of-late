@@ -9,8 +9,8 @@
 <meta property="og:description" content="Live minutes until it shows up, and how to feel about it. 37 Shades of Late.">
 <!-- The worker (src/worker.ts) points these at the shared stop's own card. -->
 <meta property="og:image" content="">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:image:width" content="800">
+<meta property="og:image:height" content="420">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="">
 <!-- Safari's "get the app" bar; with the app installed, the stop link opens it instead. -->
@@ -41,6 +41,13 @@
   .cta small { display: block; font: 600 11px/1 system-ui; opacity: .7; margin-bottom: 3px; }
   .pitch { color: var(--muted); margin-top: 26px; }
   .pitch a { color: #ff8a93; }
+  /* The live map: the route, the stop and the buses on their way, like the app's. */
+  .map { height: 340px; margin-top: 16px; border-radius: 28px; overflow: hidden; border: 1px solid var(--line); background: #15172c; }
+  .map[hidden] { display: none; }
+  .bus { width: 46px; height: 46px; border-radius: 50%; background: #1c1c1e; border: 3px solid var(--red); box-sizing: border-box;
+         display: grid; place-items: center; color: #fff; font: 900 16px/1 var(--round); }
+  .bus.live { color: var(--green); }
+  .here { width: 22px; height: 22px; border-radius: 50%; background: #0a84ff; border: 3px solid #fff; box-sizing: border-box; }
 </style>
 </head>
 <body>
@@ -54,6 +61,7 @@
     <div class="later" id="later">&nbsp;</div>
     <div class="quip" id="quip">&nbsp;</div>
   </div>
+  <div class="map" id="map" aria-label="Map of the buses on their way" hidden></div>
   <a class="cta" id="cta" href="https://apps.apple.com/app/id6825789256">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
     <span><small>Get it on your Lock Screen</small>37 Shades of Late</span>
@@ -85,13 +93,76 @@
     return "Walking is starting to look attractive.";
   }
 
-  // Where the line goes from this stop, once.
-  fetch(base + "lines/" + encodeURIComponent(line) + "?client=web").then((r) => r.json()).then((data) => {
-    const direction = data.directions?.find((d) => d.id === way) ?? data.directions?.find((d) => d.stops.some((s) => s.code === stop));
-    if (direction) $("to").textContent = "To " + direction.destination;
-    const name = direction?.stops.find((s) => s.code === stop)?.name;
-    if (name) { $("stop").textContent = name; document.title = `The ${spoken} at ${name} · 37 Shades of Late`; }
-  }).catch(() => {});
+  // Where the line goes from this stop, once; and each line's route there, for the map.
+  const stopList = stops.split(","), wayList = ways.split(",");
+  let stopAt, routes = [], upcoming = [];
+  const routesLoaded = Promise.all(ids.map((id, i) =>
+    fetch(base + "lines/" + encodeURIComponent(id) + "?client=web").then((r) => r.json()).then((data) => {
+      const at = stopList[i] || stop;
+      const direction = data.directions?.find((d) => d.id === (wayList[i] ?? way) && d.stops.some((s) => s.code === at))
+        ?? data.directions?.find((d) => d.stops.some((s) => s.code === at));
+      if (!direction) return;
+      routes.push(direction.shapes?.length ? direction.shapes : [direction.stops.filter((s) => s.lat).map((s) => [s.lat, s.lon])]);
+      if (i > 0) return;
+      $("to").textContent = "To " + direction.destination;
+      const here = direction.stops.find((s) => s.code === stop);
+      if (here?.lat) stopAt = here;
+      if (here?.name) { $("stop").textContent = here.name; document.title = `The ${spoken} at ${here.name} · 37 Shades of Late`; }
+    }).catch(() => {})));
+
+  // The live map (Apple's MapKit JS, signed in through /mapkit-token): the routes, the stop, and the
+  // next buses with their minutes, moved at every refresh. It starts on the stop, and the first time
+  // there are buses, shows them and the stop; after that it stays where the reader puts it.
+  let map, busMarks = [], framed = false;
+  window.initMap = async () => {
+    mapkit.init({ authorizationCallback: (done) => fetch("/mapkit-token").then((r) => r.text()).then(done) });
+    mapkit.addEventListener("error", () => { $("map").hidden = true; });
+    await routesLoaded;
+    if (!stopAt) return;
+    $("map").hidden = false;
+    map = new mapkit.Map("map", {
+      colorScheme: mapkit.Map.ColorSchemes.Dark,
+      mapType: mapkit.Map.MapTypes.MutedStandard,
+      pointOfInterestFilter: mapkit.PointOfInterestFilter.excludingAllCategories,
+      showsCompass: mapkit.FeatureVisibility.Hidden,
+      showsMapTypeControl: false,
+      showsZoomControl: false,
+      isRotationEnabled: false,
+    });
+    const style = new mapkit.Style({ strokeColor: "#bf1a26", lineWidth: 5, lineCap: "round", lineJoin: "round" });
+    for (const shapes of routes) for (const shape of shapes) {
+      map.addOverlay(new mapkit.PolylineOverlay(shape.map(([lat, lon]) => new mapkit.Coordinate(lat, lon)), { style }));
+    }
+    map.addAnnotation(new mapkit.Annotation(new mapkit.Coordinate(stopAt.lat, stopAt.lon), () => {
+      const dot = document.createElement("div");
+      dot.className = "here";
+      return dot;
+    }, { title: stopAt.name, anchorOffset: new DOMPoint(0, 0) }));
+    showBuses();
+  };
+
+  function showBuses() {
+    if (!map) return;
+    map.removeAnnotations(busMarks);
+    const minutes = (d) => Math.max(0, Math.floor((Date.parse(d.time) - Date.now()) / 60_000));
+    busMarks = upcoming.filter((d) => d.vehicle).slice(0, 3).map((d) => new mapkit.Annotation(
+      new mapkit.Coordinate(d.vehicle.lat, d.vehicle.lon), () => {
+        const mark = document.createElement("div");
+        mark.className = "bus" + (d.live ? " live" : "");
+        mark.textContent = (combined ? d.line + " " : "") + (minutes(d) === 0 ? "now" : minutes(d));
+        return mark;
+      }, { anchorOffset: new DOMPoint(0, 0) }));
+    map.addAnnotations(busMarks);
+    if (framed) return;
+    // The stop and the buses with room around them, a few blocks across at least.
+    framed = busMarks.length > 0;
+    const points = [stopAt, ...busMarks.map((b) => ({ lat: b.coordinate.latitude, lon: b.coordinate.longitude }))];
+    const lats = points.map((p) => p.lat), lons = points.map((p) => p.lon);
+    const span = (values, least) => Math.max(least, (Math.max(...values) - Math.min(...values)) * 1.5);
+    map.setRegionAnimated(new mapkit.CoordinateRegion(
+      new mapkit.Coordinate((Math.min(...lats) + Math.max(...lats)) / 2, (Math.min(...lons) + Math.max(...lons)) / 2),
+      new mapkit.CoordinateSpan(span(lats, 0.01), span(lons, 0.012))), framed);
+  }
 
   async function refresh() {
     let next = 60_000;
@@ -101,7 +172,8 @@
       if (!response.ok) throw new Error(response.status);
       const data = await response.json();
       if (data.stop?.name && $("stop").textContent.trim() === "") $("stop").textContent = data.stop.name;
-      const upcoming = data.departures.filter((d) => Date.parse(d.time) > Date.now() - 30_000);
+      upcoming = data.departures.filter((d) => Date.parse(d.time) > Date.now() - 30_000);
+      showBuses();
       const minutes = (d) => Math.max(0, Math.floor((Date.parse(d.time) - Date.now()) / 60_000));
       if (upcoming.length) {
         const first = minutes(upcoming[0]);
@@ -127,5 +199,7 @@
   }
   refresh();
 </script>
+<script src="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.core.js" crossorigin async
+        data-callback="initMap" data-libraries="map,annotations,overlays"></script>
 </body>
 </html>
