@@ -7,6 +7,10 @@ struct Bus37App: App {
     init() {
         #if DEBUG
         ScreenshotScreen.seedFavoritesIfAsked()
+        // `-resetTips YES`: as if no tip had been seen, closed or outgrown; `-showTips YES`: every tip,
+        // whatever its rules say.
+        if UserDefaults.standard.bool(forKey: "resetTips") { try? Tips.resetDatastore() }
+        if UserDefaults.standard.bool(forKey: "showTips") { Tips.showAllTipsForTesting() }
         #endif
         try? Tips.configure()
     }

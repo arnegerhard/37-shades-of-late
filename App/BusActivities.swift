@@ -191,8 +191,8 @@ struct IslandPill: View {
 }
 
 /// The island just handed a watch, showing it off, as the system does when an activity has news: it
-/// opens out to its expanded view (the real one, with the stop's times), holds a moment, and closes
-/// again with a tap of haptics. While the app is open the system doesn't show its own activity up
+/// opens out to its expanded view (the real one, with the stop's times) with a tap of haptics, holds
+/// a moment, and closes again. While the app is open the system doesn't show its own activity up
 /// there, so this stands in for it, drawn over the real island, black on black.
 @MainActor @Observable
 final class IslandShowOff {
@@ -215,9 +215,10 @@ final class IslandShowOff {
         phase = .closed
         // A turn later, so it's drawn closed (where the real island is) before it opens.
         DispatchQueue.main.async {
+            // The tap as it opens: that's when it arrives.
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             withAnimation(.spring(duration: 0.5, bounce: 0.3)) { self.phase = .open }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                 withAnimation(.spring(duration: 0.45, bounce: 0.2)) {
                     self.phase = .closed
                 } completion: {
