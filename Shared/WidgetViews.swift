@@ -20,6 +20,16 @@ struct DeparturesEntry: TimelineEntry {
     let date: Date
     let rows: [WidgetRow]
     let error: String?
+    /// Home, when far from it and every other city: the Lock Screen widgets sleep rather than show
+    /// times from somewhere you aren't.
+    var awayFrom: City? = nil
+
+    /// Home's clock, unless it's the one on the Lock Screen already.
+    var homeTimeZone: TimeZone? {
+        guard let awayFrom else { return nil }
+        let home = awayFrom.timeZone
+        return home.secondsFromGMT(for: date) == TimeZone.current.secondsFromGMT(for: date) ? nil : home
+    }
 
     /// Departures that haven't left yet at this entry's time.
     func upcoming(_ row: WidgetRow) -> [Departure] {
@@ -62,6 +72,13 @@ struct DeparturesEntry: TimelineEntry {
                 WidgetRow(selection: selection, departures: waits.map { Departure(time: date + Double($0) * 60 + 20, isLive: true) })
             }
         return DeparturesEntry(date: date, rows: rows, error: nil)
+    }
+}
+
+extension DeparturesEntry {
+    /// The sleeping widgets, for previews.
+    static var sampleAsleep: DeparturesEntry {
+        DeparturesEntry(date: .now, rows: [], error: nil, awayFrom: .nyc)
     }
 }
 
@@ -246,10 +263,14 @@ struct LockScreenView: View {
 
     var body: some View {
         Group {
-            switch family {
-            case .accessoryCircular: circular
-            case .accessoryInline: inline
-            default: rectangular
+            if let home = entry.awayFrom {
+                asleep(home: home)
+            } else {
+                switch family {
+                case .accessoryCircular: circular
+                case .accessoryInline: inline
+                default: rectangular
+                }
             }
         }
         .containerBackground(for: .widget) { Color.clear }
@@ -316,6 +337,58 @@ struct LockScreenView: View {
             return "\(name) \(minutes == 0 ? "now" : "\(minutes)m")"
         }
         return Text(parts.isEmpty ? "No favorites yet" : parts.joined(separator: " · "))
+    }
+
+    /// Far from every city: above the clock, the date, as if there were no widget at all; in the
+    /// others, dimmed, the time at home and that it'll be back with you. With home's clock the same as
+    /// this one, just "zzz" (not a moon: it sleeps all day too).
+    @ViewBuilder private func asleep(home: City) -> some View {
+        let zzz = Image(systemName: "zzz")
+        switch family {
+        case .accessoryInline:
+            Text(entry.date, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
+        case .accessoryCircular:
+            ZStack {
+                AccessoryWidgetBackground().opacity(0.5)
+                if let timeZone = entry.homeTimeZone {
+                    VStack(spacing: -1) {
+                        Text(home.code).font(.system(size: 10, weight: .heavy, design: .rounded))
+                        // "7:45", as the Lock Screen's clock has it.
+                        Text(entry.date.formatted(Date.VerbatimFormatStyle(
+                            format: "\(hour: .defaultDigits(clock: .twelveHour, hourCycle: .oneBased)):\(minute: .twoDigits)",
+                            timeZone: timeZone, calendar: .current)))
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .minimumScaleFactor(0.7)
+                    }
+                    .foregroundStyle(.secondary)
+                } else {
+                    zzz.font(.system(size: 20)).foregroundStyle(.secondary)
+                }
+            }
+        default:
+            VStack(alignment: .leading, spacing: 1) {
+                if let timeZone = entry.homeTimeZone {
+                    HStack(spacing: 6) {
+                        Text(home.code).font(.system(.headline, design: .rounded).weight(.heavy))
+                        Text(entry.date.formatted(Self.clock(in: timeZone)))
+                            .font(.system(.headline, design: .rounded).weight(.semibold))
+                            .monospacedDigit()
+                    }
+                }
+                Text("\(zzz) till you're back").font(.caption)
+            }
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+    }
+
+    /// "1:40 PM" in `timeZone`.
+    private static func clock(in timeZone: TimeZone) -> Date.FormatStyle {
+        var style = Date.FormatStyle.dateTime.hour().minute()
+        style.timeZone = timeZone
+        return style
     }
 }
 

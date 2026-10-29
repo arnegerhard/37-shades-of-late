@@ -6,24 +6,35 @@ struct Provider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping (DeparturesEntry) -> Void) {
         if context.isPreview { return completion(.sample()) }
-        Task { completion(await load().first ?? .sample()) }
+        Task { completion(await load(for: context.family).first ?? .sample()) }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<DeparturesEntry>) -> Void) {
         Task {
-            let entries = await load()
+            let entries = await load(for: context.family)
             // Ask for fresh live data in 5 minutes; iOS may stretch this to save battery. After a failed
-            // fetch, try again in a minute.
+            // fetch, try again in a minute. Asleep, there's nothing to fetch: just whether it's time to
+            // wake up, every 20 minutes (as often as the place is asked).
             let failed = entries.first?.rows.contains(where: \.stale) ?? false
-            completion(Timeline(entries: entries, policy: .after(.now + (failed ? 60 : 5 * 60))))
+            let wait: TimeInterval = entries.first?.awayFrom != nil ? 20 * 60 : failed ? 60 : 5 * 60
+            completion(Timeline(entries: entries, policy: .after(.now + wait)))
         }
     }
 
     /// The favorites of the city you're in, in their saved order. Fetched together, then an entry
-    /// per minute so the minutes count down between refreshes.
-    private func load() async -> [DeparturesEntry] {
+    /// per minute so the minutes count down between refreshes. Far from every city, the Lock Screen
+    /// widgets sleep, fetching nothing, and the Home Screen's show home's (the city with the most
+    /// favorites).
+    private func load(for family: WidgetFamily) async -> [DeparturesEntry] {
         let now = Date.now
-        let selections = Array(Selection.widgetSelections(near: await TransitService.widgetCity()).prefix(4))
+        let place = await TransitService.widgetPlace()
+        if place.isAway, [.accessoryInline, .accessoryCircular, .accessoryRectangular].contains(family) {
+            // An entry a minute, on the minute, for home's clock.
+            let minute = (now.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60
+            return (0..<30).map { DeparturesEntry(date: Date(timeIntervalSinceReferenceDate: minute + Double($0) * 60),
+                                                 rows: [], error: nil, awayFrom: Selection.homeCity) }
+        }
+        let selections = Array(Selection.widgetSelections(near: place.isAway ? Selection.homeCity : place.city).prefix(4))
         let rows = await withTaskGroup(of: (Int, WidgetRow).self) { group in
             for (index, selection) in selections.enumerated() {
                 group.addTask {
@@ -139,4 +150,11 @@ struct Bus37WidgetBundle: WidgetBundle {
     Bus37Widget()
 } timeline: {
     DeparturesEntry.sample()
+    DeparturesEntry.sampleAsleep
+}
+
+#Preview(as: .accessoryCircular) {
+    Bus37Widget()
+} timeline: {
+    DeparturesEntry.sampleAsleep
 }

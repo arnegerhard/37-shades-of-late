@@ -11,6 +11,9 @@ struct Bus37App: App {
         // whatever its rules say.
         if UserDefaults.standard.bool(forKey: "resetTips") { try? Tips.resetDatastore() }
         if UserDefaults.standard.bool(forKey: "showTips") { Tips.showAllTipsForTesting() }
+        // `-fakeAway YES`: the Lock Screen widgets asleep, as far from every city (see WidgetPlace.debug).
+        WidgetPlace.setDebugFromLaunchArguments()
+        WidgetCenter.shared.reloadAllTimelines()
         #endif
         try? Tips.configure()
     }

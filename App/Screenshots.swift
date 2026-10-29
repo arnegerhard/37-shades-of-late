@@ -60,11 +60,16 @@ struct WidgetShowcase: View {
         .task {
             // The favorites with live times, like the real widget shows them.
             var rows = [WidgetRow]()
+            var awayFrom: City?
+            #if DEBUG
+            // With `-fakeAway YES`, asleep as the Lock Screen widgets would be.
+            if WidgetPlace.debug?.isAway == true { awayFrom = Selection.homeCity }
+            #endif
             for selection in Selection.widgetSelections(near: Selection.current.city).prefix(4) {
                 let departures = (try? await TransitService.departures(for: selection, client: .app)) ?? []
                 rows.append(WidgetRow(selection: selection, departures: departures))
             }
-            if !rows.isEmpty { entry = DeparturesEntry(date: .now, rows: rows, error: nil) }
+            if !rows.isEmpty { entry = DeparturesEntry(date: .now, rows: rows, error: nil, awayFrom: awayFrom) }
         }
     }
 
@@ -165,3 +170,4 @@ struct WidgetShowcase: View {
     }
 }
 #endif
+

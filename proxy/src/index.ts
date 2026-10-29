@@ -69,7 +69,7 @@ export default {
     if (page === "/privacy" || page === "/support") return Response.redirect(`${SITE}${page}`, 301);
     if (page === "") return Response.redirect(SITE, 301);
     recordUsage(request, env);
-    if (pathname === "/v1/city") return json({ city: nearestCity(request) });
+    if (pathname === "/v1/city") return json(whereabouts(request));
     // BART lives in San Francisco next to Muni (see bart.ts) but needs nothing from the shared
     // cache, so it's served right here, where a deploy takes effect at once: its lines and its
     // platforms' stops ("M16-1"), and added to Muni's line list and map.
@@ -636,13 +636,24 @@ function recordUsage(request: Request, env: Env) {
 
 const CITIES = { sf: [37.7749, -122.4194], seattle: [47.6062, -122.3321], nyc: [40.7128, -74.006] } as const;
 
-/** The closest supported city to Cloudflare's IP-based guess; good to a few dozen km at best. */
-function nearestCity(request: Request): keyof typeof CITIES {
+/** The closest supported city to Cloudflare's IP-based guess (good to a few dozen km at best), and how
+ * far from each one, for the widgets to sleep when they're far from all of them. Nothing is stored. */
+function whereabouts(request: Request) {
   const lat = Number(request.cf?.latitude);
   const lon = Number(request.cf?.longitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "sf";
-  const distance = ([cLat, cLon]: readonly [number, number]) => (lat - cLat) ** 2 + ((lon - cLon) * Math.cos((lat * Math.PI) / 180)) ** 2;
-  return (Object.keys(CITIES) as (keyof typeof CITIES)[]).reduce((a, b) => (distance(CITIES[b]) < distance(CITIES[a]) ? b : a));
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { city: "sf" };
+  const km = Object.fromEntries((Object.keys(CITIES) as (keyof typeof CITIES)[])
+    .map((city) => [city, Math.round(kilometers(lat, lon, CITIES[city][0], CITIES[city][1]))])) as Record<keyof typeof CITIES, number>;
+  const city = (Object.keys(km) as (keyof typeof CITIES)[]).reduce((a, b) => (km[b] < km[a] ? b : a));
+  return { city, km };
+}
+
+/** Great-circle distance. */
+function kilometers(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const rad = Math.PI / 180;
+  const a = Math.sin(((lat2 - lat1) * rad) / 2) ** 2
+    + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lon2 - lon1) * rad) / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(a));
 }
 
 function vehiclePosition(journey: any): Vehicle | undefined {

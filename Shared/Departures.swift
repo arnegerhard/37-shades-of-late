@@ -23,6 +23,11 @@ enum City: String, Codable, CaseIterable, Identifiable {
         }
     }
 
+    /// The city's clock, for the sleeping Lock Screen widgets' time at home.
+    var timeZone: TimeZone {
+        TimeZone(identifier: self == .nyc ? "America/New_York" : "America/Los_Angeles")!
+    }
+
     /// What mostly runs here, for the page's wording; a stop's own is `Selection.vehicle`.
     var vehicle: String { self == .nyc ? "train" : "bus" }
     var vehicles: String { self == .nyc ? "trains" : "buses" }
@@ -180,6 +185,100 @@ struct Selection: Codable, Hashable, Identifiable {
 }
 
 /// Settings shared between the app and its widgets.
+/// The proxy's rough, IP-based guess of where this device is (see /v1/city).
+struct Whereabouts: Decodable {
+    /// The nearest supported city.
+    let city: City
+    /// Kilometers from each supported city, by its raw value (older proxies leave it out).
+    var km: [String: Double]?
+}
+
+/// Where the widgets think they are, kept in the App Group between widget updates: the latest guess,
+/// and whether that's far from all the supported cities, where the Lock Screen widgets sleep.
+struct WidgetPlace: Codable, Hashable {
+    static let key = "widgetPlace"
+    /// Farther than this from every city is away. IP guesses are good to a few dozen km, and a
+    /// carrier's address can be a lot further off, so this is well beyond any city's suburbs.
+    static let awayKm: Double = 150
+
+    var city: City?
+    var checkedAt: Date?
+    /// Guesses in a row far from every city; it takes two to be away.
+    var farStreak = 0
+    /// Hours the widgets found this device in each city (by raw value), the older ones fading with
+    /// a half-life of two weeks: where it spends its time.
+    var hours: [String: Double] = [:]
+
+    var isAway: Bool { farStreak >= 2 }
+
+    /// Where most of the last few weeks went, once there's a day's worth to go by.
+    var home: City? {
+        guard hours.values.reduce(0, +) >= 24, let most = hours.max(by: { $0.value < $1.value }) else { return nil }
+        return City(rawValue: most.key)
+    }
+
+    mutating func update(with found: Whereabouts, at now: Date = .now) {
+        let far = found.km?.values.min().map { $0 > Self.awayKm } ?? false
+        if let checkedAt {
+            let elapsed = max(0, now.timeIntervalSince(checkedAt))
+            let fade = pow(0.5, elapsed / (14 * 86_400))
+            hours = hours.mapValues { $0 * fade }
+            // The time since the last guess was spent here, if both found the same city. Widgets go
+            // hours without an update overnight, so a long gap still counts, up to a point.
+            if !far, !isAway, city == found.city {
+                hours[found.city.rawValue, default: 0] += min(elapsed, 3 * 3600) / 3600
+            }
+        }
+        farStreak = far ? farStreak + 1 : 0
+        city = found.city
+        checkedAt = now
+    }
+
+    /// The last guess the widgets kept.
+    static var saved: WidgetPlace? {
+        AppGroup.defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(WidgetPlace.self, from: $0) }
+    }
+
+    #if DEBUG
+    /// Launch the app with `-fakeAway YES` to see the widgets asleep without travelling (with
+    /// `-fakeHome nyc`, as if New York were home). The app hands it to the widgets through the App
+    /// Group; launching without it takes it back.
+    static let debugKey = "debugWidgetPlace"
+
+    static var debug: WidgetPlace? {
+        AppGroup.defaults.data(forKey: debugKey).flatMap { try? JSONDecoder().decode(WidgetPlace.self, from: $0) }
+    }
+
+    static func setDebugFromLaunchArguments() {
+        guard UserDefaults.standard.bool(forKey: "fakeAway") else {
+            AppGroup.defaults.removeObject(forKey: debugKey)
+            return
+        }
+        var place = WidgetPlace(city: .nyc, farStreak: 2)
+        if let home = UserDefaults.standard.string(forKey: "fakeHome") { place.hours = [home: 100] }
+        AppGroup.defaults.set(try? JSONEncoder().encode(place), forKey: debugKey)
+    }
+    #endif
+}
+
+extension Selection {
+    /// Home: where the widgets have found this device most over the last few weeks, or before
+    /// they've seen enough, where the favorites mostly are (or the city open in the app, without any).
+    /// The Home Screen widgets keep showing its favorites while the Lock Screen's sleep.
+    static var homeCity: City {
+        #if DEBUG
+        if let home = WidgetPlace.debug?.home { return home }
+        #endif
+        if let home = WidgetPlace.saved?.home { return home }
+        let favorites = favorites
+        let counts = Dictionary(grouping: favorites, by: \.city).mapValues(\.count)
+        // Ties go to the city of the higher favorite.
+        var home: City?
+        for favorite in favorites where home.map({ counts[favorite.city]! > counts[$0]! }) ?? true { home = favorite.city }
+        return home ?? current.city
+    }
+}
+
 enum AppGroup {
     static var defaults: UserDefaults { UserDefaults(suiteName: "group.info.jetsons.bus37") ?? .standard }
 
@@ -540,23 +639,29 @@ enum TransitService {
     /// The supported city nearest to this device, from the proxy's rough IP-based location.
     /// No location permission is involved; the proxy doesn't store anything.
     static func nearestCity(client: Client = .app) async -> City? {
-        struct Response: Decodable { let city: City }
-        let response: Response? = try? await get(baseURL.appending(path: "city"), client: client)
-        return response?.city
+        await whereabouts(client: client)?.city
     }
 
-    /// The city the widgets are in, from the same rough IP guess (no location permission), asked at
-    /// most every 20 minutes. If the guess fails, the last one stands.
-    static func widgetCity() async -> City? {
+    /// The proxy's rough guess of where this device is: the nearest supported city, and how far
+    /// from each one (older proxies send only the city).
+    static func whereabouts(client: Client) async -> Whereabouts? {
+        try? await get(baseURL.appending(path: "city"), client: client)
+    }
+
+    /// Where the widgets are, from the same rough IP guess (no location permission), asked at most
+    /// every 20 minutes. If the guess fails, the last one stands. Far from every city twice running,
+    /// the Lock Screen widgets sleep (once could be a phone carrier's address a state over).
+    static func widgetPlace() async -> WidgetPlace {
         let defaults = AppGroup.defaults
-        let saved = defaults.string(forKey: "widgetCity").flatMap(City.init(rawValue:))
-        if let saved, let at = defaults.object(forKey: "widgetCityAt") as? Date, Date.now.timeIntervalSince(at) < 20 * 60 {
-            return saved
-        }
-        guard let city = await nearestCity(client: .widget) else { return saved }
-        defaults.set(city.rawValue, forKey: "widgetCity")
-        defaults.set(Date.now, forKey: "widgetCityAt")
-        return city
+        var place = WidgetPlace.saved ?? WidgetPlace()
+        #if DEBUG
+        if let debug = WidgetPlace.debug { return debug }
+        #endif
+        if let at = place.checkedAt, Date.now.timeIntervalSince(at) < 20 * 60 { return place }
+        guard let found = await whereabouts(client: .widget) else { return place }
+        place.update(with: found)
+        defaults.set(try? JSONEncoder().encode(place), forKey: WidgetPlace.key)
+        return place
     }
 
     private static func url(_ city: City, _ path: String) -> URL {
