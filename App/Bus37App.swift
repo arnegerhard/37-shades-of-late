@@ -193,6 +193,11 @@ struct ContentView: View {
         let open = preview(for: city)
         let cityFavorites = favorites.filter { $0.city == city }
         let openIsFavorite = cityFavorites.contains { $0.id == open.id }
+        // What the favorites are, for the wording under them: "trains" if they're all trains, "rides"
+        // when it's a mix.
+        let kinds = Set(cityFavorites.map(\.vehicle))
+        let ride = kinds.count == 1 ? cityFavorites[0].vehicle : "ride"
+        let rides = kinds.count == 1 ? cityFavorites[0].vehicles : "rides"
         // The map takes two thirds of the page. As a long list scrolls, the map shrinks with it,
         // then moves up into the header's room, so a favorite picked far down the list still shows on it.
         return ZStack(alignment: .top) {
@@ -268,10 +273,10 @@ struct ContentView: View {
                     // where it can't go, and snap back instead of moving to the end.
                     VStack(alignment: .leading, spacing: 10) {
                         if !cityFavorites.isEmpty {
-                            Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. Tap the map to watch the \(city.vehicle) not move, live. Hold and drag to reorder; Edit to delete.")
+                            Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. Tap the map to watch the \(ride) not move, live. Hold and drag to reorder; Edit to delete.")
                         }
                         Button { showingGuide = true } label: {
-                            Label("Put your \(city.vehicles) on the Lock Screen", systemImage: "lock.iphone")
+                            Label("Put your \(cityFavorites.isEmpty ? city.vehicles : rides) on the Lock Screen", systemImage: "lock.iphone")
                                 .font(.subheadline.weight(.semibold))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 20)
@@ -282,7 +287,7 @@ struct ContentView: View {
                         .tint(Color.accentColor)
                         .padding(.horizontal, -20)
                         .padding(.top, 14)
-                        Text("Be let down without even unlocking your phone. Takes 30 seconds, less than any \(city.vehicle).")
+                        Text("Be let down without even unlocking your phone. Takes 30 seconds, less than any \(cityFavorites.isEmpty ? city.vehicle : ride).")
                     }
                     .textCase(nil)
                 }

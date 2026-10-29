@@ -212,30 +212,34 @@ struct RouteMap: View {
     }
 
     /// Puts the next departure on the Dynamic Island and the Lock Screen, for watching it from another
-    /// app, or takes it off again. It shows what goes up there, and flies it up (or back down).
+    /// app, or takes it off again. It shows what goes up there, and flies it up (or back down). On an
+    /// iPhone without an island, all there is is the Lock Screen, so that's what it shows and says.
     private var watchButton: some View {
         let watching = BusActivities.shared.isWatching(selection)
+        let island = Self.island != nil
         return Button {
-            if watching {
-                BusActivities.shared.stop(selection)
-            } else {
-                BusActivities.shared.start(selection, departures: departures, fetchedAt: refresh?.fetchedAt ?? .now)
-                guard BusActivities.shared.isWatching(selection) else { return }
+            // Without an island to fly to, the preview just fades out (and back in).
+            withAnimation(island ? nil : .smooth(duration: 0.35)) {
+                if watching {
+                    BusActivities.shared.stop(selection)
+                } else {
+                    BusActivities.shared.start(selection, departures: departures, fetchedAt: refresh?.fetchedAt ?? .now)
+                }
             }
-            fly(up: !watching)
+            if island, watching != BusActivities.shared.isWatching(selection) { fly(up: !watching) }
         } label: {
             HStack(spacing: 12) {
                 islandPreview()
                     .frame(width: 112, height: 30)
-                    // Gone up to the island, it leaves its outline behind.
+                    // Gone up to the island (or off to the Lock Screen), it leaves its outline behind.
                     .opacity(watching || flight != nil ? 0 : 1)
                     .overlay {
                         if watching && flight == nil {
-                            Capsule().strokeBorder(.secondary, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                            previewShape.strokeBorder(.secondary, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                         }
                     }
                     .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { previewFrame = $0 }
-                Text(watching ? "Stalking it. Tap to let go." : "Stalk it from any app")
+                Text(watching ? "Stalking it. Tap to let go." : island ? "Stalk it from any app" : "Stalk it from your Lock Screen")
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -246,27 +250,36 @@ struct RouteMap: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(watching ? "Stop watching it from the Dynamic Island" : "Watch it from the Dynamic Island")
+        .accessibilityLabel(watching ? "Stop watching it from \(island ? "the Dynamic Island" : "the Lock Screen")"
+                                     : "Watch it from \(island ? "the Dynamic Island" : "the Lock Screen")")
     }
 
-    /// The Dynamic Island as watching this stop makes it, at whatever size it's given.
+    /// The island's pill, or without one, the corners of the Lock Screen's card.
+    private var previewShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Self.island != nil ? 19 : 7, style: .continuous)
+    }
+
+    /// The Dynamic Island as watching this stop makes it (or the Lock Screen's card, without an
+    /// island), at whatever size it's given.
     private func islandPreview(showing contents: Bool = true) -> some View {
         let next = upcoming.first
         return HStack(spacing: 0) {
+            // As on the island: a long badge ("1 Line") shrinks, the countdown never does.
             LineBadge(line: selection.lineLabel, font: .system(.caption, design: .rounded).weight(.heavy))
                 .lineLimit(1)
-                .fixedSize()
-            Spacer(minLength: 16)
+                .minimumScaleFactor(0.6)
+            Spacer(minLength: 8)
             if let next {
                 Countdown(date: next.time, from: .now)
                     .font(.system(.footnote, design: .rounded).weight(.heavy))
                     .foregroundStyle(next.isLive ? .green : .gray)
+                    .fixedSize()
             }
         }
         .padding(.horizontal, 9)
         .opacity(contents ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.black, in: Capsule())
+        .background(.black, in: previewShape)
         .environment(\.colorScheme, .dark)
     }
 
@@ -275,13 +288,10 @@ struct RouteMap: View {
         if let flight {
             GeometryReader { geometry in
                 let origin = geometry.frame(in: .global).origin
-                let island = Self.island
-                let frame = flight.atIsland ? island.frame : previewFrame
+                let frame = flight.atIsland ? Self.island ?? previewFrame : previewFrame
                 islandPreview(showing: !flight.atIsland)
                     .frame(width: frame.width, height: frame.height)
                     .position(x: frame.midX - origin.x, y: frame.midY - origin.y)
-                    // Without an island to disappear into, it fades on the way up.
-                    .opacity(flight.atIsland && !island.exists ? 0 : 1)
             }
             .ignoresSafeArea()
             .allowsHitTesting(false)
@@ -308,13 +318,11 @@ struct RouteMap: View {
     struct Flight: Equatable { var atIsland: Bool }
 
     /// Where the Dynamic Island is, in the window: the same size on every iPhone that has one (those
-    /// with a safe area this tall). Elsewhere, a spot at the top of the screen.
-    private static var island: (frame: CGRect, exists: Bool) {
+    /// with a safe area this tall); nil on the others.
+    private static var island: CGRect? {
         let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-        let width = window?.bounds.width ?? 402
-        let exists = (window?.safeAreaInsets.top ?? 0) >= 51 && UIDevice.current.userInterfaceIdiom == .phone
-        return exists ? (CGRect(x: width / 2 - 62.5, y: 11, width: 125, height: 37), true)
-                      : (CGRect(x: width / 2 - 40, y: 4, width: 80, height: 22), false)
+        guard UIDevice.current.userInterfaceIdiom == .phone, let window, window.safeAreaInsets.top >= 51 else { return nil }
+        return CGRect(x: window.bounds.width / 2 - 62.5, y: 11, width: 125, height: 37)
     }
 
     /// Instead of a navigation bar: shrink back to the home screen, where it's going, share. Pulling it
@@ -498,7 +506,7 @@ private struct BusMarker: View {
     let isLive: Bool
     /// On a combined stop, which line this bus is, shown instead of the bus icon.
     var line: String? = nil
-    /// "bus", "train" in the subway, or "ferry".
+    /// As `Selection.vehicle`: "bus", "train", "streetcar", "cable car" or "ferry".
     var vehicle = "bus"
 
     var body: some View {
@@ -526,7 +534,7 @@ private struct BusMarker: View {
                         .minimumScaleFactor(0.6)
                         .frame(maxWidth: 26)
                 } else {
-                    Image(systemName: vehicle == "train" ? "tram.fill" : vehicle == "ferry" ? "ferry.fill" : "bus.fill")
+                    Image(systemName: vehicle == "bus" ? "bus.fill" : vehicle == "ferry" ? "ferry.fill" : vehicle == "cable car" ? "cablecar.fill" : "tram.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.white)
                 }

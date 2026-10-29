@@ -80,12 +80,12 @@ private enum Step: CaseIterable {
 
     var detail: String {
         switch self {
-        case .intro: "The best part of this app isn't in the app. Raise your phone, see the minutes, put it back. Setup takes 30 seconds, which is less than any bus."
+        case .intro: "The best part of this app isn't in the app. Raise your phone, see the minutes, put it back. Setup takes 30 seconds, which is less than you'll wait for anything here."
         case .hold: "Wake your iPhone and let Face ID unlock it, but don't swipe up. Then press anywhere until the screen shrinks. Firmly, like you've been waiting a while."
         case .customize: "Bottom of the screen. It's been there the whole time."
         case .lockScreen: "Lock Screen on the left, Home Screen on the right. Tap the left one."
-        case .area: "It may say Add Widgets. Already full? Remove one with the minus. Your bus deserves the space."
-        case .pick: "Scroll or search, then tap the wide widget: all your favorites, with minutes until each bus."
+        case .area: "It may say Add Widgets. Already full? Remove one with the minus. Your ride deserves the space."
+        case .pick: "Scroll or search, then tap the wide widget: all your favorites, with the minutes until each one shows."
         case .done: "Top right. Your Lock Screen now does the waiting for you, in the order of your favorites."
         }
     }

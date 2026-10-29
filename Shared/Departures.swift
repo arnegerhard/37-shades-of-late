@@ -89,21 +89,34 @@ struct Selection: Codable, Hashable, Identifiable {
 
     var isMultiLine: Bool { !also.isEmpty }
 
-    /// "train", "bus" or "ferry": New York's bus stops are MTA Bus Time's ("MTA_308214"), its ferry
-    /// landings NYC Ferry's or the Staten Island Ferry's ("NYCF_4", "SIF_stgeorge"), the rest of it rails;
-    /// in San Francisco, BART's platforms ("M16-1") are trains.
+    /// What comes to this stop, for the wording: "bus", "train", "streetcar", "cable car" or "ferry".
+    /// From the line's mode where it's known (Link, Muni Metro and BART are trains; Seattle's Water
+    /// Taxi is a ferry, though it's filed with the trains); otherwise from the stop: New York's bus
+    /// stops are MTA Bus Time's ("MTA_308214"), its ferry landings NYC Ferry's or the Staten Island
+    /// Ferry's ("NYCF_4", "SIF_stgeorge"), the rest of it rails; in San Francisco, BART's platforms
+    /// ("M16-1") are trains.
     var vehicle: String {
+        if let line = Line.known(lineID, in: city) {
+            switch line.mode {
+            case "bus": return "bus"
+            case "ferry": return "ferry"
+            case "cableway": return "cable car"
+            case "metro" where line.name.hasPrefix("Water Taxi"): return "ferry"
+            case "metro" where line.name.contains("Streetcar") || (city == .sf && line.id == "F"): return "streetcar"
+            default: return "train"
+            }
+        }
         switch city {
-        case .nyc: stopCode.hasPrefix("MTA_") ? "bus" : stopCode.hasPrefix("NYCF_") || stopCode.hasPrefix("SIF_") ? "ferry" : "train"
-        case .sf: stopCode.wholeMatch(of: /[A-Z]\d+-\d/) != nil ? "train" : "bus"
-        case .seattle: "bus"
+        case .nyc: return stopCode.hasPrefix("MTA_") ? "bus" : stopCode.hasPrefix("NYCF_") || stopCode.hasPrefix("SIF_") ? "ferry" : "train"
+        case .sf: return stopCode.wholeMatch(of: /[A-Z]\d+-\d/) != nil ? "train" : "bus"
+        case .seattle: return "bus"
         }
     }
     var vehicles: String {
         switch vehicle {
         case "bus": "buses"
         case "ferry": "ferries"
-        default: "trains"
+        default: vehicle + "s"
         }
     }
 
@@ -234,6 +247,19 @@ struct Line: Hashable, Decodable, Identifiable {
     let id: String
     let name: String
     let mode: String
+
+    /// `id` in `city`'s lines on the device, looked up once per city (wording asks for it a lot).
+    static func known(_ id: String, in city: City) -> Line? {
+        knownLock.lock()
+        defer { knownLock.unlock() }
+        if knownLines[city] == nil {
+            knownLines[city] = Dictionary(TransitService.cachedLines(in: city).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        return knownLines[city]?[id]
+    }
+
+    private static var knownLines: [City: [String: Line]] = [:]
+    private static let knownLock = NSLock()
 }
 
 /// A line with its route shape, for picking lines on a map.
