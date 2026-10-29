@@ -174,6 +174,8 @@ export async function handleOBA(parts: string[], url: URL, baseDeps: SeattleDeps
       }))
       .filter((v) => Date.parse(v.time) > now - 30_000)
       .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
+      // OneBusAway sometimes lists the same bus twice (same line, same second); once is plenty.
+      .filter((v, i, all) => !all.slice(0, i).some((w) => w.line === v.line && w.time === v.time))
       .map(({ line, time, live, destination, vehicle }) => ({ line, time, live, destination, vehicle }));
     const fetchedAt = Math.min(...entries.map((e) => e.fetchedAt));
     return {

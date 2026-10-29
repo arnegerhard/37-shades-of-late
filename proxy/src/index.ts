@@ -82,9 +82,9 @@ export default {
       return json(result.body, result.status ?? 200, result.maxAge ?? 0);
     }
     // A fresh instance when its code must take over at once: a busy one (refreshing the Muni
-    // snapshot) can keep serving the old code after a deploy. "-v4" for BART. Bump the suffix again
-    // if ever needed; the new one starts with empty caches.
-    const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v4`));
+    // snapshot) can keep serving the old code after a deploy. "-v4" for BART, "-v5" for Seattle's
+    // doubled buses. Bump the suffix again if ever needed; the new one starts with empty caches.
+    const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v5`));
     const response = await stub.fetch(request);
     if (response.ok && (pathname === "/v1/lines" || pathname === "/v1/map")) {
       const body: any = await response.json();

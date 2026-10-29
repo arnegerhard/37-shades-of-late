@@ -1,11 +1,15 @@
 import SwiftUI
+import TipKit
 import WidgetKit
 
 @main
 struct Bus37App: App {
-    #if DEBUG
-    init() { ScreenshotScreen.seedFavoritesIfAsked() }
-    #endif
+    init() {
+        #if DEBUG
+        ScreenshotScreen.seedFavoritesIfAsked()
+        #endif
+        try? Tips.configure()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -13,10 +17,11 @@ struct Bus37App: App {
             if let screen = ScreenshotScreen.current, [.widgets, .lock, .lockwidget].contains(screen) {
                 WidgetShowcase(screen: screen)
             } else {
-                ContentView()
+                ContentView().overlay { IslandShowOffView() }
             }
             #else
-            ContentView()
+            // Over everything, where the island is: it opens out there when handed a watch.
+            ContentView().overlay { IslandShowOffView() }
             #endif
         }
     }
@@ -48,6 +53,10 @@ struct ContentView: View {
     @State private var pageHeight: CGFloat = 0
     /// How much each city's map has shrunk, once its list is at rest.
     @State private var restingShrink: [City: CGFloat] = [:]
+    /// The home map's pill hopping toward the island, the first time it's there: it goes up there.
+    @State private var pillNudge: CGFloat = 0
+    @AppStorage("pillNudged") private var pillNudged = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var departures: [Departure] { feed.departures }
     private var loaded: Selection? { feed.loaded }
@@ -101,6 +110,11 @@ struct ContentView: View {
             }
             .task(id: favorites) { await favoritesFeed.follow(favorites) }
             .task { await startInNearestCity() }
+            // Counts the visits with a favorite on the home map, for when to point out its pill.
+            .task {
+                StalkTip.canWatch = BusActivities.shared.isAvailable
+                if !favorites.isEmpty { await StalkTip.homeWithFavorite.donate() }
+            }
             // A Lock Screen row's tap (see OpenStopIntent): as the app opens, or once it's open.
             .onReceive(NotificationCenter.default.publisher(for: WidgetTap.notification)) { _ in takeWidgetTap() }
             .onChange(of: scenePhase) {
@@ -338,6 +352,8 @@ struct ContentView: View {
                     .overlay(alignment: .topLeading) {
                         if openIsFavorite {
                             openFavoriteCard(open)
+                                .offset(y: pillNudge)
+                                .task { await nudgePill() }
                                 .padding(10)
                                 // Clear of the share button.
                                 .padding(.trailing, 48)
@@ -421,87 +437,99 @@ struct ContentView: View {
             }
     }
 
-    /// The line and where it goes, the stop, and a comment on the wait; the next departure on the
-    /// right, big, with the two after it underneath. Everything stays on its line and truncates
-    /// instead of wrapping.
+    /// The line and where it goes, with the next departure big on the right; the stop, with the two
+    /// after it; and across the whole width, a comment on the wait. Each line shares its own width
+    /// with its own times, so a wide "131 25 · 132 40" doesn't cut "To Downtown" short on the line
+    /// above. Everything but the comment stays on its line and truncates instead of wrapping.
     private func favoriteRow(_ favorite: Selection) -> some View {
         TimelineView(.everyMinute) { context in
             let loaded = favoritesFeed.departures[favorite.id]
             let upcoming = (loaded ?? []).filter { $0.time > context.date.addingTimeInterval(-30) }
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        LineBadge(line: favorite.lineLabel, font: .system(.subheadline, design: .rounded).weight(.heavy))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .layoutPriority(1)
-                        Text("To \(favorite.destination)").font(.subheadline.weight(.semibold))
-                    }
-                    Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
-                    if loaded != nil {
-                        // About the line that actually comes next.
-                        QuipText(upcoming.first.map { Quip.forWait(until: $0.time, from: context.date, line: $0.line ?? favorite.lineLabel) }
-                                 ?? Quip.noPrediction(line: favorite.lineLabel))
-                            // The punchline matters: it may take a second line.
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                    }
-                }
-                .lineLimit(1)
-                Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 1) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    LineBadge(line: favorite.lineLabel, font: .system(.subheadline, design: .rounded).weight(.heavy))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .layoutPriority(1)
+                    Text("To \(favorite.destination)").font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 4)
                     Text(Departure.waits(upcoming, from: context.date, count: 1, lines: favorite.isMultiLine)
                          ?? (loaded == nil ? "…" : "none"))
                         .font(.system(.headline, design: .rounded).weight(.semibold))
                         .foregroundStyle(upcoming.first?.isLive == true ? .green : .secondary)
+                        .monospacedDigit()
+                        .fixedSize()
+                }
+                HStack(spacing: 8) {
+                    Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
                     if let later = Departure.waits(Array(upcoming.dropFirst()), from: context.date, count: 2, unit: false, lines: favorite.isMultiLine) {
                         Text(later)
                             .font(.system(.caption, design: .rounded).weight(.medium))
                             .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .fixedSize()
                     }
                 }
-                .monospacedDigit()
-                .lineLimit(1)
-                .fixedSize()
+                if loaded != nil {
+                    // About the line that actually comes next.
+                    QuipText(upcoming.first.map { Quip.forWait(until: $0.time, from: context.date, line: $0.line ?? favorite.lineLabel) }
+                             ?? Quip.noPrediction(line: favorite.lineLabel))
+                        // The punchline matters: it may take a second line.
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
             }
+            .lineLimit(1)
             .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
     }
 
-    /// The open favorite, in one line over the top of the map: line, stop and the next departure.
-    /// Tapping it opens the live map.
+    /// The open favorite, in one line over the top of the map: line, stop and the next departure, as
+    /// the Dynamic Island would show it. Tapping it puts it up there (or on the Lock Screen, without an
+    /// island), or takes it off again; tapping the rest of the map opens the live map.
     private func openFavoriteCard(_ open: Selection) -> some View {
-        Button { openLiveMap() } label: {
+        let (departures, dimmed) = shownDepartures(for: open)
+        let canWatch = BusActivities.shared.isAvailable
+        let watching = BusActivities.shared.isWatching(open)
+        return Button {
+            if canWatch {
+                BusActivities.shared.toggle(open, departures: departures,
+                                            fetchedAt: open.id == selection.id ? feed.refresh?.fetchedAt ?? .now : .now)
+            } else {
+                openLiveMap()
+            }
+        } label: {
             TimelineView(.everyMinute) { context in
-                let (departures, dimmed) = shownDepartures(for: open)
                 let next = departures.first { $0.time > context.date.addingTimeInterval(-30) }
-                HStack(spacing: 8) {
-                    LineBadge(line: open.lineLabel, font: .system(.subheadline, design: .rounded).weight(.heavy))
-                        // The whole line name ("HOB–33"); the stop name gives way instead.
-                        .fixedSize()
-                    Text(open.stopName)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    if open.id != selection.id || feed.error == nil,
-                       let first = Departure.waits(departures, from: context.date, count: 1, lines: open.isMultiLine) {
-                        Text(first)
-                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(next?.isLive == true ? .green : .secondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                            .opacity(dimmed ? 0.4 : 1)
-                    }
-                }
-                .padding(.leading, 6)
-                .padding(.trailing, 12)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: Capsule())
+                let showsTime = open.id != selection.id || feed.error == nil
+                // Up on the island, it leaves its outline here, still saying what's up there.
+                IslandPill(line: open.lineLabel, next: showsTime ? next : nil, middle: open.stopName, dimmed: dimmed, lifted: watching)
+                    .frame(height: 34)
             }
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Opens the live map")
+        .popoverTip(StalkTip(island: Island.frame != nil), arrowEdge: .top)
+        .accessibilityLabel("\(open.lineLabel) at \(open.stopName)")
+        .accessibilityHint(!canWatch ? "Opens the live map"
+                           : watching ? "Stops watching it from \(Island.frame != nil ? "the Dynamic Island" : "the Lock Screen")"
+                           : "Watches it from \(Island.frame != nil ? "the Dynamic Island" : "the Lock Screen")")
+    }
+
+    /// Hops the pill up toward the island and back, once ever, a moment after it first shows: a hint
+    /// that it goes up there. The tip under it says so in words.
+    private func nudgePill() async {
+        guard !pillNudged, !reduceMotion, BusActivities.shared.isAvailable, Island.frame != nil else { return }
+        try? await Task.sleep(for: .seconds(1.2))
+        guard !Task.isCancelled else { return }
+        pillNudged = true
+        for _ in 0..<2 {
+            withAnimation(.spring(duration: 0.25, bounce: 0.2)) { pillNudge = -7 }
+            try? await Task.sleep(for: .milliseconds(220))
+            withAnimation(.spring(duration: 0.45, bounce: 0.55)) { pillNudge = 0 }
+            try? await Task.sleep(for: .milliseconds(450))
+        }
     }
 
     /// The departures a city page shows for `open`: the open stop's live feed (dimmed while it
