@@ -85,20 +85,35 @@ struct BusActivityWidget: Widget {
                         .padding(.horizontal, 10)
                 }
             } compactLeading: {
+                // Shrinks rather than cutting "131" down to "13…".
                 LineBadge(line: context.attributes.line, font: .system(.caption, design: .rounded).weight(.heavy))
-                    .fixedSize()
-            } compactTrailing: {
-                if context.isStale {
-                    Text("gone")
-                } else {
-                    Countdown(date: state.next, from: context.attributes.startedAt)
-                        .foregroundStyle(state.nextIsLive ? .green : .secondary)
-                        .frame(maxWidth: 44)
-                }
-            } minimal: {
-                LineBadge(line: context.attributes.line, font: .system(.caption2, design: .rounded).weight(.heavy))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+            } compactTrailing: {
+                // A fixed width, its digits against the right end: a timer is laid out as wide as its widest
+                // value, and left to itself it pushed the badge into "13…" and its own digits out of sight.
+                // Wide enough for two-digit minutes, which a 42-point width cut short as "12:…".
+                Group {
+                    if context.isStale {
+                        Text("gone")
+                    } else {
+                        Countdown(date: state.next, from: context.attributes.startedAt)
+                            .foregroundStyle(state.nextIsLive ? .green : .secondary)
+                    }
+                }
+                // A fixed size, not one that grows with the text size setting: "12:34" has to fit as well as "4:12".
+                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                .multilineTextAlignment(.trailing)
+                .frame(width: 50, alignment: .trailing)
+            } minimal: {
+                // Sharing the island with another app's activity: what matters from the train is how long
+                // there is, so the minutes, green when the bus is on the map. Which bus it is, they know.
+                if context.isStale {
+                    Image(systemName: "checkmark")
+                } else {
+                    MinutesLeft(date: state.next, from: context.attributes.startedAt)
+                        .foregroundStyle(state.nextIsLive ? .green : .white)
+                }
             }
             .widgetURL(context.attributes.link)
             .keylineTint(LineBadge.red)

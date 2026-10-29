@@ -35,6 +35,10 @@ struct RouteMap: View {
     @State private var busVanished = false
     /// How far the header or card has been pulled down, on its way to closing the map.
     @State private var pull: CGFloat = 0
+    /// The watch button's island preview, in the window, and the preview's flight up to the island.
+    @State private var previewFrame: CGRect = .zero
+    @State private var flight: Flight?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The line to draw: the real route shape if there is one, else the stops joined in order.
     private var departures: [Departure] { feed.loaded?.id == selection.id ? feed.departures : [] }
@@ -153,6 +157,7 @@ struct RouteMap: View {
         .clipShape(RoundedRectangle(cornerRadius: min(pull / 3, 40), style: .continuous))
         .scaleEffect(1 - min(pull, 400) / 2000, anchor: .bottom)
         .offset(y: pull / 2)
+        .overlay { flyingIsland }
         .task {
             while !Task.isCancelled {
                 now = .currentMinute
@@ -207,7 +212,7 @@ struct RouteMap: View {
     }
 
     /// Puts the next departure on the Dynamic Island and the Lock Screen, for watching it from another
-    /// app, or takes it off again.
+    /// app, or takes it off again. It shows what goes up there, and flies it up (or back down).
     private var watchButton: some View {
         let watching = BusActivities.shared.isWatching(selection)
         return Button {
@@ -215,16 +220,101 @@ struct RouteMap: View {
                 BusActivities.shared.stop(selection)
             } else {
                 BusActivities.shared.start(selection, departures: departures, fetchedAt: refresh?.fetchedAt ?? .now)
+                guard BusActivities.shared.isWatching(selection) else { return }
             }
+            fly(up: !watching)
         } label: {
-            Label(watching ? "On your Dynamic Island. Tap to let go." : "Watch it from any app",
-                  systemImage: watching ? "checkmark.circle.fill" : "platter.filled.top.iphone")
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(.primary.opacity(watching ? 0.15 : 0.08), in: Capsule())
+            HStack(spacing: 12) {
+                islandPreview()
+                    .frame(width: 112, height: 30)
+                    // Gone up to the island, it leaves its outline behind.
+                    .opacity(watching || flight != nil ? 0 : 1)
+                    .overlay {
+                        if watching && flight == nil {
+                            Capsule().strokeBorder(.secondary, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                        }
+                    }
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { previewFrame = $0 }
+                Text(watching ? "Stalking it. Tap to let go." : "Stalk it from any app")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            .padding(6)
+            .background(.primary.opacity(watching ? 0.15 : 0.08), in: Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(watching ? "Stop watching it from the Dynamic Island" : "Watch it from the Dynamic Island")
+    }
+
+    /// The Dynamic Island as watching this stop makes it, at whatever size it's given.
+    private func islandPreview(showing contents: Bool = true) -> some View {
+        let next = upcoming.first
+        return HStack(spacing: 0) {
+            LineBadge(line: selection.lineLabel, font: .system(.caption, design: .rounded).weight(.heavy))
+                .lineLimit(1)
+                .fixedSize()
+            Spacer(minLength: 16)
+            if let next {
+                Countdown(date: next.time, from: .now)
+                    .font(.system(.footnote, design: .rounded).weight(.heavy))
+                    .foregroundStyle(next.isLive ? .green : .gray)
+            }
+        }
+        .padding(.horizontal, 9)
+        .opacity(contents ? 1 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.black, in: Capsule())
+        .environment(\.colorScheme, .dark)
+    }
+
+    /// The preview on its way between the button and the Dynamic Island, drawn over everything.
+    @ViewBuilder private var flyingIsland: some View {
+        if let flight {
+            GeometryReader { geometry in
+                let origin = geometry.frame(in: .global).origin
+                let island = Self.island
+                let frame = flight.atIsland ? island.frame : previewFrame
+                islandPreview(showing: !flight.atIsland)
+                    .frame(width: frame.width, height: frame.height)
+                    .position(x: frame.midX - origin.x, y: frame.midY - origin.y)
+                    // Without an island to disappear into, it fades on the way up.
+                    .opacity(flight.atIsland && !island.exists ? 0 : 1)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// Starts the preview off from the button (or the island), and flies it to the other end. While
+    /// the app is open the system doesn't show its own Live Activity, so up there it melts into the
+    /// island's black.
+    private func fly(up: Bool) {
+        guard !reduceMotion, previewFrame != .zero else { return }
+        flight = Flight(atIsland: !up)
+        // A turn later, so it's drawn where it starts before it moves.
+        DispatchQueue.main.async {
+            // Up, it settles into the island without overshooting it; down, it lands with a little bounce.
+            withAnimation(up ? .smooth(duration: 0.55) : .spring(duration: 0.6, bounce: 0.2)) {
+                flight?.atIsland = up
+            } completion: {
+                flight = nil
+            }
+        }
+    }
+
+    struct Flight: Equatable { var atIsland: Bool }
+
+    /// Where the Dynamic Island is, in the window: the same size on every iPhone that has one (those
+    /// with a safe area this tall). Elsewhere, a spot at the top of the screen.
+    private static var island: (frame: CGRect, exists: Bool) {
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        let width = window?.bounds.width ?? 402
+        let exists = (window?.safeAreaInsets.top ?? 0) >= 51 && UIDevice.current.userInterfaceIdiom == .phone
+        return exists ? (CGRect(x: width / 2 - 62.5, y: 11, width: 125, height: 37), true)
+                      : (CGRect(x: width / 2 - 40, y: 4, width: 80, height: 22), false)
     }
 
     /// Instead of a navigation bar: shrink back to the home screen, where it's going, share. Pulling it

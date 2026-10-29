@@ -16,7 +16,7 @@ import proxy from "./index";
  * 30 seconds (through the proxy's own routes, so it shares their caches), pushes when the next or the
  * following departure moved, or the bus passed a stop (and every two minutes regardless, so the
  * activity's "updated … ago" stays true), and ends each one once it's over: when the departure after the watched
- * one is due, or 15 minutes after it started, whichever comes first (as the app works it out). An
+ * one is due, or an hour after it started, whichever comes first (as the app works it out). An
  * activity's token, stop and times are kept only until then.
  */
 
@@ -29,7 +29,7 @@ export interface ActivityEnv {
 
 const TEAM_ID = "DLJLEZ2Y6W";
 const TOPIC = "info.jetsons.bus37.push-type.liveactivity";
-const LONGEST_SECONDS = 15 * 60;
+const LONGEST_SECONDS = 60 * 60;
 const CHECK_EVERY_MS = 30_000;
 /** Pushed at least this often, for the "updated … ago". */
 const REFRESH_EVERY_SECONDS = 120;

@@ -1,10 +1,11 @@
 import ActivityKit
+import CoreText
 import SwiftUI
 import WidgetKit
 
 // A stop's next departure as a Live Activity, on the Dynamic Island and the Lock Screen, for watching
 // it from another app (on the train, wondering whether the bus will wait). It lasts until the bus
-// after the one being watched is due, or 15 minutes, whichever comes first. The views count down on
+// after the one being watched is due, or an hour, whichever comes first. The views count down on
 // their own; the app updates the times whenever it has new ones, and the proxy pushes them otherwise.
 // The Lock Screen's widget already has the minutes, so the Lock Screen's card is about what it
 // doesn't: where the bus is, and how fresh that is.
@@ -35,12 +36,12 @@ struct BusActivity: ActivityAttributes {
     let link: URL
     let startedAt: Date
 
-    static let longest: TimeInterval = 15 * 60
+    static let longest: TimeInterval = 60 * 60
 }
 
 extension BusActivity.ContentState {
     /// The watched and following departures from `departures`, ending at the following one or
-    /// 15 minutes after `start`, whichever is sooner (a minute after the last one, without a following one).
+    /// an hour after `start`, whichever is sooner (a minute after the last one, without a following one).
     /// With `route` (the stops of the line's direction), how far the watched bus is from `stop`.
     init?(departures: [Departure], since start: Date, fetchedAt: Date, route: [Stop]? = nil, stop: String? = nil, now: Date = .now) {
         let upcoming = departures.filter { $0.time > now.addingTimeInterval(-30) }
@@ -78,6 +79,42 @@ struct Countdown: View {
         } else {
             Text("now")
         }
+    }
+}
+
+/// The whole minutes left until `date` ("12"), counting down on its own like `Countdown`, for where
+/// "12:34" won't fit (the Dynamic Island's minimal circle, when another app's activity has the rest).
+/// There's no minutes-only timer, so it's the countdown with its ":34" cut off; "now" once it's there.
+struct MinutesLeft: View {
+    let date: Date
+    let from: Date
+    var size: CGFloat = 15
+
+    var body: some View {
+        if date > .now {
+            Text(timerInterval: min(from, date)...date, countsDown: true, showsHours: false)
+                .font(.system(size: size, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                // As wide as "00:00", its digits against the right end (a timer left to size itself in a
+                // widget takes all the room it's offered); then the seconds hang past the frame's end,
+                // and get cut off with it.
+                .frame(width: width(of: "00:00"), alignment: .trailing)
+                .padding(.trailing, -width(of: ":00"))
+                .clipped()
+        } else {
+            Text("now").font(.system(size: size * 0.8, weight: .heavy, design: .rounded))
+        }
+    }
+
+    /// How wide `text` is set in the countdown's font.
+    private func width(of text: String) -> CGFloat {
+        var descriptor = UIFont.systemFont(ofSize: size, weight: .heavy).fontDescriptor
+        descriptor = descriptor.withDesign(.rounded) ?? descriptor
+        descriptor = descriptor.addingAttributes([.featureSettings: [[UIFontDescriptor.FeatureKey.type: kNumberSpacingType,
+                                                                      UIFontDescriptor.FeatureKey.selector: kMonospacedNumbersSelector]]])
+        return ceil((text as NSString).size(withAttributes: [.font: UIFont(descriptor: descriptor, size: size)]).width)
     }
 }
 
