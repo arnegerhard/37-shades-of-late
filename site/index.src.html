@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>37 Shades of Late</title>
-<meta name="description" content="Muni, BART, Seattle, New York and Boston departure times on your Home Screen and Lock Screen, with the emotional honesty they deserve.">
+<meta name="description" content="Muni, BART, Seattle, New York, Boston and Chicago departure times on your Home Screen and Lock Screen, with the emotional honesty they deserve.">
 <meta name="theme-color" content="#0b0d17">
 <meta property="og:title" content="37 Shades of Late">
 <meta name="apple-itunes-app" content="app-id=6825789256">
-<meta property="og:description" content="Bus and train times for SF, Seattle, New York and Boston on your Lock Screen. Emotional support included.">
+<meta property="og:description" content="Bus and train times for SF, Seattle, New York, Boston and Chicago on your Lock Screen. Emotional support included.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23bf1a26'/%3E%3Ctext x='50' y='68' font-family='system-ui' font-weight='900' font-size='52' fill='white' text-anchor='middle'%3E37%3C/text%3E%3C/svg%3E">
 <style>
   :root {
@@ -138,7 +138,7 @@
   }
   @keyframes bob { 50% { transform: translate(-50%, 6px); } }
 
-  /* ---------- "NEW!" starburst stickers: New York pops in, then Boston ---------- */
+  /* ---------- "NEW!" starburst stickers: Boston pops in, then Chicago ---------- */
   .stickers {
     /* Beside the title on wide screens; under the buttons on phones (see the media query). */
     position: absolute; z-index: 3; right: 0; top: 8%;
@@ -153,8 +153,8 @@
                stickerWobble 3.2s ease-in-out calc(var(--delay) + .7s) infinite;
     filter: drop-shadow(0 18px 30px #0009);
   }
-  .new-sticker.nyc { --delay: .5s; }
-  .new-sticker.boston { --delay: 1.6s; }
+  .new-sticker.boston { --delay: .5s; }
+  .new-sticker.chicago { --delay: 1.6s; }
   .new-sticker::before {
     content: ""; position: absolute; inset: 0;
     background: radial-gradient(circle at 35% 30%, #fff3b0, #ffd23f 35%, #ff9a1f 75%, #ff5e3a);
@@ -440,9 +440,9 @@
   </svg>
 
   <div class="wrap hero-copy">
-    <div class="badge37"><b>37</b> CORBETT · MUNI &amp; BART · SEATTLE · NEW YORK · NOW ALSO BOSTON</div>
+    <div class="badge37"><b>37</b> CORBETT · MUNI &amp; BART · SEATTLE · NEW YORK · BOSTON · NOW ALSO CHICAGO</div>
     <h1>37 Shades<br>of <span class="late">Late</span></h1>
-    <p class="tagline">Minutes until your bus or train, right on your Lock Screen. San Francisco, Seattle, New York and Boston. Emotional support included.</p>
+    <p class="tagline">Minutes until your bus or train, right on your Lock Screen. San Francisco, Seattle, New York, Boston and Chicago. Emotional support included.</p>
     <div class="cta-row">
       <a class="cta app-store" href="{{APP_STORE_URL}}">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
@@ -454,11 +454,11 @@
       </a>
     </div>
     <div class="stickers">
-      <a class="new-sticker nyc" href="#origin" aria-label="New: now suffer in New York too. Read how this got out of hand.">
-        <span><b class="new">NEW!</b><b class="what">Now suffer in New York too</b></span>
-      </a>
       <a class="new-sticker boston" href="#origin" aria-label="New: now suffer in Boston too. Read how this got out of hand.">
         <span><b class="new">NEW!</b><b class="what">Now suffer in Boston too</b></span>
+      </a>
+      <a class="new-sticker chicago" href="#origin" aria-label="New: now suffer in Chicago too. Read how this got out of hand.">
+        <span><b class="new">NEW!</b><b class="what">Now suffer in Chicago too</b></span>
       </a>
     </div>
   </div>
@@ -520,7 +520,7 @@
 
         <article class="stage" style="--grow: 3">
           <div class="orb">🗽</div>
-          <div class="count">3<small>cities</small><span class="pill">NEW!</span></div>
+          <div class="count">3<small>cities</small></div>
           <h3>Then: New York.</h3>
           <p>Every subway line, the Staten Island Railway, PATH under the Hudson and every MTA bus, all 345 of them. The G is
             still the G. And while we were at it, BART came home to San Francisco: six colors, one feeling.</p>
@@ -529,12 +529,20 @@
         <article class="stage" style="--grow: 4">
           <div class="orb">🦞</div>
           <div class="count">4<small>cities</small><span class="pill">NEW!</span></div>
-          <h3>Now: Boston.</h3>
+          <h3>Then: Boston.</h3>
           <p>The Red Line, the Orange Line, the Blue Line and all four branches of the Green Line, which is four ways to be
             late in one color. Plus the Silver Line, the buses, commuter rail and the harbor ferries. Wicked late.</p>
         </article>
 
-        <article class="stage soon" style="--grow: 5">
+        <article class="stage" style="--grow: 5">
+          <div class="orb">🌭</div>
+          <div class="count">5<small>cities</small><span class="pill">NEW!</span></div>
+          <h3>Now: Chicago.</h3>
+          <p>Eight colors of 'L' and every CTA bus. The Brown Line goes around the Loop and comes back, which is also
+            what your hopes do on the 22 at rush hour. The wind is not included, but it's coming anyway.</p>
+        </article>
+
+        <article class="stage soon" style="--grow: 6">
           <div class="orb">🪐</div>
           <div class="count">∞<small>the entire universe</small><span class="pill">SOON</span></div>
           <h3>Next: everywhere.</h3>
@@ -643,9 +651,10 @@
         <div class="feature"><div class="icon">🚋</div><h3>Every Muni line, and BART</h3><p>Buses, streetcars, the Metro, and the trains under the Bay. Not just the 37. The 37 is just the most emotionally available.</p></div>
         <div class="feature"><div class="icon">☔</div><h3>Seattle</h3><p>King County Metro, Sound Transit and the streetcar. Different city, same hills, same feelings. The 8 says hi.</p></div>
         <div class="feature"><div class="icon">🗽</div><h3>New York</h3><p>Every subway line, PATH, the MTA buses and the ferries. Eight million people waiting for the same train, and now you can watch it not come.</p></div>
-        <div class="feature"><div class="icon">🦞</div><h3>Now in Boston</h3><p>The T: every subway line and Green Line branch, the Silver Line, buses, commuter rail and ferries. Live, every 20 seconds, so you can watch the B branch take its time.</p></div>
+        <div class="feature"><div class="icon">🦞</div><h3>Boston</h3><p>The T: every subway line and Green Line branch, the Silver Line, buses, commuter rail and ferries. Live, every 20 seconds, so you can watch the B branch take its time.</p></div>
+        <div class="feature"><div class="icon">🌭</div><h3>Now in Chicago</h3><p>All eight 'L' lines and every CTA bus, with every train and bus on the map. Watch the Red Line come up from the Loop, slowly, like a lake breeze.</p></div>
         <div class="feature"><div class="icon">🙈</div><h3>No account, no ads</h3><p>We don't know who you are. We only know you're waiting.</p></div>
-        <div class="feature"><div class="icon">⏱️</div><h3>Fresh every minute or so</h3><p>Live predictions from 511.org, BART, OneBusAway, the MTA and the MBTA, as fresh as the agencies' own data allows.</p></div>
+        <div class="feature"><div class="icon">⏱️</div><h3>Fresh every minute or so</h3><p>Live predictions from 511.org, BART, OneBusAway, the MTA, the MBTA and the CTA, as fresh as the agencies' own data allows.</p></div>
       </div>
     </div>
   </section>

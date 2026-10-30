@@ -4,8 +4,9 @@
  * the CTA's static GTFS by scripts/chicago.py into chicago.json, as its schedule is far too big to read
  * here. Live times come per stop, kept for TTL_MS while people keep asking: the trains' from Train
  * Tracker (CTA_API_KEY), with where each train is, the buses' from Bus Tracker (CTA_BUS_KEY), which
- * takes a key of its own. Without one, those stops have no departures. Both allow 100,000 calls a day,
- * about 35 stops watched around the clock. Served under /v1/chicago/... like Boston (see boston.ts,
+ * takes a key of its own, with a second call for where the buses are. Without a key, those stops have
+ * no departures. Both allow 100,000 calls a day: about 35 train platforms watched around the clock, and
+ * half as many bus stops. Served under /v1/chicago/... like Boston (see boston.ts,
  * which serves both).
  *
  * The Brown, Orange, Pink and Purple Lines run out and back as one trip; the network splits them into
@@ -16,7 +17,7 @@ import { serveNetwork, type Line, type Visit } from "./boston";
 import network from "./chicago.json";
 
 const TRAIN_TRACKER = "https://lapi.transitchicago.com/api/1.0/ttarrivals.aspx";
-const BUS_TRACKER = "https://www.ctabustracker.com/bustime/api/v2/getpredictions";
+const BUS_TRACKER = "https://www.ctabustracker.com/bustime/api/v2/";
 const TTL_MS = 30_000;
 
 export interface ChicagoDeps {
@@ -83,16 +84,31 @@ async function fetchStop(stop: string, deps: ChicagoDeps): Promise<Visit[]> {
     });
   }
   if (!deps.busKey) return [];
-  const body: any = await (await fetch(`${BUS_TRACKER}?key=${encodeURIComponent(deps.busKey)}&stpid=${encodeURIComponent(stop)}&top=20&format=json`)).json();
+  const key = encodeURIComponent(deps.busKey);
+  const body: any = await (await fetch(`${BUS_TRACKER}getpredictions?key=${key}&stpid=${encodeURIComponent(stop)}&top=20&format=json`)).json();
   const error = body["bustime-response"]?.error?.[0]?.msg;
   // No arrival scheduled in the next while is an error to Bus Tracker; to us it's no buses.
   if (error && !/no (arrival|service)/i.test(error)) throw new Error(`Bus Tracker: ${error}`);
-  return (body["bustime-response"]?.prd ?? []).flatMap((p: any) => {
+  const predictions: any[] = body["bustime-response"]?.prd ?? [];
+  // Where those buses are: one more call, for up to ten of them (Bus Tracker's most per call); the
+  // times stand without them.
+  const ids = [...new Set(predictions.map((p) => p.vid).filter(Boolean))].slice(0, 10);
+  const positions = new Map<string, { lat: number; lon: number; bearing?: number }>();
+  if (ids.length) {
+    const found: any = await fetch(`${BUS_TRACKER}getvehicles?key=${key}&vid=${ids.join(",")}&format=json`)
+      .then((r) => r.json()).catch(() => undefined);
+    for (const v of found?.["bustime-response"]?.vehicle ?? []) {
+      const lat = Number(v.lat), lon = Number(v.lon), heading = Number(v.hdg);
+      if (lat && lon) positions.set(String(v.vid), { lat, lon, bearing: Number.isFinite(heading) ? heading : undefined });
+    }
+  }
+  return predictions.flatMap((p: any) => {
     const way = wayAt.get(`${p.rt}|${stop}`);
     if (!way) return [];
     // "20261030 10:57" in Chicago.
     const time = chicagoTime(`${p.prdtm.slice(0, 4)}-${p.prdtm.slice(4, 6)}-${p.prdtm.slice(6, 8)}T${p.prdtm.slice(9)}:00`);
-    return [{ routeId: p.rt, direction: way.direction, destination: p.des || way.destination, time, live: true }];
+    return [{ routeId: p.rt, direction: way.direction, destination: p.des || way.destination, time, live: true,
+              vehicle: positions.get(String(p.vid)) }];
   });
 }
 
