@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>37 Shades of Late</title>
-<meta name="description" content="Muni, BART, Seattle, New York, Boston, Chicago and Washington, D.C. departure times on your Home Screen and Lock Screen, with the emotional honesty they deserve.">
+<meta name="description" content="Muni, BART, LA Metro, Seattle, New York, Boston, Chicago and Washington, D.C. departure times on your Home Screen and Lock Screen, with the emotional honesty they deserve.">
 <meta name="theme-color" content="#0b0d17">
 <meta property="og:title" content="37 Shades of Late">
 <meta name="apple-itunes-app" content="app-id=6825789256">
-<meta property="og:description" content="Bus and train times for SF, Seattle, New York, Boston, Chicago and DC on your Lock Screen. Emotional support included.">
+<meta property="og:description" content="Bus and train times for SF, LA, Seattle, New York, Boston, Chicago and DC on your Lock Screen. Emotional support included.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23bf1a26'/%3E%3Ctext x='50' y='68' font-family='system-ui' font-weight='900' font-size='52' fill='white' text-anchor='middle'%3E37%3C/text%3E%3C/svg%3E">
 <style>
   :root {
@@ -138,7 +138,7 @@
   }
   @keyframes bob { 50% { transform: translate(-50%, 6px); } }
 
-  /* ---------- "NEW!" starburst stickers: Chicago pops in, then DC ---------- */
+  /* ---------- "NEW!" starburst stickers: DC pops in, then LA ---------- */
   .stickers {
     /* Beside the title on wide screens; under the buttons on phones (see the media query). */
     position: absolute; z-index: 3; right: 0; top: 8%;
@@ -153,8 +153,8 @@
                stickerWobble 3.2s ease-in-out calc(var(--delay) + .7s) infinite;
     filter: drop-shadow(0 18px 30px #0009);
   }
-  .new-sticker.chicago { --delay: .5s; }
-  .new-sticker.dc { --delay: 1.6s; }
+  .new-sticker.dc { --delay: .5s; }
+  .new-sticker.la { --delay: 1.6s; }
   .new-sticker::before {
     content: ""; position: absolute; inset: 0;
     background: radial-gradient(circle at 35% 30%, #fff3b0, #ffd23f 35%, #ff9a1f 75%, #ff5e3a);
@@ -440,9 +440,9 @@
   </svg>
 
   <div class="wrap hero-copy">
-    <div class="badge37"><b>37</b> CORBETT · MUNI &amp; BART · SEATTLE · NEW YORK · BOSTON · CHICAGO · NOW ALSO DC</div>
+    <div class="badge37"><b>37</b> CORBETT · MUNI &amp; BART · SEATTLE · NEW YORK · BOSTON · CHICAGO · DC · NOW ALSO LA</div>
     <h1>37 Shades<br>of <span class="late">Late</span></h1>
-    <p class="tagline">Minutes until your bus or train, right on your Lock Screen. San Francisco, Seattle, New York, Boston, Chicago and Washington, D.C. Emotional support included.</p>
+    <p class="tagline">Minutes until your bus or train, right on your Lock Screen. San Francisco, Los Angeles, Seattle, New York, Boston, Chicago and Washington, D.C. Emotional support included.</p>
     <div class="cta-row">
       <a class="cta app-store" href="{{APP_STORE_URL}}">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
@@ -454,11 +454,11 @@
       </a>
     </div>
     <div class="stickers">
-      <a class="new-sticker chicago" href="#origin" aria-label="New: now suffer in Chicago too. Read how this got out of hand.">
-        <span><b class="new">NEW!</b><b class="what">Now suffer in Chicago too</b></span>
-      </a>
       <a class="new-sticker dc" href="#origin" aria-label="New: now suffer in DC too. Read how this got out of hand.">
         <span><b class="new">NEW!</b><b class="what">Now suffer in DC too</b></span>
+      </a>
+      <a class="new-sticker la" href="#origin" aria-label="New: now suffer in LA too. Read how this got out of hand.">
+        <span><b class="new">NEW!</b><b class="what">Now suffer in LA too</b></span>
       </a>
     </div>
   </div>
@@ -536,7 +536,7 @@
 
         <article class="stage" style="--grow: 5">
           <div class="orb">🌭</div>
-          <div class="count">5<small>cities</small><span class="pill">NEW!</span></div>
+          <div class="count">5<small>cities</small></div>
           <h3>Then: Chicago.</h3>
           <p>Eight colors of 'L' and every CTA bus. The Brown Line goes around the Loop and comes back, which is also
             what your hopes do on the 22 at rush hour. The wind is not included, but it's coming anyway.</p>
@@ -545,12 +545,20 @@
         <article class="stage" style="--grow: 6">
           <div class="orb">🏛️</div>
           <div class="count">6<small>cities</small><span class="pill">NEW!</span></div>
-          <h3>Now: Washington, D.C.</h3>
+          <h3>Then: Washington, D.C.</h3>
           <p>All six Metrorail lines and every Metrobus. Three of them share one tunnel downtown, so you can wait for
             three colors at once. It's the most bipartisan thing in town: everyone waits together.</p>
         </article>
 
-        <article class="stage soon" style="--grow: 7">
+        <article class="stage" style="--grow: 7">
+          <div class="orb">🌴</div>
+          <div class="count">7<small>cities</small><span class="pill">NEW!</span></div>
+          <h3>Now: Los Angeles.</h3>
+          <p>Six Metro Rail lines, two busways and every Metro bus. Yes, people take the bus in LA. They've just been
+            waiting for it, which is why you never see them. Traffic is not included, but it's coming anyway.</p>
+        </article>
+
+        <article class="stage soon" style="--grow: 8">
           <div class="orb">🪐</div>
           <div class="count">∞<small>the entire universe</small><span class="pill">SOON</span></div>
           <h3>Next: everywhere.</h3>
@@ -661,9 +669,10 @@
         <div class="feature"><div class="icon">🗽</div><h3>New York</h3><p>Every subway line, PATH, the MTA buses and the ferries. Eight million people waiting for the same train, and now you can watch it not come.</p></div>
         <div class="feature"><div class="icon">🦞</div><h3>Boston</h3><p>The T: every subway line and Green Line branch, the Silver Line, buses, commuter rail and ferries. Live, every 20 seconds, so you can watch the B branch take its time.</p></div>
         <div class="feature"><div class="icon">🌭</div><h3>Chicago</h3><p>All eight 'L' lines and every CTA bus, with every train and bus on the map. Watch the Red Line come up from the Loop, slowly, like a lake breeze.</p></div>
-        <div class="feature"><div class="icon">🏛️</div><h3>Now in Washington, D.C.</h3><p>Every Metrorail line and every Metrobus, live on the map. Watch the Orange, Blue and Silver Lines share a tunnel, and a delay, under the Mall.</p></div>
+        <div class="feature"><div class="icon">🏛️</div><h3>Washington, D.C.</h3><p>Every Metrorail line and every Metrobus, live on the map. Watch the Orange, Blue and Silver Lines share a tunnel, and a delay, under the Mall.</p></div>
+        <div class="feature"><div class="icon">🌴</div><h3>Now in Los Angeles</h3><p>Every Metro Rail line, the G and J busways and every Metro bus, live on the map. Watch the B Line come up from Union Station to Hollywood, fashionably late.</p></div>
         <div class="feature"><div class="icon">🙈</div><h3>No account, no ads</h3><p>We don't know who you are. We only know you're waiting.</p></div>
-        <div class="feature"><div class="icon">⏱️</div><h3>Fresh every minute or so</h3><p>Live predictions from 511.org, BART, OneBusAway, the MTA, the MBTA, the CTA and WMATA, as fresh as the agencies' own data allows.</p></div>
+        <div class="feature"><div class="icon">⏱️</div><h3>Fresh every minute or so</h3><p>Live predictions from 511.org, BART, OneBusAway, the MTA, the MBTA, the CTA, WMATA and LA Metro, as fresh as the agencies' own data allows.</p></div>
       </div>
     </div>
   </section>

@@ -15,20 +15,28 @@ struct CityMap: View {
                                                span: MKCoordinateSpan(latitudeDelta: 24, longitudeDelta: 62))
 
     /// Where each city's card goes: above the map (the north) or below it, left to right, so the
-    /// lines to them don't cross. New York, Boston and Washington are too close to fit next to each other.
+    /// lines to them don't cross. New York, Boston and Washington are too close to fit next to each
+    /// other, and so are San Francisco and Los Angeles.
     private static let slots: [City: (top: Bool, column: Int)] = [
         .seattle: (true, 0), .chicago: (true, 1), .boston: (true, 2),
-        .sf: (false, 0), .dc: (false, 1), .nyc: (false, 2),
+        .sf: (false, 0), .la: (false, 1), .dc: (false, 2), .nyc: (false, 3),
     ]
 
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            let cardWidth = min(124, (size.width - 4 * 10) / 3)
-            let cardHeight = cardWidth * 0.85
+            // As wide as the fullest row lets them be; each row spread across.
+            let columns = { (top: Bool) in CGFloat(Self.slots.values.filter { $0.top == top }.count) }
+            let cardWidth = min(124, (size.width - 10 - (max(columns(true), columns(false)) * 10)) / max(columns(true), columns(false)))
+            let cardHeight = cardWidth * 1.05
+            // The name and who runs it take a quarter of the card, under its map; the subtitles all at
+            // one size, which fits the longest ("Metro · Sound Transit") across.
+            let textHeight = (cardHeight - 2 * CityCard.inset) / 4
+            let widest = City.allCases.map { ($0.agencies as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 10)]).width }.max() ?? 1
+            let subtitleSize = min(textHeight * 0.4, 10 * (cardWidth - 2 * CityCard.inset) / widest * 0.9)
             let card = { (city: City) -> CGPoint in
                 let slot = Self.slots[city] ?? (true, 1)
-                let x = (size.width - 2 * 10) / 3 * (CGFloat(slot.column) + 0.5) + 10
+                let x = (size.width - 2 * 10) / columns(slot.top) * (CGFloat(slot.column) + 0.5) + 10
                 return CGPoint(x: x, y: slot.top ? cardHeight / 2 + 10 : size.height - cardHeight / 2 - 10)
             }
             MapReader { proxy in
@@ -63,7 +71,9 @@ struct CityMap: View {
                     .allowsHitTesting(false)
 
                     ForEach(City.allCases) { city in
-                        CityCard(city: city, isChosen: chosen.contains(city)) {
+                        // Too narrow for "Washington, D.C.": by their codes, as the crowded city tabs.
+                        CityCard(city: city, isChosen: chosen.contains(city), byCode: cardWidth < 100,
+                                 textHeight: textHeight, subtitleSize: subtitleSize) {
                             withAnimation(.snappy) {
                                 if chosen.contains(city) { chosen.remove(city) } else { chosen.insert(city) }
                             }
@@ -89,28 +99,36 @@ struct CityMap: View {
 private struct CityCard: View {
     let city: City
     let isChosen: Bool
+    /// "DC" rather than "Washington, D.C.".
+    var byCode = false
+    /// How much of the card the name and subtitle take, and the subtitle's size, the same on every card.
+    let textHeight: CGFloat
+    let subtitleSize: CGFloat
+    static let inset: CGFloat = 5
     let toggle: () -> Void
     @State private var lines: [MapLine] = []
 
     var body: some View {
         Button(action: toggle) {
-            VStack(spacing: 3) {
+            VStack(spacing: 0) {
                 NetworkMap(lines: lines)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
                     .saturation(isChosen ? 1 : 0)
                     .opacity(isChosen ? 1 : 0.5)
-                Text(city.name)
-                    .font(.caption.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Text(city.agencies)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                VStack(spacing: 0) {
+                    Text(byCode ? city.code : city.name)
+                        .font(.system(size: textHeight * 0.5, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(city.agencies)
+                        .font(.system(size: subtitleSize))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(height: textHeight)
             }
-            .padding(8)
+            .padding(Self.inset)
             .foregroundStyle(isChosen ? .primary : .secondary)
             .background(RoundedRectangle(cornerRadius: 14).fill(isChosen ? Color(white: 0.17) : Color(white: 0.09).opacity(0.9)))
             .overlay {
@@ -167,9 +185,10 @@ private struct NetworkMap: View {
         // Around every line, with a little room; the picture widens it to its own shape.
         options.region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2),
                                             span: MKCoordinateSpan(latitudeDelta: (maxLat - minLat) * 1.15, longitudeDelta: (maxLon - minLon) * 1.15))
-        // Twice as big, then shrunk into the card: the map's labels come out half their size, small
-        // enough to show where it is without covering the lines.
-        let zoom: CGFloat = 2
+        // Bigger, then shrunk into the card: the map's labels come out smaller, enough to show where it
+        // is without covering the lines. Not twice: from about there MapKit stamps each picture with
+        // its logo, which the map of the US behind the cards carries already.
+        let zoom: CGFloat = 1.75
         options.size = CGSize(width: size.width * zoom, height: size.height * zoom)
         let configuration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
         configuration.pointOfInterestFilter = .excludingAll
@@ -221,6 +240,7 @@ extension City {
         case .boston: "MBTA"
         case .chicago: "CTA"
         case .dc: "Metro · Metrobus"
+        case .la: "LA Metro"
         }
     }
 }

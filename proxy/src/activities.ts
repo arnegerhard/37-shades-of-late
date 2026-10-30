@@ -43,7 +43,7 @@ const SWIFT_EPOCH = 978_307_200;
 interface Watch {
   token: string;
   environment: "sandbox" | "production";
-  city: "sf" | "seattle" | "nyc" | "boston" | "chicago" | "dc";
+  city: "sf" | "seattle" | "nyc" | "boston" | "chicago" | "dc" | "la";
   line: string;
   stop: string;
   direction: string;
@@ -107,7 +107,7 @@ export class LiveActivities extends DurableObject<ActivityEnv> {
       startedAt: Number(body.startedAt),
     };
     const now = Date.now() / 1000;
-    if (!["sf", "seattle", "nyc", "boston", "chicago", "dc"].includes(watch.city) || !watch.line || !watch.stop
+    if (!["sf", "seattle", "nyc", "boston", "chicago", "dc", "la"].includes(watch.city) || !watch.line || !watch.stop
         || !Number.isFinite(watch.startedAt) || watch.startedAt < now - LONGEST_SECONDS || watch.startedAt > now + 60) {
       return reply({ error: "city, line, stop and a recent startedAt are required" }, 400);
     }

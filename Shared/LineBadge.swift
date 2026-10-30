@@ -42,6 +42,7 @@ struct LineBadge: View {
             case .boston: bostonSubway[id] != nil
             case .chicago: chicagoL[id] != nil
             case .dc: dcMetro[id] != nil
+            case .la: laMetro[id] != nil
             }
         }
     }
@@ -74,6 +75,12 @@ struct LineBadge: View {
         "Silver": ("SV", "#919D9D", true), "Green": ("GR", "#00B140", false), "Yellow": ("YL", "#FFD100", true),
     ]
 
+    /// LA Metro's rail lines and busways, by their letters in their colors, as its signs have them.
+    private static let laMetro: [String: (hex: String, darkText: Bool)] = [
+        "A": ("#0072BC", false), "B": ("#EB131B", false), "C": ("#58A738", false), "D": ("#A05DA5", false),
+        "E": ("#FDB913", true), "K": ("#E56DB1", false), "G": ("#FC4C02", false), "J": ("#ADB8BF", true),
+    ]
+
     /// Boston's subway: its lines as the MBTA's signs say them, in their colors (the Green Line's
     /// branches by their letters; the Mattapan trolley's is the Red Line's).
     private static let bostonSubway: [String: (short: String, hex: String)] = [
@@ -91,6 +98,7 @@ struct LineBadge: View {
         case .boston: return bostonSubway[id]?.short ?? id
         case .chicago: return chicagoL[id]?.short ?? id
         case .dc: return dcMetro[id]?.short ?? id
+        case .la: return id
         case .seattle: return id.hasSuffix(" Line") ? String(id.dropLast(5)) : id
         case .nyc: return id
         }
@@ -168,6 +176,8 @@ extension LineBadge {
             chicagoL[id].map { ($0.hex, $0.hex == "#F9E300") }
         case .dc:
             dcMetro[id].map { ($0.hex, $0.darkText) }
+        case .la:
+            laMetro[id].map { ($0.hex, $0.darkText) }
         }
     }
 }

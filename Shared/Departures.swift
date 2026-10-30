@@ -2,7 +2,7 @@ import Foundation
 
 /// A city the proxy has live data for.
 enum City: String, Codable, CaseIterable, Identifiable {
-    case sf, seattle, nyc, boston, chicago, dc
+    case sf, seattle, nyc, boston, chicago, dc, la
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .boston: "Boston"
         case .chicago: "Chicago"
         case .dc: "Washington, D.C."
+        case .la: "Los Angeles"
         }
     }
 
@@ -26,6 +27,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .sf: "SF"
         case .nyc: "NYC"
         case .dc: "DC"
+        case .la: "LA"
         default: name
         }
     }
@@ -39,6 +41,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .boston: "BOS"
         case .chicago: "CHI"
         case .dc: "DC"
+        case .la: "LA"
         }
     }
 
@@ -47,7 +50,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .nyc, .boston, .dc: TimeZone(identifier: "America/New_York")!
         case .chicago: TimeZone(identifier: "America/Chicago")!
-        case .sf, .seattle: TimeZone(identifier: "America/Los_Angeles")!
+        case .sf, .seattle, .la: TimeZone(identifier: "America/Los_Angeles")!
         }
     }
 
@@ -64,6 +67,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .boston: "boston/"
         case .chicago: "chicago/"
         case .dc: "dc/"
+        case .la: "la/"
         }
     }
 
@@ -95,6 +99,10 @@ enum City: String, Codable, CaseIterable, Identifiable {
             // The Red Line toward Shady Grove at Dupont Circle, under the circle.
             Selection(lineID: "Red", lineName: "Red Line", directionID: "1", destination: "Shady Grove",
                       stopCode: "PF_A03_2", stopName: "Dupont Circle", city: .dc)
+        case .la:
+            // The B Line toward Union Station at Hollywood / Highland, under the Walk of Fame.
+            Selection(lineID: "B", lineName: "B Line", directionID: "0", destination: "Union Station",
+                      stopCode: "80203", stopName: "Hollywood / Highland", city: .la)
         }
     }
 }
@@ -125,6 +133,7 @@ extension City {
         case .boston: (42.3601, -71.0589)
         case .chicago: (41.8781, -87.6298)
         case .dc: (38.9072, -77.0369)
+        case .la: (34.0522, -118.2437)
         }
     }
 }
@@ -191,7 +200,7 @@ struct Selection: Codable, Hashable, Identifiable {
         switch city {
         case .nyc: return stopCode.hasPrefix("MTA_") ? "bus" : ["NYCF_", "SIF_", "NYW_"].contains(where: stopCode.hasPrefix) ? "ferry" : "train"
         case .sf: return stopCode.wholeMatch(of: /[A-Z]\d+-\d/) != nil ? "train" : "bus"
-        case .seattle, .boston, .chicago, .dc: return "bus"
+        case .seattle, .boston, .chicago, .dc, .la: return "bus"
         }
     }
     var vehicles: String {

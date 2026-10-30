@@ -116,6 +116,7 @@ function meters(a: Point, b: Point): number {
 function said(id: string, city: string): string {
   if (city === "chicago") return id in CHICAGO_L ? `${id} Line` : id;
   if (city === "dc") return id in DC_METRO ? `${id} Line` : id;
+  if (city === "la") return id in LA_METRO ? `${id} Line` : id;
   if (city !== "boston") return id;
   if (/^[BCDE]$/.test(id)) return `Green Line ${id}`;
   return ["Red", "Orange", "Blue", "Mattapan"].includes(id) ? `${id} Line` : id;
@@ -131,7 +132,7 @@ function quip(minutes: number, line: string): string {
 /** The base URL of the proxy for the link's city, or nothing for one it doesn't know. */
 function base(params: URLSearchParams): string | undefined {
   const city = params.get("c") ?? "sf";
-  return /^(sf|seattle|nyc|boston|chicago|dc)$/.test(city) ? API + (city === "sf" ? "" : city + "/") : undefined;
+  return /^(sf|seattle|nyc|boston|chicago|dc|la)$/.test(city) ? API + (city === "sf" ? "" : city + "/") : undefined;
 }
 
 interface Ride {
@@ -159,7 +160,8 @@ function isRound(ids: string[], city: string): boolean {
     : city === "seattle" ? /^[12TNS] Line$/.test(id)
     : city === "boston" ? id in BOSTON_SUBWAY
     : city === "chicago" ? id in CHICAGO_L
-    : city === "dc" && id in DC_METRO);
+    : city === "dc" ? id in DC_METRO
+    : city === "la" && id in LA_METRO);
 }
 
 /** What a round badge says, as the app's (LineBadge.short): BART's Yellow a "Y", Sound Transit's
@@ -180,6 +182,12 @@ const CHICAGO_L: Record<string, [string, string]> = {
 const DC_METRO: Record<string, [string, string]> = {
   Red: ["RD", "#BF0D3E"], Orange: ["OR", "#ED8B00"], Blue: ["BL", "#009CDE"],
   Silver: ["SV", "#919D9D"], Green: ["GR", "#00B140"], Yellow: ["YL", "#FFD100"],
+};
+
+/** LA Metro's rail lines and busways, as the app's (LineBadge.laMetro): their letters, in their colors. */
+const LA_METRO: Record<string, [string, boolean]> = {
+  A: ["#0072BC", false], B: ["#EB131B", false], C: ["#58A738", false], D: ["#A05DA5", false],
+  E: ["#FDB913", true], K: ["#E56DB1", false], G: ["#FC4C02", false], J: ["#ADB8BF", true],
 };
 
 /** Boston's subway, as the app's (LineBadge.bostonSubway): what its circles say, in its colors. */
@@ -213,6 +221,7 @@ const COLORS: Record<string, Record<string, [string, boolean]>> = {
 function colorOf(id: string, city: string): [string, boolean] | undefined {
   if (city === "chicago") return CHICAGO_L[id] ? [CHICAGO_L[id][1], id === "Yellow"] : undefined;
   if (city === "dc") return DC_METRO[id] ? [DC_METRO[id][1], id === "Yellow" || id === "Silver"] : undefined;
+  if (city === "la") return LA_METRO[id];
   if (city === "boston") {
     // The subway's colors; the rest by what they are (the app also knows commuter rail and ferries).
     if (BOSTON_SUBWAY[id]) return [BOSTON_SUBWAY[id][1], false];

@@ -114,10 +114,11 @@ struct LineMapPicker: View {
         otherLines.filter { alsoIDs.contains($0.id) && $0.isNearby && $0.lat != nil && $0.lon != nil }
     }
 
-    /// New York's, Boston's, Chicago's and Washington's buses, which outnumber their trains more than ten to one
-    /// (Boston's Silver Line aside, which runs like one).
+    /// New York's, Boston's, Chicago's, Washington's and Los Angeles's buses, which outnumber their
+    /// trains more than ten to one (Boston's Silver Line and LA's G and J busways aside, which run like them).
     private func isBackground(_ line: MapLine) -> Bool {
-        [.nyc, .boston, .chicago, .dc].contains(city) && line.mode == "bus" && !line.id.hasPrefix("SL")
+        guard [.nyc, .boston, .chicago, .dc, .la].contains(city), line.mode == "bus" else { return false }
+        return city == .boston ? !line.id.hasPrefix("SL") : city == .la ? !["G", "J"].contains(line.id) : true
     }
 
     private var drawOrder: [MapLine] {
@@ -1254,6 +1255,9 @@ extension City {
         case .dc:
             MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 38.9, longitude: -77.03),
                                span: MKCoordinateSpan(latitudeDelta: 0.25, longitudeDelta: 0.25))
+        case .la:
+            MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 34.05, longitude: -118.3),
+                               span: MKCoordinateSpan(latitudeDelta: 0.45, longitudeDelta: 0.45))
         }
     }
 }
