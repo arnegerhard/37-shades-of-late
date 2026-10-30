@@ -56,11 +56,15 @@ struct LinePicker: View {
         }
     }
 
-    private var cityPicker: some View {
-        Picker("City", selection: $city) {
-            ForEach(City.allCases) { Text($0.shortName).tag($0) }
+    /// The cities shown in the app (and the open one, should it not be); none to pick from with one.
+    @ViewBuilder private var cityPicker: some View {
+        let cities = City.allCases.filter { City.chosen.contains($0) || $0 == city }
+        if cities.count > 1 {
+            Picker("City", selection: $city) {
+                ForEach(cities) { Text($0.shortName).tag($0) }
+            }
+            .pickerStyle(.segmented)
         }
-        .pickerStyle(.segmented)
     }
 
     private var list: some View {

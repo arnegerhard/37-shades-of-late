@@ -35,6 +35,7 @@
 		E22E7C0A1C0B4E37A1B2C3E2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E22E7C0A1C0B4E37A1B2C3E1 /* PrivacyInfo.xcprivacy */; };
 		E22E7C0A1C0B4E37A1B2C3E4 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E22E7C0A1C0B4E37A1B2C3E3 /* PrivacyInfo.xcprivacy */; };
 		E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */; };
+		E88E7C0A1C0B4E37A1B2C3E4 /* CityMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E7C0A1C0B4E37A1B2C3E3 /* CityMap.swift */; };
 		F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */; };
 		F33E7C0A1C0B4E37A1B2C3F3 /* WidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */; };
 		AA1E7C0A1C0B4E37A1B2C302 /* BusActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */; };
@@ -98,6 +99,7 @@
 		E22E7C0A1C0B4E37A1B2C3E1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E22E7C0A1C0B4E37A1B2C3E3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGuide.swift; sourceTree = "<group>"; };
+		E88E7C0A1C0B4E37A1B2C3E3 /* CityMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityMap.swift; sourceTree = "<group>"; };
 		EB449D2345F5DB25B69A43D1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EF6ADF668367D1EF59DBD90C /* Bus37.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bus37.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetViews.swift; sourceTree = "<group>"; };
@@ -182,6 +184,7 @@
 				A44E7C0A1C0B4E37A1B2C3A3 /* Sharing.swift */,
 				D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */,
 				E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */,
+				E88E7C0A1C0B4E37A1B2C3E3 /* CityMap.swift */,
 				2694D610C8E5A9E74CE27B68 /* Info.plist */,
 			);
 			path = App;
@@ -314,6 +317,7 @@
 				A44E7C0A1C0B4E37A1B2C3A4 /* Sharing.swift in Sources */,
 				D11E7C0A1C0B4E37A1B2C3D5 /* StopPicker.swift in Sources */,
 				E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */,
+				E88E7C0A1C0B4E37A1B2C3E4 /* CityMap.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C302 /* BusActivity.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C305 /* BusActivities.swift in Sources */,

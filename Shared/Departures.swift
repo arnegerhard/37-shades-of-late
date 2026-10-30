@@ -99,6 +99,36 @@ enum City: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+extension City {
+    private static let chosenKey = "chosenCities"
+
+    /// The cities shown in the app, in their usual order: those picked on the map of them (on the
+    /// welcome screen, or from the city picker's edit button), or all of them where nothing's been
+    /// picked yet, as before there was a choice.
+    static var chosen: [City] {
+        get { picked ?? allCases }
+        set { AppGroup.defaults.set(allCases.filter(newValue.contains).map(\.rawValue), forKey: chosenKey) }
+    }
+
+    /// What was picked, or nil before anything was.
+    static var picked: [City]? {
+        AppGroup.defaults.stringArray(forKey: chosenKey).map { names in allCases.filter { names.contains($0.rawValue) } }
+    }
+
+    /// Where it is, for the map of every city: its downtown, as the proxy measures from (CITIES in
+    /// proxy/src/index.ts).
+    var center: (lat: Double, lon: Double) {
+        switch self {
+        case .sf: (37.7749, -122.4194)
+        case .seattle: (47.6062, -122.3321)
+        case .nyc: (40.7128, -74.006)
+        case .boston: (42.3601, -71.0589)
+        case .chicago: (41.8781, -87.6298)
+        case .dc: (38.9072, -77.0369)
+        }
+    }
+}
+
 /// The line, direction and stop the user picked in the app. The widgets read it from the
 /// shared App Group so they always show the same stop as the app.
 struct Selection: Codable, Hashable, Identifiable {
@@ -731,6 +761,8 @@ enum TransitService {
         request.setValue(AppGroup.installID, forHTTPHeaderField: "X-Install-ID")
         request.setValue(client.rawValue, forHTTPHeaderField: "X-Client")
         request.setValue(String(Selection.favorites.count), forHTTPHeaderField: "X-Favorites")
+        // Which cities this install has picked to show, once it has, to see how many ride in more than one.
+        if let picked = City.picked { request.setValue(picked.map(\.rawValue).joined(separator: ","), forHTTPHeaderField: "X-Cities") }
         request.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
                          forHTTPHeaderField: "X-App-Version")
         let (data, response) = try await URLSession.shared.data(for: request)

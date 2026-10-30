@@ -650,6 +650,7 @@ const CLIENTS = new Set(["app", "widget", "map", "web"]);
  *
  * Columns: blob1 event (departures | lines | line), blob2 client (app | widget | map | web),
  * blob3 line, blob4 stop, blob5 direction, blob6 install ID, blob7 app version, blob8 city (sf | seattle | nyc | boston | chicago | dc),
+ * blob9 the cities the install has picked to show ("sf,nyc"; empty before it has, or from older versions),
  * double1 number of favorites; index1 install ID (keeps sampling per install).
  */
 function recordUsage(request: Request, env: Env) {
@@ -677,10 +678,17 @@ function recordUsage(request: Request, env: Env) {
       install,
       header("X-App-Version").slice(0, 16),
       city,
+      pickedCities(header("X-Cities")),
     ],
     doubles: [Number.isFinite(favorites) ? Math.max(0, Math.min(favorites, 1000)) : 0],
     indexes: [install],
   });
+}
+
+/** The cities an install picked, as it sent them ("sf,nyc"): known ones only, in a fixed order. */
+function pickedCities(header: string): string {
+  const picked = new Set(header.split(","));
+  return Object.keys(CITIES).filter((city) => picked.has(city)).join(",");
 }
 
 // MARK: - Helpers

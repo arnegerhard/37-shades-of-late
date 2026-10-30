@@ -50,6 +50,9 @@ struct ContentView: View {
     @State private var incoming: Selection?
     @State private var favorites = Selection.favorites
     @State private var showingGuide = !WidgetGuide.hasBeenShown
+    /// The cities shown, with a page each (see `City.chosen`), and whether their map is up to change them.
+    @State private var cities = City.chosen
+    @State private var choosingCities = false
     /// The city whose favorites are in edit mode (deleting); a sideways swipe turns the page instead.
     @State private var editingCity: City?
     /// How far each city's list is scrolled; the hint and city picker slide away by as much (up to
@@ -87,7 +90,7 @@ struct ContentView: View {
                 // the pages (each page leaves room for them), sliding up only as the list scrolls.
                 ZStack(alignment: .top) {
                     TabView(selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
-                        ForEach(City.allCases) { city in
+                        ForEach(shownCities) { city in
                             cityPage(city).tag(city)
                         }
                     }
@@ -142,6 +145,8 @@ struct ContentView: View {
                    isPresented: Binding(get: { incoming != nil }, set: { if !$0 { incoming = nil } })) {
                 Button("Add to favorites") {
                     if let picked = incoming {
+                        // A friend's stop in a city left out brings the city back.
+                        if !cities.contains(picked.city) { setCities(cities + [picked.city]) }
                         if !favorites.contains(where: { $0.id == picked.id }) { favorites.append(picked) }
                         select(picked)
                     }
@@ -201,9 +206,16 @@ struct ContentView: View {
                 .modifier(ZoomTransition(id: selection.city, in: mapZoom))
             }
             .fullScreenCover(isPresented: $showingGuide) {
-                WidgetGuide {
+                Welcome {
                     WidgetGuide.hasBeenShown = true
                     showingGuide = false
+                    setCities(City.chosen)
+                }
+            }
+            .sheet(isPresented: $choosingCities) {
+                CityChooser {
+                    choosingCities = false
+                    setCities(City.chosen)
                 }
             }
         }
@@ -418,10 +430,27 @@ struct ContentView: View {
     /// The city picker, above the city pages.
     private var cityHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
-                ForEach(City.allCases) { Text($0.shortName).tag($0) }
+            HStack(spacing: 10) {
+                if shownCities.count > 1 {
+                    Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
+                        ForEach(shownCities) { Text($0.shortName).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                } else {
+                    Text(selection.city.name)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Button { choosingCities = true } label: {
+                    Image(systemName: "pencil")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .tint(.secondary)
+                .accessibilityLabel("Choose cities")
             }
-            .pickerStyle(.segmented)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
@@ -617,6 +646,17 @@ struct ContentView: View {
     }
 
     /// Switching city moves the map and the card to the new city. The widgets keep the favorites' order.
+    /// The cities with a page: the chosen ones, and the open one should it not be (a widget's tap,
+    /// before the welcome map's Done).
+    private var shownCities: [City] { City.allCases.filter { cities.contains($0) || $0 == selection.city } }
+
+    /// Saves which cities to show; when the open one is left out, the first one left opens.
+    private func setCities(_ chosen: [City]) {
+        City.chosen = chosen
+        cities = City.chosen
+        if !cities.contains(selection.city), let first = cities.first { switchCity(to: first) }
+    }
+
     private func switchCity(to city: City) {
         guard city != selection.city else { return }
         editingCity = nil

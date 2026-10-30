@@ -56,3 +56,11 @@ query "Favorites per install" \
   "SELECT favorites, count() AS installs FROM (
      SELECT blob6, max(double1) AS favorites FROM \"37ShadesOfLate\" WHERE $where GROUP BY blob6)
    GROUP BY favorites ORDER BY favorites"
+query "Cities picked (installs per set; one that changed its set counts in each)" \
+  "SELECT if(blob9 = '', '(not picked yet)', blob9) AS cities, count(DISTINCT blob6) AS installs
+   FROM \"37ShadesOfLate\" WHERE $where GROUP BY cities ORDER BY installs DESC LIMIT 20"
+query "Cities actually used per install (departures asked for)" \
+  "SELECT cities_used, count() AS installs FROM (
+     SELECT blob6, count(DISTINCT blob8) AS cities_used
+     FROM \"37ShadesOfLate\" WHERE $where AND blob1 = 'departures' GROUP BY blob6)
+   GROUP BY cities_used ORDER BY cities_used"
