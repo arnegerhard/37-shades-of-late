@@ -454,7 +454,7 @@ struct ContentView: View {
             let upcoming = (loaded ?? []).filter { $0.time > context.date.addingTimeInterval(-30) }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    LineBadge(line: favorite.lineLabel, font: .system(.subheadline, design: .rounded).weight(.heavy))
+                    LineBadges(parts: favorite.badgeParts, font: .system(.subheadline, design: .rounded).weight(.heavy), round: favorite.roundBadge)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                         .layoutPriority(1)
@@ -512,7 +512,7 @@ struct ContentView: View {
                 let next = departures.first { $0.time > context.date.addingTimeInterval(-30) }
                 let showsTime = open.id != selection.id || feed.error == nil
                 // Up on the island, it leaves its outline here, still saying what's up there.
-                IslandPill(line: open.lineLabel, next: showsTime ? next : nil, middle: open.stopName, dimmed: dimmed, lifted: watching)
+                IslandPill(badges: open.badgeParts, round: open.roundBadge, next: showsTime ? next : nil, middle: open.stopName, dimmed: dimmed, lifted: watching)
                     .frame(height: 34)
             }
         }

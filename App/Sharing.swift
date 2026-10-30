@@ -211,7 +211,7 @@ struct ShareCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                LineBadge(line: selection.lineLabel, font: .system(size: 26, weight: .heavy, design: .rounded))
+                LineBadges(parts: selection.badgeParts, font: .system(size: 26, weight: .heavy, design: .rounded), round: selection.roundBadge)
                     .fixedSize()
                 VStack(alignment: .leading, spacing: 2) {
                     Text("To \(selection.destination)").font(.system(size: 19, weight: .bold, design: .rounded))

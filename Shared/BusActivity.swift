@@ -35,6 +35,12 @@ struct BusActivity: ActivityAttributes {
     /// Opens the stop's live map in the app.
     let link: URL
     let startedAt: Date
+    /// A round badge (see `LineBadge.isRound`); optional, as activities started before it was have none.
+    var round: Bool? = nil
+    /// Its badges, in their colors (see `Selection.badgeParts`); without them, `line` in the app's red.
+    var badges: [BadgePart]? = nil
+
+    var badgeParts: [BadgePart] { badges ?? [BadgePart(label: line)] }
 
     static let longest: TimeInterval = 60 * 60
 }
@@ -127,7 +133,7 @@ struct BusActivityView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            LineBadge(line: attributes.line, font: .system(.subheadline, design: .rounded).weight(.heavy))
+            LineBadges(parts: attributes.badgeParts, font: .system(.subheadline, design: .rounded).weight(.heavy), round: attributes.round ?? false)
                 .fixedSize()
             VStack(alignment: .leading, spacing: 1) {
                 Text(isStale ? "Gone. Hope you made it." : whereItIs).font(.headline)

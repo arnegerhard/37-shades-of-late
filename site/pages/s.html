@@ -29,6 +29,9 @@
   .card { background: #15172c; border: 1px solid var(--line); border-radius: 28px; padding: 26px 24px; }
   .ride { display: flex; align-items: center; gap: 12px; }
   .badge { background: var(--red); color: #fff; border-radius: 9px; padding: 6px 10px; font: 900 22px/1 var(--round); white-space: nowrap; }
+  /* New York's subway and Muni Metro: a circle, or a pill for "KLM", in the lines' colors. */
+  .badge.round { border-radius: 999px; padding: 6px; min-width: 22px; text-align: center; }
+  .badges { display: flex; gap: 4px; }
   .to { font: 800 21px/1.2 var(--round); }
   .stop { color: var(--muted); margin-top: 4px; }
   .mins { font: 900 clamp(64px, 20vw, 96px)/1 var(--round); letter-spacing: -.03em; margin: 26px 0 4px; color: var(--green); }
@@ -56,7 +59,7 @@
 <main>
   <div class="kicker">A friend is waiting here</div>
   <div class="card" aria-live="polite">
-    <div class="ride"><span class="badge" id="badge">…</span><div><div class="to" id="to">Asking nicely…</div><div class="stop" id="stop">&nbsp;</div></div></div>
+    <div class="ride"><span class="badges" id="badges"><span class="badge">…</span></span><div><div class="to" id="to">Asking nicely…</div><div class="stop" id="stop">&nbsp;</div></div></div>
     <div class="mins" id="mins">–</div>
     <div class="later" id="later">&nbsp;</div>
     <div class="quip" id="quip">&nbsp;</div>
@@ -79,12 +82,36 @@
   const city = params.get("c") || "sf", lines = params.get("l") || "37", stops = params.get("s") || "13254", ways = params.get("d") || "";
   const ids = lines.split(","), line = ids[0], stop = stops.split(",")[0], way = ways.split(",")[0];
   const combined = ids.length > 1;
-  // "37", or "KLM" / "5·21" as on the app's badges; "K, L or M" in sentences.
-  const badge = ids.join(ids.every((id) => id.length === 1) ? "" : "·");
+  // "K, L or M" in sentences (the badges are below).
   const spoken = combined ? ids.slice(0, -1).join(", ") + " or " + ids[ids.length - 1] : line;
   const base = API + (city === "sf" ? "" : city + "/");
   const $ = (id) => document.getElementById(id);
-  $("badge").textContent = badge;
+  // Round, as the app's (LineBadge.isRound): New York's subway (one letter or number, and the S
+  // shuttles; its buses all have more) and Muni Metro's J, K, L, M, N and T; in their colors, those
+  // sharing one in one badge (a blue "ACE"), as the app's (Selection.badgeParts).
+  const round = ids.every((id) => city === "nyc" ? id.length === 1 || id.startsWith("S ") : city === "sf" && /^[JKLMNT]$/.test(id));
+  const COLORS = {
+    nyc: { 1: "#D82233", 2: "#D82233", 3: "#D82233", 4: "#009952", 5: "#009952", 6: "#009952", 7: "#9A38A1",
+           A: "#0062CF", C: "#0062CF", E: "#0062CF", B: "#EB6800", D: "#EB6800", F: "#EB6800", M: "#EB6800",
+           G: "#799534", J: "#8E5C33", Z: "#8E5C33", L: "#7C858C", N: "#F6BC26", Q: "#F6BC26", R: "#F6BC26", W: "#F6BC26" },
+    sf: { J: "#A96614", K: "#437C93", L: "#942D83", M: "#008547", N: "#005B95", T: "#BF2B45" },
+  };
+  const groups = [];
+  for (const id of round ? ids : []) {
+    const color = (COLORS[city] || {})[id] || (id.startsWith("S ") ? "#7C858C" : undefined);
+    const group = groups.find((g) => g.color === color);
+    if (group) group.ids.push(id); else groups.push({ color, ids: [id] });
+  }
+  $("badges").replaceChildren(...(round ? groups : [{ ids }]).map((group) => {
+    const span = document.createElement("span");
+    span.className = round ? "badge round" : "badge";
+    span.textContent = group.ids.join(group.ids.every((id) => id.length === 1) ? "" : "·");
+    if (group.color) {
+      span.style.background = group.color;
+      if (group.color === "#F6BC26") span.style.color = "#000";
+    }
+    return span;
+  }));
 
   function quip(minutes, which) {
     if (minutes < 4) return `Holy shit, the ${which} is real.`;

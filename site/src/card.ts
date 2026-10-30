@@ -22,6 +22,10 @@ let ready: Promise<void> | undefined;
 export interface Card {
   /** "37", "KLM": as on the app's badges. */
   badge: string;
+  /** A round badge, as New York's subway and Muni Metro have (see `isRound` in worker.ts). */
+  round?: boolean;
+  /** The badges, in their colors (see `badgeParts` in worker.ts); `badge` in red without them. */
+  parts?: BadgePart[];
   destination: string;
   stop: string;
   /** Minutes until the next few, the first one big; empty when none is coming. */
@@ -42,6 +46,33 @@ export interface CardMap {
 }
 
 export const MAP_WIDTH = 600;
+
+/** One badge: some of the lines, in their color ("#RRGGBB", the app's red without one). */
+export interface BadgePart {
+  label: string;
+  color?: string;
+  /** Black letters, on New York's yellow. */
+  dark?: boolean;
+}
+
+/** The card's badges side by side from `x`, `height` tall with letters `size` big, in at most
+ * `room` (the last cut short to fit): their SVG, and how wide they came out. */
+function badges(card: Card, x: number, y: number, height: number, size: number, room: number): { svg: string; width: number } {
+  const parts = card.parts?.length ? card.parts : [{ label: card.badge }];
+  const gap = Math.round(height / 9);
+  let at = x;
+  const svg = parts.map((part) => {
+    const left = room - (at - x);
+    if (left < height) return "";
+    const label = fit(part.label, size, left - height * 0.45, true);
+    const width = Math.min(left, Math.max(card.round ? height : 0, Math.round(textWidth(label, size, true) + height * (card.round ? 0.37 : 0.47))));
+    const drawn = `<rect x="${at}" y="${y}" width="${width}" height="${height}" rx="${card.round ? height / 2 : height * 0.16}" fill="${part.color ?? red}"/>
+  <text x="${at + width / 2}" y="${y + height * 0.75}" font-size="${size}" font-weight="900" fill="${part.dark ? "#000" : "#fff"}" text-anchor="middle">${escape(label)}</text>`;
+    at += width + gap;
+    return drawn;
+  }).join("\n  ");
+  return { svg, width: at - gap - x };
+}
 
 export async function renderCard(card: Card): Promise<Uint8Array> {
   ready ??= initWasm(resvgWasm as WebAssembly.Module);
@@ -86,8 +117,7 @@ function footer(x: number, y: number, size: number): string {
 /** The text on the left, the map on the right. */
 function withMap(card: Card, map: CardMap): string {
   const left = 64, width = WIDTH - MAP_WIDTH - left - 40, mapLeft = WIDTH - MAP_WIDTH;
-  const badgeSize = 52;
-  const badgeWidth = Math.min(width, Math.round(textWidth(card.badge, badgeSize, true) + 36));
+  const badge = badges(card, left, 56, 76, 52, width);
   const thenText = thenLine(card);
   const quip = wrap(`“${card.quip}”`, 30, width, 2);
   const at = (p: { x: number; y: number }) => `${(mapLeft + p.x).toFixed(1)},${p.y.toFixed(1)}`;
@@ -104,8 +134,7 @@ function withMap(card: Card, map: CardMap): string {
     <circle cx="${mapLeft + map.stop.x}" cy="${map.stop.y}" r="15" fill="#0a84ff" stroke="#fff" stroke-width="4"/>
     ${buses}
   </g>
-  <rect x="${left}" y="56" width="${badgeWidth}" height="76" rx="12" fill="${red}"/>
-  <text x="${left + badgeWidth / 2}" y="113" font-size="${badgeSize}" font-weight="900" fill="#fff" text-anchor="middle">${escape(fit(card.badge, badgeSize, width - 36, true))}</text>
+  ${badge.svg}
   <text x="${left}" y="192" font-size="38" font-weight="900" fill="#fff">${escape(fit(`To ${card.destination}`, 38, width, true))}</text>
   <text x="${left}" y="234" font-size="28" font-weight="600" fill="${muted}">${escape(fit(card.stop, 28, width, false))}</text>
   ${wait(card, 150, left - 4, 392)}
@@ -117,17 +146,15 @@ function withMap(card: Card, map: CardMap): string {
 
 /** Without a map: the text across the whole card. */
 function textOnly(card: Card): string {
-  const badgeSize = 64;
-  const badgeWidth = Math.round(textWidth(card.badge, badgeSize, true) + 40);
   const left = 72;
-  const textLeft = left + badgeWidth + 28;
+  const badge = badges(card, left, 64, 92, 64, 520);
+  const textLeft = left + badge.width + 28;
   const room = WIDTH - textLeft - 72;
   const thenText = thenLine(card);
   const quip = fit(`“${card.quip}”`, 40, WIDTH - left * 2, false);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   ${background}
-  <rect x="${left}" y="64" width="${badgeWidth}" height="92" rx="14" fill="${red}"/>
-  <text x="${left + badgeWidth / 2}" y="133" font-size="${badgeSize}" font-weight="900" fill="#fff" text-anchor="middle">${escape(card.badge)}</text>
+  ${badge.svg}
   <text x="${textLeft}" y="104" font-size="44" font-weight="900" fill="#fff">${escape(fit(`To ${card.destination}`, 44, room, true))}</text>
   <text x="${textLeft}" y="150" font-size="32" font-weight="600" fill="${muted}">${escape(fit(card.stop, 32, room, false))}</text>
   ${wait(card, 190, left, 380)}

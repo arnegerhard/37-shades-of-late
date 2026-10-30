@@ -216,7 +216,7 @@ struct RouteMap: View {
             BusActivities.shared.toggle(selection, departures: departures, fetchedAt: refresh?.fetchedAt ?? .now)
         } label: {
             HStack(spacing: 12) {
-                IslandPill(line: selection.lineLabel, next: upcoming.first)
+                IslandPill(badges: selection.badgeParts, round: selection.roundBadge, next: upcoming.first)
                     .frame(width: 112, height: 30)
                     // Gone up to the island (or off to the Lock Screen), it leaves its outline behind.
                     .opacity(watching ? 0 : 1)
@@ -289,7 +289,7 @@ struct RouteMap: View {
 
     private var statusText: some View {
         HStack(spacing: 12) {
-            LineBadge(line: selection.lineLabel, font: .system(.title3, design: .rounded).weight(.heavy))
+            LineBadges(parts: selection.badgeParts, font: .system(.title3, design: .rounded).weight(.heavy), round: selection.roundBadge)
             VStack(alignment: .leading, spacing: 2) {
                 // The next one on the map, else the next time even without a position to draw: BART
                 // doesn't say where its trains are, and scheduled times have no vehicle at all.

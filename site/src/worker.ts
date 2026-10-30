@@ -3,7 +3,7 @@
 // proxy like the page itself does, with /s/card.png, the stop's card with its current wait and a map
 // of the buses on their way, as the picture. /mapkit-token signs the page's live map in.
 
-import { MAP_WIDTH, renderCard, type CardMap } from "./card";
+import { MAP_WIDTH, renderCard, type BadgePart, type CardMap } from "./card";
 import { mapkitToken, project, snapshot, unproject, type MapKitEnv, type Point } from "./mapkit";
 
 interface Env extends MapKitEnv {
@@ -62,6 +62,8 @@ async function card(request: Request, url: URL, env: Env, ctx: ExecutionContext)
     .catch(() => undefined);
   const png = await renderCard({
     badge: ride.badge,
+    round: ride.round,
+    parts: ride.parts,
     destination: ride.destination,
     stop: ride.stop,
     minutes,
@@ -124,12 +126,49 @@ interface Ride {
   line: string;
   first: string;
   badge: string;
+  /** See `isRound`. */
+  round: boolean;
+  /** See `badgeParts`. */
+  parts: BadgePart[];
   combined: boolean;
   stop: string;
   destination: string;
   /** Where the stop is, and the first line's route (its shape, or its stops in order). */
   at: Point;
   route: Point[][];
+}
+
+/** Whether `ids` all have famously round badges, as the app's (LineBadge.isRound): New York's subway
+ * (one letter or number, and the S shuttles; its buses all have more) and Muni Metro's J, K, L, M, N, T. */
+function isRound(ids: string[], city: string): boolean {
+  return ids.every((id) => city === "nyc" ? id.length === 1 || id.startsWith("S ") : city === "sf" && /^[JKLMNT]$/.test(id));
+}
+
+/** The colors of the lines with round badges, as the app's (LineBadge.roundColor): "#RRGGBB", and
+ * whether the letters on it are black (New York's yellow lines). */
+const ROUND_COLORS: Record<string, Record<string, [string, boolean]>> = {
+  nyc: { "1": ["#D82233", false], "2": ["#D82233", false], "3": ["#D82233", false],
+         "4": ["#009952", false], "5": ["#009952", false], "6": ["#009952", false], "7": ["#9A38A1", false],
+         A: ["#0062CF", false], C: ["#0062CF", false], E: ["#0062CF", false],
+         B: ["#EB6800", false], D: ["#EB6800", false], F: ["#EB6800", false], M: ["#EB6800", false],
+         G: ["#799534", false], J: ["#8E5C33", false], Z: ["#8E5C33", false], L: ["#7C858C", false],
+         N: ["#F6BC26", true], Q: ["#F6BC26", true], R: ["#F6BC26", true], W: ["#F6BC26", true] },
+  sf: { J: ["#A96614", false], K: ["#437C93", false], L: ["#942D83", false], M: ["#008547", false],
+        N: ["#005B95", false], T: ["#BF2B45", false] },
+};
+
+/** A link's badges, as the app's (Selection.badgeParts): one in the app's red, except for subway and
+ * Muni Metro lines, which come in their colors, those sharing one together (a blue "ACE"). */
+function badgeParts(ids: string[], city: string): BadgePart[] {
+  const join = (group: string[]) => group.join(group.every((id) => id.length === 1) ? "" : "·");
+  if (!isRound(ids, city)) return [{ label: join(ids) }];
+  const groups: { color?: [string, boolean]; ids: string[] }[] = [];
+  for (const id of ids) {
+    const color = ROUND_COLORS[city]?.[id] ?? (id.startsWith("S ") ? ["#7C858C", false] as [string, boolean] : undefined);
+    const group = groups.find((g) => g.color?.[0] === color?.[0]);
+    if (group) group.ids.push(id); else groups.push({ color, ids: [id] });
+  }
+  return groups.map((g) => ({ label: join(g.ids), color: g.color?.[0], dark: g.color?.[1] }));
 }
 
 /** The line, stop and destination a shared link points to: /s?c=sf&l=37&s=13254&d=IB. Combined lines
@@ -154,7 +193,8 @@ async function lookUp(params: URLSearchParams): Promise<Ride | undefined> {
   const route = direction.shapes?.length
     ? direction.shapes.map((shape) => shape.map(([lat, lon]) => ({ lat, lon })))
     : [direction.stops.filter((s) => s.lat !== undefined && s.lon !== undefined).map((s) => ({ lat: s.lat!, lon: s.lon! }))];
-  return { line: spoken, first: line, badge, combined: ids.length > 1, stop: name, destination: direction.destination,
+  return { line: spoken, first: line, badge, round: isRound(ids, params.get("c") ?? "sf"),
+           parts: badgeParts(ids, params.get("c") ?? "sf"), combined: ids.length > 1, stop: name, destination: direction.destination,
            at: { lat: here.lat, lon: here.lon }, route };
 }
 

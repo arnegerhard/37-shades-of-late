@@ -97,7 +97,8 @@ struct BusActivityWidget: Widget {
                 }
             } compactLeading: {
                 // Shrinks rather than cutting "131" down to "13…".
-                LineBadge(line: context.attributes.line, font: .system(.caption, design: .rounded).weight(.heavy))
+                LineBadges(parts: context.attributes.badgeParts, font: .system(.caption, design: .rounded).weight(.heavy),
+                           round: context.attributes.round ?? false)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
             } compactTrailing: {

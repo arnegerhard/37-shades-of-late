@@ -34,7 +34,8 @@ final class BusActivities {
         endAll()
         let attributes = BusActivity(selectionID: selection.id, line: selection.lineLabel, destination: selection.destination,
                                      stopName: selection.stopName, vehicle: selection.vehicle,
-                                     link: selection.openURL, startedAt: now)
+                                     link: selection.openURL, startedAt: now, round: selection.roundBadge,
+                                     badges: selection.badgeParts)
         if let activity = try? Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: state.ends),
                                                pushType: .token) {
             follow(activity)
@@ -141,7 +142,8 @@ enum Island {
 /// and in between, if there's room, what's under the camera. Without an island, it has the corners
 /// of the Lock Screen's card instead, as that's where the watch goes.
 struct IslandPill: View {
-    let line: String
+    let badges: [BadgePart]
+    var round = false
     let next: Departure?
     /// The stop's name, say, where there's room for it.
     var middle: String? = nil
@@ -158,7 +160,7 @@ struct IslandPill: View {
     var body: some View {
         HStack(spacing: 8) {
             // As on the island: a long badge ("1 Line") shrinks, the countdown never does.
-            LineBadge(line: line, font: .system(.caption, design: .rounded).weight(.heavy))
+            LineBadges(parts: badges, font: .system(.caption, design: .rounded).weight(.heavy), round: round)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             if let middle {
@@ -210,7 +212,8 @@ final class IslandShowOff {
                                                    route: BusActivities.shared.route(of: selection), stop: selection.stopCode)
         else { return }
         attributes = BusActivity(selectionID: selection.id, line: selection.lineLabel, destination: selection.destination,
-                                 stopName: selection.stopName, vehicle: selection.vehicle, link: selection.openURL, startedAt: now)
+                                 stopName: selection.stopName, vehicle: selection.vehicle, link: selection.openURL, startedAt: now,
+                                 round: selection.roundBadge, badges: selection.badgeParts)
         self.state = state
         phase = .closed
         // A turn later, so it's drawn closed (where the real island is) before it opens.

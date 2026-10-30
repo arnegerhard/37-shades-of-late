@@ -235,8 +235,9 @@ struct Bus37WidgetView: View {
             // The badge always shows the whole line name ("37", "C Line"): it keeps its full width and
             // the waits shrink instead. Long names get a smaller font in the small widget.
             let longName = row.selection.lineLabel.count > 3
-            LineBadge(line: row.selection.lineLabel,
-                      font: .system(small ? (longName ? .caption2 : .footnote) : .subheadline, design: .rounded).weight(.heavy))
+            LineBadges(parts: row.selection.badgeParts,
+                       font: .system(small ? (longName ? .caption2 : .footnote) : .subheadline, design: .rounded).weight(.heavy),
+                       round: row.selection.roundBadge)
                 .lineLimit(1)
                 .fixedSize()
                 .layoutPriority(2)
