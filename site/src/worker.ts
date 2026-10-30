@@ -121,7 +121,7 @@ function quip(minutes: number, line: string): string {
 /** The base URL of the proxy for the link's city, or nothing for one it doesn't know. */
 function base(params: URLSearchParams): string | undefined {
   const city = params.get("c") ?? "sf";
-  return /^(sf|seattle|nyc)$/.test(city) ? API + (city === "sf" ? "" : city + "/") : undefined;
+  return /^(sf|seattle|nyc|boston)$/.test(city) ? API + (city === "sf" ? "" : city + "/") : undefined;
 }
 
 interface Ride {
@@ -146,11 +146,21 @@ interface Ride {
 function isRound(ids: string[], city: string): boolean {
   return ids.every((id) => city === "nyc" ? id.length === 1 || id.startsWith("S ")
     : city === "sf" ? /^[EFJKLMNT]$/.test(id) || id in BART_INITIALS
-    : city === "seattle" && /^[12TNS] Line$/.test(id));
+    : city === "seattle" ? /^[12TNS] Line$/.test(id)
+    : city === "boston" && id in BOSTON_SUBWAY);
 }
 
-/** What a round badge says: Sound Transit's "1 Line" is a "1" in its circle, BART's Yellow a "Y". */
-const short = (id: string) => BART_INITIALS[id] ?? (id.endsWith(" Line") ? id.slice(0, -5) : id);
+/** What a round badge says, as the app's (LineBadge.short): BART's Yellow a "Y", Sound Transit's
+ * "1 Line" a "1", Boston's Red Line an "RL" (Red, Orange and Blue are lines in both cities). */
+const short = (id: string, city: string) => city === "sf" ? BART_INITIALS[id] ?? id
+  : city === "boston" ? BOSTON_SUBWAY[id]?.[0] ?? id
+  : id.endsWith(" Line") ? id.slice(0, -5) : id;
+
+/** Boston's subway, as the app's (LineBadge.bostonSubway): what its circles say, in its colors. */
+const BOSTON_SUBWAY: Record<string, [string, string]> = {
+  Red: ["RL", "#DA291C"], Orange: ["OL", "#ED8B00"], Blue: ["BL", "#003DA5"], Mattapan: ["M", "#DA291C"],
+  B: ["B", "#00843D"], C: ["C", "#00843D"], D: ["D", "#00843D"], E: ["E", "#00843D"],
+};
 
 /** BART's lines, by their colors, as the app's (LineBadge.short). */
 const BART_INITIALS: Record<string, string> = { Red: "R", Orange: "O", Yellow: "Y", Green: "G", Blue: "B", OAK: "OAK" };
@@ -175,6 +185,13 @@ const COLORS: Record<string, Record<string, [string, boolean]>> = {
 };
 
 function colorOf(id: string, city: string): [string, boolean] | undefined {
+  if (city === "boston") {
+    // The subway's colors; the rest by what they are (the app also knows commuter rail and ferries).
+    if (BOSTON_SUBWAY[id]) return [BOSTON_SUBWAY[id][1], false];
+    if (id.startsWith("SL")) return ["#7C878E", false];
+    if (/^(\d|CT)/.test(id)) return ["#FFC72C", true];
+    return undefined;
+  }
   return COLORS[city]?.[id] ?? (city === "nyc" && id.startsWith("S ") ? ["#7C858C", false] : undefined);
 }
 
@@ -193,7 +210,7 @@ function badgeParts(ids: string[], city: string): BadgePart[] {
     if (group) group.ids.push(id); else groups.push({ color, round, ids: [id] });
   }
   return groups.flatMap((g) => g.round
-    ? g.ids.map((id) => ({ label: short(id), color: g.color?.[0], dark: g.color?.[1], round: true }))
+    ? g.ids.map((id) => ({ label: short(id, city), color: g.color?.[0], dark: g.color?.[1], round: true }))
     : [{ label: join(g.ids), color: g.color?.[0], dark: g.color?.[1], round: false }]);
 }
 
@@ -201,7 +218,7 @@ function badgeParts(ids: string[], city: string): BadgePart[] {
  * in its color or red. */
 function lineBadge(id: string, city: string): BadgePart & { round: boolean } {
   const color = colorOf(id, city), round = isRound([id], city);
-  return { label: round ? short(id) : id, color: color?.[0], dark: color?.[1], round };
+  return { label: round ? short(id, city) : id, color: color?.[0], dark: color?.[1], round };
 }
 
 /** The line, stop and destination a shared link points to: /s?c=sf&l=37&s=13254&d=IB. Combined lines

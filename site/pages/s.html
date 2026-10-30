@@ -69,7 +69,7 @@
     <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
     <span><small>Get it on your Lock Screen</small>37 Shades of Late</span>
   </a>
-  <p class="pitch">Minutes until your bus or train, right on your Lock Screen, in San Francisco, Seattle and New York.
+  <p class="pitch">Minutes until your bus or train, right on your Lock Screen, in San Francisco, Seattle, New York and Boston.
     Already have the app? This link opens this stop in it. <a href="/">What is this?</a></p>
 </main>
 </div>
@@ -102,10 +102,16 @@
   };
   // BART's lines by their colors, as the app's (LineBadge.short): a "Y" for Yellow.
   const BART = { Red: "R", Orange: "O", Yellow: "Y", Green: "G", Blue: "B", OAK: "OAK" };
-  const DARK_TEXT = ["#F6BC26", "#B49A36", "#F38B00", "#9AB6D3", "#FF9933", "#FFFF33", "#B0BEC7"];
+  // Boston's subway, as the app's (LineBadge.bostonSubway): what its circles say, in its colors.
+  const BOSTON = { Red: ["RL", "#DA291C"], Orange: ["OL", "#ED8B00"], Blue: ["BL", "#003DA5"], Mattapan: ["M", "#DA291C"],
+                   B: ["B", "#00843D"], C: ["C", "#00843D"], D: ["D", "#00843D"], E: ["E", "#00843D"] };
+  const DARK_TEXT = ["#F6BC26", "#B49A36", "#F38B00", "#9AB6D3", "#FF9933", "#FFFF33", "#B0BEC7", "#FFC72C"];
   const roundLine = (id) => city === "nyc" ? id.length === 1 || id.startsWith("S ")
-    : city === "sf" ? /^[EFJKLMNT]$/.test(id) || id in BART : city === "seattle" && /^[12TNS] Line$/.test(id);
-  const colorOf = (id) => (COLORS[city] || {})[id] || (city === "nyc" && id.startsWith("S ") ? "#7C858C" : undefined);
+    : city === "sf" ? /^[EFJKLMNT]$/.test(id) || id in BART : city === "seattle" ? /^[12TNS] Line$/.test(id)
+    : city === "boston" && id in BOSTON;
+  const colorOf = (id) => city === "boston"
+    ? (BOSTON[id] || [])[1] || (id.startsWith("SL") ? "#7C878E" : /^(\d|CT)/.test(id) ? "#FFC72C" : undefined)
+    : (COLORS[city] || {})[id] || (city === "nyc" && id.startsWith("S ") ? "#7C858C" : undefined);
   const groups = [];
   for (const id of ids.some(colorOf) ? ids : []) {
     const color = colorOf(id), round = roundLine(id);
@@ -117,7 +123,9 @@
   $("badges").replaceChildren(...(parts.length ? parts : [{ ids }]).map((group) => {
     const span = document.createElement("span");
     span.className = group.round ? "badge round" : "badge";
-    const labels = group.round ? group.ids.map((id) => BART[id] || id.replace(/ Line$/, "")) : group.ids;
+    // As the app's (LineBadge.short): Red, Orange and Blue are lines in both San Francisco and Boston.
+    const labels = group.round ? group.ids.map((id) => city === "sf" ? BART[id] || id
+      : city === "boston" ? (BOSTON[id] || [])[0] || id : id.replace(/ Line$/, "")) : group.ids;
     span.textContent = labels.join(labels.every((id) => id.length === 1) ? "" : "·");
     if (group.color) {
       span.style.background = group.color;

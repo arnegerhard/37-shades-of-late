@@ -58,7 +58,7 @@ struct LinePicker: View {
 
     private var cityPicker: some View {
         Picker("City", selection: $city) {
-            ForEach(City.allCases) { Text($0.name).tag($0) }
+            ForEach(City.allCases) { Text($0.shortName).tag($0) }
         }
         .pickerStyle(.segmented)
     }
@@ -73,8 +73,8 @@ struct LinePicker: View {
             ForEach(filtered) { line in
                 NavigationLink(value: line) {
                     HStack(spacing: 10) {
-                        LineBadge(line: line.id, font: .system(.body, design: .rounded).weight(.heavy),
-                                  round: LineBadge.isRound([line.id], in: city))
+                        LineBadge(line: LineBadge.short(line.id, in: city), font: .system(.body, design: .rounded).weight(.heavy),
+                                  round: LineBadge.isRound([line.id], in: city), spoken: line.id)
                             .frame(minWidth: 52, alignment: .leading)
                         Text(line.name)
                     }

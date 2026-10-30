@@ -419,7 +419,7 @@ struct ContentView: View {
     private var cityHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
-                ForEach(City.allCases) { Text($0.name).tag($0) }
+                ForEach(City.allCases) { Text($0.shortName).tag($0) }
             }
             .pickerStyle(.segmented)
         }

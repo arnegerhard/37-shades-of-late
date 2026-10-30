@@ -506,7 +506,7 @@ async function loadLive(city: FerryCity): Promise<Live> {
 }
 
 /** VehiclePosition entities → where each trip's boat is: 1 trip, 2 position (1 lat, 2 lon, 3 bearing). */
-function decodePositions(bytes: Uint8Array) {
+export function decodePositions(bytes: Uint8Array) {
   const found = new Map<string, { lat: number; lon: number; bearing?: number }>();
   for (const entity of new Reader(bytes).fields()) {
     if (entity.field !== 2 || !entity.sub) continue;

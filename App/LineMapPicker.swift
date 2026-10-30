@@ -114,14 +114,15 @@ struct LineMapPicker: View {
         otherLines.filter { alsoIDs.contains($0.id) && $0.isNearby && $0.lat != nil && $0.lon != nil }
     }
 
-    /// New York's buses, which outnumber its trains more than ten to one.
+    /// New York's and Boston's buses, which outnumber their trains more than ten to one (Boston's
+    /// Silver Line aside, which runs like one).
     private func isBackground(_ line: MapLine) -> Bool {
-        city == .nyc && line.mode == "bus"
+        (city == .nyc || city == .boston) && line.mode == "bus" && !line.id.hasPrefix("SL")
     }
 
     private var drawOrder: [MapLine] {
         let also = alsoLineIDs
-        // In New York the buses go underneath, so the trains stay readable on top of them.
+        // In New York and Boston the buses go underneath, so the trains stay readable on top of them.
         let rest = lines.filter { $0.id != selectedID && !also.contains($0.id) }
         return rest.filter(isBackground) + rest.filter { !isBackground($0) }
             + lines.filter { also.contains($0.id) }
@@ -141,9 +142,9 @@ struct LineMapPicker: View {
                     if let line = lines.first(where: { $0.id == label.lineID }) {
                         Annotation("", coordinate: label.coordinate, anchor: .center) {
                             FadingBadge(leaving: leavingLabels[label.id] != nil) {
-                                LineBadge(line: line.id, font: .system(size: 12, weight: .heavy, design: .rounded),
+                                LineBadge(line: LineBadge.short(line.id, in: city), font: .system(size: 12, weight: .heavy, design: .rounded),
                                           color: line.mapColor.legible(on: colorScheme), textColor: line.badgeTextColor,
-                                          round: LineBadge.isRound([line.id], in: city))
+                                          round: LineBadge.isRound([line.id], in: city), spoken: line.id)
                                     .fixedSize()
                                     .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
                             }
@@ -428,9 +429,9 @@ struct LineMapPicker: View {
                         HStack(spacing: 8) {
                             ForEach(candidates) { line in
                                 Button { select(line, among: candidates) } label: {
-                                    LineBadge(line: line.id, font: .system(.subheadline, design: .rounded).weight(.heavy),
+                                    LineBadge(line: LineBadge.short(line.id, in: city), font: .system(.subheadline, design: .rounded).weight(.heavy),
                                               color: line.mapColor, textColor: line.badgeTextColor,
-                                              round: LineBadge.isRound([line.id], in: city))
+                                              round: LineBadge.isRound([line.id], in: city), spoken: line.id)
                                         .opacity(line.id == selectedID ? 1 : 0.55)
                                         .padding(3)
                                         .overlay {
@@ -449,9 +450,9 @@ struct LineMapPicker: View {
                 ZStack(alignment: .topLeading) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            LineBadge(line: selected.id, font: .system(.title3, design: .rounded).weight(.heavy),
+                            LineBadge(line: LineBadge.short(selected.id, in: city), font: .system(.title3, design: .rounded).weight(.heavy),
                                       color: selected.mapColor, textColor: selected.badgeTextColor,
-                                      round: LineBadge.isRound([selected.id], in: city))
+                                      round: LineBadge.isRound([selected.id], in: city), spoken: selected.id)
                             VStack(alignment: .leading, spacing: 2) {
                                 if let stop = (picked ?? corner.first)?.stop {
                                     Text(stop.name).font(.headline).lineLimit(1)
@@ -581,9 +582,9 @@ struct LineMapPicker: View {
                             HStack(spacing: 4) {
                                 Image(systemName: on ? "checkmark.circle.fill" : "plus.circle")
                                     .font(.caption)
-                                LineBadge(line: other.line, font: .system(.subheadline, design: .rounded).weight(.heavy),
+                                LineBadge(line: LineBadge.short(other.line, in: city), font: .system(.subheadline, design: .rounded).weight(.heavy),
                                           color: mapLine?.mapColor ?? LineBadge.red, textColor: mapLine?.badgeTextColor ?? .white,
-                                          round: LineBadge.isRound([other.line], in: city))
+                                          round: LineBadge.isRound([other.line], in: city), spoken: other.line)
                                 if other.isNearby {
                                     // A short walk to another stop.
                                     Text(walkLabel(other))
@@ -861,9 +862,9 @@ struct LineMapPicker: View {
                         let ends = ways.map(\.direction.destination).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
                         Button { pick(ways) } label: {
                             HStack(spacing: 10) {
-                                LineBadge(line: line.id, font: .system(.subheadline, design: .rounded).weight(.heavy),
+                                LineBadge(line: LineBadge.short(line.id, in: city), font: .system(.subheadline, design: .rounded).weight(.heavy),
                                           color: line.mapColor, textColor: line.badgeTextColor,
-                                          round: LineBadge.isRound([line.id], in: city))
+                                          round: LineBadge.isRound([line.id], in: city), spoken: line.id)
                                     .fixedSize()
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(ends.count == 1 ? "To \(ends[0])" : ends.prefix(2).joined(separator: " ↔ "))
@@ -1244,6 +1245,9 @@ extension City {
         case .nyc:
             MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 40.72, longitude: -73.94),
                                span: MKCoordinateSpan(latitudeDelta: 0.28, longitudeDelta: 0.28))
+        case .boston:
+            MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 42.35, longitude: -71.08),
+                               span: MKCoordinateSpan(latitudeDelta: 0.2, longitudeDelta: 0.2))
         }
     }
 }
@@ -1456,6 +1460,7 @@ enum LineLabels {
         if id.hasSuffix("R"), id.dropLast().allSatisfy(\.isNumber) { return 0 }   // Muni's Rapid lines
         if id.count == 6, id.hasSuffix(" Line") { return 0 }                      // RapidRide A–H
         if id.hasSuffix("-SBS") { return 0 }                                      // New York's Select Bus Service
+        if id.hasPrefix("SL"), id.count <= 3 { return 0 }                         // Boston's Silver Line
         // New York's express buses, mostly into Manhattan from far out.
         if ["BM", "QM", "SIM", "X"].contains(where: { id.hasPrefix($0) && id.dropFirst($0.count).first?.isNumber == true }) {
             return 2

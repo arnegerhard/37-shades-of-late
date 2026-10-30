@@ -2,7 +2,7 @@ import Foundation
 
 /// A city the proxy has live data for.
 enum City: String, Codable, CaseIterable, Identifiable {
-    case sf, seattle, nyc
+    case sf, seattle, nyc, boston
 
     var id: String { rawValue }
 
@@ -11,8 +11,12 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .sf: "San Francisco"
         case .seattle: "Seattle"
         case .nyc: "New York"
+        case .boston: "Boston"
         }
     }
+
+    /// For the city switcher, where four don't fit with "San Francisco" spelled out.
+    var shortName: String { self == .sf ? "SF" : name }
 
     /// Short tag for tight spaces like widgets, where lines from two cities sit side by side.
     var code: String {
@@ -20,17 +24,18 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .sf: "SF"
         case .seattle: "SEA"
         case .nyc: "NYC"
+        case .boston: "BOS"
         }
     }
 
     /// The city's clock, for the sleeping Lock Screen widgets' time at home.
     var timeZone: TimeZone {
-        TimeZone(identifier: self == .nyc ? "America/New_York" : "America/Los_Angeles")!
+        TimeZone(identifier: self == .nyc || self == .boston ? "America/New_York" : "America/Los_Angeles")!
     }
 
     /// What mostly runs here, for the page's wording; a stop's own is `Selection.vehicle`.
-    var vehicle: String { self == .nyc ? "train" : "bus" }
-    var vehicles: String { self == .nyc ? "trains" : "buses" }
+    var vehicle: String { self == .nyc || self == .boston ? "train" : "bus" }
+    var vehicles: String { vehicle + (vehicle == "bus" ? "es" : "s") }
 
     /// Where this city's endpoints live on the proxy; SF predates the others and has no prefix.
     fileprivate var pathPrefix: String {
@@ -38,6 +43,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .sf: ""
         case .seattle: "seattle/"
         case .nyc: "nyc/"
+        case .boston: "boston/"
         }
     }
 
@@ -57,6 +63,10 @@ enum City: String, Codable, CaseIterable, Identifiable {
             // The G toward Church Av at Metropolitan Av, where everyone waits for the shortest train in New York.
             Selection(lineID: "G", lineName: "Brooklyn-Queens Crosstown", directionID: "S", destination: "Church Av",
                       stopCode: "G29S", stopName: "Metropolitan Av", city: .nyc)
+        case .boston:
+            // The Red Line toward Alewife at Park Street, under the Common.
+            Selection(lineID: "Red", lineName: "Red Line", directionID: "1", destination: "Alewife",
+                      stopCode: "70076", stopName: "Park Street", city: .boston)
         }
     }
 }
@@ -123,7 +133,7 @@ struct Selection: Codable, Hashable, Identifiable {
         switch city {
         case .nyc: return stopCode.hasPrefix("MTA_") ? "bus" : ["NYCF_", "SIF_", "NYW_"].contains(where: stopCode.hasPrefix) ? "ferry" : "train"
         case .sf: return stopCode.wholeMatch(of: /[A-Z]\d+-\d/) != nil ? "train" : "bus"
-        case .seattle: return "bus"
+        case .seattle, .boston: return "bus"
         }
     }
     var vehicles: String {

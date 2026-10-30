@@ -7,14 +7,15 @@ struct LineBadge: View {
     var color: Color = LineBadge.red
     var textColor: Color = .white
     /// A circle (a pill for a longer name, BART's "OAK"), as New York's subway, Muni Metro and Sound Transit have them; see
-    /// `isRound`. Sound Transit's say just the number or letter: "1", not "1 Line".
+    /// `isRound`. `line` is what it says (see `short`), `spoken` what VoiceOver says, the whole name.
     var round = false
+    var spoken: String? = nil
 
     static let red = Color(red: 0.75, green: 0.1, blue: 0.15)
 
     var body: some View {
         // VoiceOver says the whole name: "Yellow", not "Y".
-        let text = Text(round ? Self.short(line) : line).font(font).foregroundStyle(textColor).accessibilityLabel(line)
+        let text = Text(line).font(font).foregroundStyle(textColor).accessibilityLabel(spoken ?? line)
         if round {
             AtLeastSquare { text.padding(.horizontal, 4).padding(.vertical, 2) }
                 .background(color, in: Capsule())
@@ -38,18 +39,44 @@ struct LineBadge: View {
             case .nyc: id.count == 1 || id.hasPrefix("S ")
             case .sf: ["E", "F", "J", "K", "L", "M", "N", "T"].contains(id) || bartInitials[id] != nil
             case .seattle: ["1 Line", "2 Line", "T Line", "N Line", "S Line"].contains(id)
+            case .boston: bostonSubway[id] != nil
             }
         }
     }
 
-    /// What a round badge says: Sound Transit's "1 Line" is a "1" in its circle, BART's Yellow a "Y".
-    static func short(_ id: String) -> String {
-        bartInitials[id] ?? (id.hasSuffix(" Line") ? String(id.dropLast(5)) : id)
+
+
+    /// Boston's lines' colors: the subway's own (`bostonSubway`), and the rest by what they are: the
+    /// Silver Line's buses silver, the other buses the MBTA's yellow, commuter rail purple, ferries teal.
+    private static func bostonColor(of id: String) -> (hex: String, darkText: Bool)? {
+        if let subway = bostonSubway[id] { return (subway.hex, false) }
+        if id.hasPrefix("SL") { return ("#7C878E", false) }
+        switch Line.known(id, in: .boston)?.mode {
+        case "bus": return ("#FFC72C", true)
+        case "rail": return ("#80276C", false)
+        case "ferry": return ("#008EAA", false)
+        default: return nil
+        }
     }
 
-    /// `id` as a round badge says it, if it has one in `city`; as it is otherwise.
+    /// Boston's subway: its lines as the MBTA's signs say them, in their colors (the Green Line's
+    /// branches by their letters; the Mattapan trolley's is the Red Line's).
+    private static let bostonSubway: [String: (short: String, hex: String)] = [
+        "Red": ("RL", "#DA291C"), "Orange": ("OL", "#ED8B00"), "Blue": ("BL", "#003DA5"), "Mattapan": ("M", "#DA291C"),
+        "B": ("B", "#00843D"), "C": ("C", "#00843D"), "D": ("D", "#00843D"), "E": ("E", "#00843D"),
+    ]
+
+    /// `id` as its badge says it in `city`: BART's Yellow a "Y", Sound Transit's "1 Line" a "1",
+    /// Boston's Red Line an "RL"; as it is otherwise. (Red, Orange and Blue are lines in both San
+    /// Francisco and Boston, so it takes the city.)
     static func short(_ id: String, in city: City) -> String {
-        isRound([id], in: city) ? short(id) : id
+        guard isRound([id], in: city) else { return id }
+        switch city {
+        case .sf: return bartInitials[id] ?? id
+        case .boston: return bostonSubway[id]?.short ?? id
+        case .seattle: return id.hasSuffix(" Line") ? String(id.dropLast(5)) : id
+        case .nyc: return id
+        }
     }
 
     /// BART's lines, by their colors (the airport connector, "OAK", keeps its name in its circle).
@@ -118,6 +145,8 @@ extension LineBadge {
             case "A Line", "B Line", "C Line", "D Line", "E Line", "F Line", "G Line", "H Line": ("#9C182F", false)
             default: nil
             }
+        case .boston:
+            bostonColor(of: id)
         }
     }
 }
@@ -162,7 +191,7 @@ extension Selection {
         }
         return groups.flatMap { color, round, ids in
             round
-                ? ids.map { BadgePart(label: LineBadge.short($0), color: color?.hex, darkText: color?.darkText ?? false, round: true) }
+                ? ids.map { BadgePart(label: LineBadge.short($0, in: city), color: color?.hex, darkText: color?.darkText ?? false, round: true) }
                 : [BadgePart(label: ids.joined(separator: ids.allSatisfy { $0.count == 1 } ? "" : "·"),
                              color: color?.hex, darkText: color?.darkText ?? false, round: false)]
         }
@@ -214,8 +243,8 @@ extension LineBadge {
     /// `isRound`, `color`), else a rectangle in its color or the app's red.
     static func single(_ id: String, in city: City, font: Font) -> LineBadge {
         let color = Self.color(of: id, in: city)
-        return LineBadge(line: id, font: font, color: Color(hex: color?.hex) ?? red,
-                         textColor: color?.darkText == true ? .black : .white, round: isRound([id], in: city))
+        return LineBadge(line: short(id, in: city), font: font, color: Color(hex: color?.hex) ?? red,
+                         textColor: color?.darkText == true ? .black : .white, round: isRound([id], in: city), spoken: id)
     }
 }
 
