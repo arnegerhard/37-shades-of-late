@@ -21,6 +21,8 @@ for key, value in {
     "{{IMG_HOME}}": data_uri("images/home.jpg"),
     "{{IMG_LOCKWIDGET}}": data_uri("images/lockwidget.jpg"),
     "{{IMG_PICKER}}": data_uri("images/picker.jpg"),
+    # The map of the cities (scripts/cities.mjs draws it).
+    "{{CITIES_SVG}}": open("images/cities.svg").read(),
 }.items():
     html = html.replace(key, value)
 assert "{{" not in html, "unfilled placeholder"
