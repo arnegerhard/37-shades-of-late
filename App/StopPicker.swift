@@ -61,7 +61,8 @@ struct LinePicker: View {
         let cities = City.allCases.filter { City.chosen.contains($0) || $0 == city }
         if cities.count > 1 {
             Picker("City", selection: $city) {
-                ForEach(cities) { Text($0.shortName).tag($0) }
+                // Five or more don't fit by name: by their codes, as on the home screen.
+                ForEach(cities) { Text(cities.count > 4 ? $0.code : $0.shortName).tag($0) }
             }
             .pickerStyle(.segmented)
         }

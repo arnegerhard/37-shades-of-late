@@ -31,6 +31,8 @@ print(f"public/index.html: {len(html) // 1024} KB")
 PY
 # Privacy, support and the shared-stop page (/s) are plain static files.
 cp pages/privacy.html pages/support.html pages/s.html public/
+# The homepage's link preview (scripts/preview.mjs draws it).
+cp images/preview.png public/
 # Lets 37shadesoflate.com/s links open the app when it's installed (universal links). Apple reads it
 # as JSON, which the _headers file makes sure of.
 mkdir -p public/.well-known
