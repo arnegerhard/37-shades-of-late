@@ -1374,7 +1374,7 @@ struct LabelSpot {
 /// A line's name badge, placed on the map.
 /// Every line on the map. Kept apart and equatable so the labels updating while you pinch don't make
 /// SwiftUI rebuild hundreds of lines (New York has over 500) each time.
-private struct LineLayer: MapContent, Equatable {
+struct LineLayer: MapContent, Equatable {
     let lines: [MapLine]
     let paths: [String: [[CLLocationCoordinate2D]]]
     let pathsVersion: Int
@@ -1404,17 +1404,50 @@ private struct LineLayer: MapContent, Equatable {
             // New York's buses are a fine, faint web under the trains until one is picked.
             let background = isBackground(line) && !isSelected
             let width: CGFloat = isSelected ? 7 : isCircled ? 5 : isCandidate ? 3.5 : background ? 1.5 : 3
-            let ferry = line.mode == "ferry"
-            ForEach(Array((paths[line.id] ?? []).enumerated()), id: \.offset) { _, path in
+            // Ferries dashed across the water. Not with the stroke's dash: MapKit draws those blurred and
+            // about three times too wide. As short pieces of line instead, a few hundred meters each.
+            let pieces = line.mode == "ferry" ? (paths[line.id] ?? []).flatMap { Self.dashed($0) } : (paths[line.id] ?? [])
+            ForEach(Array(pieces.enumerated()), id: \.offset) { _, path in
                 MapPolyline(coordinates: path)
                     .stroke(line.mapColor.legible(on: colorScheme)
                                 .opacity((isStepBack ? 0.22 : selectedID == nil || isSelected ? 1 : isCandidate ? 0.5 : 0.22)
                                          * (background && !isCandidate && !isCircled ? 0.45 : 1) * fade),
-                            // Ferries dashed across the water (flat ends, or round ones would fill the gaps).
-                            style: StrokeStyle(lineWidth: width, lineCap: ferry ? .butt : .round, lineJoin: .round,
-                                               dash: ferry ? [width * 2.5, width * 1.5] : []))
+                            style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
             }
         }
+    }
+
+    /// `path` cut into dashes: `on` meters of it, then a gap of `off`.
+    static func dashed(_ path: [CLLocationCoordinate2D], on: Double = 300, off: Double = 220) -> [[CLLocationCoordinate2D]] {
+        var dashes: [[CLLocationCoordinate2D]] = []
+        var current: [CLLocationCoordinate2D] = []
+        var drawing = true
+        var left = on
+        for (a, b) in zip(path, path.dropFirst()) {
+            let length = meters(a, b)
+            guard length > 0 else { continue }
+            var at = 0.0
+            if drawing, current.isEmpty { current = [a] }
+            while length - at > left {
+                at += left
+                let t = at / length
+                let point = CLLocationCoordinate2D(latitude: a.latitude + (b.latitude - a.latitude) * t,
+                                                   longitude: a.longitude + (b.longitude - a.longitude) * t)
+                if drawing {
+                    current.append(point)
+                    dashes.append(current)
+                    current = []
+                } else {
+                    current = [point]
+                }
+                drawing.toggle()
+                left = drawing ? on : off
+            }
+            left -= length - at
+            if drawing { current.append(b) }
+        }
+        if current.count > 1 { dashes.append(current) }
+        return dashes
     }
 }
 

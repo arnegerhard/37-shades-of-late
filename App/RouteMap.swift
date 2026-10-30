@@ -497,10 +497,11 @@ struct CityLinesMap: View {
         Map(initialPosition: .region(city.region), interactionModes: []) {
             ForEach(lines) { line in
                 let color = line.mapColor.legible(on: colorScheme)
-                ForEach(Array(line.shapes.enumerated()), id: \.offset) { _, shape in
-                    MapPolyline(coordinates: shape.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil })
-                        .stroke(color, style: StrokeStyle(lineWidth: line.mode == "bus" ? 2 : 3, lineCap: line.mode == "ferry" ? .butt : .round,
-                                                          lineJoin: .round, dash: line.mode == "ferry" ? [7, 4] : []))
+                let shapes = line.shapes.map { $0.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil } }
+                // Ferries dashed across the water, in pieces (see LineLayer.dashed).
+                ForEach(Array((line.mode == "ferry" ? shapes.flatMap { LineLayer.dashed($0) } : shapes).enumerated()), id: \.offset) { _, shape in
+                    MapPolyline(coordinates: shape)
+                        .stroke(color, style: StrokeStyle(lineWidth: line.mode == "bus" ? 2 : 3, lineCap: .round, lineJoin: .round))
                 }
             }
         }
