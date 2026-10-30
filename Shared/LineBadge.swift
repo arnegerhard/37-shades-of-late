@@ -61,7 +61,7 @@ private struct AtLeastSquare: Layout {
 extension LineBadge {
     /// The colors of the lines with badges of their own, as the agencies publish them (the line
     /// map's GTFS colors): "#RRGGBB", and whether the letters on it are black (New York's yellow
-    /// lines). Those with round badges, and Seattle's RapidRide, in its dark red.
+    /// lines). Those with round badges, BART's lines, and Seattle's RapidRide, in its dark red.
     static func color(of id: String, in city: City) -> (hex: String, darkText: Bool)? {
         switch city {
         case .nyc:
@@ -90,6 +90,13 @@ extension LineBadge {
             // route logo has.
             case "F": ("#B49A36", true)
             case "E": ("#666666", false)
+            // BART's lines, by their colors.
+            case "Red": ("#FF0000", false)
+            case "Orange": ("#FF9933", true)
+            case "Yellow": ("#FFFF33", true)
+            case "Green": ("#339933", false)
+            case "Blue": ("#0099CC", false)
+            case "OAK": ("#B0BEC7", true)
             default: nil
             }
         case .seattle:

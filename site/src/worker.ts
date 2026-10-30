@@ -153,8 +153,8 @@ function isRound(ids: string[], city: string): boolean {
 const short = (id: string) => id.endsWith(" Line") ? id.slice(0, -5) : id;
 
 /** The colors of the lines with badges of their own, as the app's (LineBadge.color): "#RRGGBB", and
- * whether the letters on it are black (New York's yellow lines). The round ones, and Seattle's
- * RapidRide in its dark red. */
+ * whether the letters on it are black (New York's yellow lines). The round ones, BART's lines, and
+ * Seattle's RapidRide in its dark red. */
 const COLORS: Record<string, Record<string, [string, boolean]>> = {
   nyc: { "1": ["#D82233", false], "2": ["#D82233", false], "3": ["#D82233", false],
          "4": ["#009952", false], "5": ["#009952", false], "6": ["#009952", false], "7": ["#9A38A1", false],
@@ -163,7 +163,9 @@ const COLORS: Record<string, Record<string, [string, boolean]>> = {
          G: ["#799534", false], J: ["#8E5C33", false], Z: ["#8E5C33", false], L: ["#7C858C", false],
          N: ["#F6BC26", true], Q: ["#F6BC26", true], R: ["#F6BC26", true], W: ["#F6BC26", true] },
   sf: { J: ["#A96614", false], K: ["#437C93", false], L: ["#942D83", false], M: ["#008547", false],
-        N: ["#005B95", false], T: ["#BF2B45", false], F: ["#B49A36", true], E: ["#666666", false] },
+        N: ["#005B95", false], T: ["#BF2B45", false], F: ["#B49A36", true], E: ["#666666", false],
+        Red: ["#FF0000", false], Orange: ["#FF9933", true], Yellow: ["#FFFF33", true], Green: ["#339933", false],
+        Blue: ["#0099CC", false], OAK: ["#B0BEC7", true] },
   seattle: { "1 Line": ["#28813F", false], "2 Line": ["#007CAD", false], "T Line": ["#F38B00", true],
              "N Line": ["#9AB6D3", true], "S Line": ["#9AB6D3", true],
              ...Object.fromEntries("ABCDEFGH".split("").map((l) => [`${l} Line`, ["#9C182F", false] as [string, boolean]])) },
