@@ -298,7 +298,7 @@ struct LockScreenView: View {
                         Text(tag).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                             .frame(width: 22, alignment: .leading)
                     }
-                    Text(row.selection.lineLabel)
+                    Text(row.selection.shortLineLabel)
                         .font(.system(.headline, design: .rounded).weight(.heavy))
                         .widgetAccentable()
                     if let label = entry.label(for: row) {
@@ -323,7 +323,8 @@ struct LockScreenView: View {
             AccessoryWidgetBackground()
             VStack(spacing: -2) {
                 // The line that comes next, for a combined stop.
-                Text(entry.rows.first.flatMap { entry.upcoming($0).first?.line } ?? entry.rows.first?.selection.lineLabel ?? "–")
+                Text(entry.rows.first.flatMap { row in entry.upcoming(row).first?.line.map { LineBadge.short($0, in: row.selection.city) } }
+                     ?? entry.rows.first?.selection.shortLineLabel ?? "–")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
                     .widgetAccentable()
                 if let row = entry.rows.first, let next = entry.upcoming(row).first {
@@ -341,7 +342,7 @@ struct LockScreenView: View {
     /// "37 4m · N 2m · 22 9m": each favorite's next departure.
     private var inline: some View {
         let parts = entry.rows.prefix(3).map { row -> String in
-            let name = [entry.cityTag(for: row, visible: 3), row.selection.lineLabel].compactMap { $0 }.joined(separator: " ")
+            let name = [entry.cityTag(for: row, visible: 3), row.selection.shortLineLabel].compactMap { $0 }.joined(separator: " ")
             guard let next = entry.upcoming(row).first else { return "\(name) –" }
             let minutes = entry.minutes(until: next)
             return "\(name) \(minutes == 0 ? "now" : "\(minutes)m")"

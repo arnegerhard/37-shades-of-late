@@ -47,6 +47,11 @@ struct LineBadge: View {
         bartInitials[id] ?? (id.hasSuffix(" Line") ? String(id.dropLast(5)) : id)
     }
 
+    /// `id` as a round badge says it, if it has one in `city`; as it is otherwise.
+    static func short(_ id: String, in city: City) -> String {
+        isRound([id], in: city) ? short(id) : id
+    }
+
     /// BART's lines, by their colors (the airport connector, "OAK", keeps its name in its circle).
     private static let bartInitials = ["Red": "R", "Orange": "O", "Yellow": "Y", "Green": "G", "Blue": "B", "OAK": "OAK"]
 }
@@ -131,6 +136,13 @@ struct BadgePart: Codable, Hashable {
 extension Selection {
     /// Whether this choice's badge is round (see `LineBadge.isRound`).
     var roundBadge: Bool { LineBadge.isRound(lineIDs, in: city) }
+
+    /// `lineLabel` with each line as its badge says it, for where there are no badges, only text (the
+    /// Lock Screen widgets): "BGRY" for BART's Blue, Green, Red and Yellow, "12" for the 1 and 2 Lines.
+    var shortLineLabel: String {
+        let ids = lineIDs.map { LineBadge.short($0, in: city) }
+        return ids.joined(separator: ids.allSatisfy { $0.count == 1 } ? "" : "·")
+    }
 
     /// Its badges: one, in the app's red ("37", "5·21"), except for lines with badges of their own:
     /// subway, Muni Metro and Sound Transit lines come round and in their colors, a circle each, those
