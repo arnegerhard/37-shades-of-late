@@ -87,28 +87,29 @@
   const base = API + (city === "sf" ? "" : city + "/");
   const $ = (id) => document.getElementById(id);
   // Round, as the app's (LineBadge.isRound): New York's subway (one letter or number, and the S
-  // shuttles; its buses all have more) and Muni Metro's J, K, L, M, N and T; in their colors, those
+  // shuttles; its buses all have more) and Muni's J, K, L, M, N, T, E and F; in their colors, those
   // sharing one in one badge (a blue "ACE"), as the app's (Selection.badgeParts).
-  const round = ids.every((id) => city === "nyc" ? id.length === 1 || id.startsWith("S ") : city === "sf" && /^[JKLMNT]$/.test(id));
   const COLORS = {
     nyc: { 1: "#D82233", 2: "#D82233", 3: "#D82233", 4: "#009952", 5: "#009952", 6: "#009952", 7: "#9A38A1",
            A: "#0062CF", C: "#0062CF", E: "#0062CF", B: "#EB6800", D: "#EB6800", F: "#EB6800", M: "#EB6800",
            G: "#799534", J: "#8E5C33", Z: "#8E5C33", L: "#7C858C", N: "#F6BC26", Q: "#F6BC26", R: "#F6BC26", W: "#F6BC26" },
-    sf: { J: "#A96614", K: "#437C93", L: "#942D83", M: "#008547", N: "#005B95", T: "#BF2B45" },
+    sf: { J: "#A96614", K: "#437C93", L: "#942D83", M: "#008547", N: "#005B95", T: "#BF2B45", F: "#B49A36", E: "#666666" },
   };
+  // Lines without a round badge among them (the F with the K, L and M) share a red rectangle.
+  const roundLine = (id) => city === "nyc" ? id.length === 1 || id.startsWith("S ") : city === "sf" && /^[EFJKLMNT]$/.test(id);
   const groups = [];
-  for (const id of round ? ids : []) {
-    const color = (COLORS[city] || {})[id] || (id.startsWith("S ") ? "#7C858C" : undefined);
+  for (const id of ids.some(roundLine) ? ids : []) {
+    const color = roundLine(id) ? (COLORS[city] || {})[id] || (id.startsWith("S ") ? "#7C858C" : undefined) : undefined;
     const group = groups.find((g) => g.color === color);
     if (group) group.ids.push(id); else groups.push({ color, ids: [id] });
   }
-  $("badges").replaceChildren(...(round ? groups : [{ ids }]).map((group) => {
+  $("badges").replaceChildren(...(groups.length ? groups : [{ ids }]).map((group) => {
     const span = document.createElement("span");
-    span.className = round ? "badge round" : "badge";
+    span.className = group.color ? "badge round" : "badge";
     span.textContent = group.ids.join(group.ids.every((id) => id.length === 1) ? "" : "·");
     if (group.color) {
       span.style.background = group.color;
-      if (group.color === "#F6BC26") span.style.color = "#000";
+      if (group.color === "#F6BC26" || group.color === "#B49A36") span.style.color = "#000";
     }
     return span;
   }));

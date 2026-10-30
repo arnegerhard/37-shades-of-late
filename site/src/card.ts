@@ -55,6 +55,8 @@ export interface BadgePart {
   color?: string;
   /** Black letters, on New York's yellow. */
   dark?: boolean;
+  /** Round, or a rectangle; as the card's (`Card.round`) when not set. */
+  round?: boolean;
 }
 
 /** The card's badges side by side from `x`, `height` tall with letters `size` big, in at most
@@ -66,9 +68,10 @@ function badges(card: Card, x: number, y: number, height: number, size: number, 
   const svg = parts.map((part) => {
     const left = room - (at - x);
     if (left < height) return "";
+    const round = part.round ?? card.round;
     const label = fit(part.label, size, left - height * 0.45, true);
-    const width = Math.min(left, Math.max(card.round ? height : 0, Math.round(textWidth(label, size, true) + height * (card.round ? 0.37 : 0.47))));
-    const drawn = `<rect x="${at}" y="${y}" width="${width}" height="${height}" rx="${card.round ? height / 2 : height * 0.16}" fill="${part.color ?? red}"/>
+    const width = Math.min(left, Math.max(round ? height : 0, Math.round(textWidth(label, size, true) + height * (round ? 0.37 : 0.47))));
+    const drawn = `<rect x="${at}" y="${y}" width="${width}" height="${height}" rx="${round ? height / 2 : height * 0.16}" fill="${part.color ?? red}"/>
   <text x="${at + width / 2}" y="${y + height * 0.75}" font-size="${size}" font-weight="900" fill="${part.dark ? "#000" : "#fff"}" text-anchor="middle">${escape(label)}</text>`;
     at += width + gap;
     return drawn;

@@ -25,13 +25,14 @@ struct LineBadge: View {
 
     /// Whether `ids` (combined, "KLM") are all lines whose badges are famously round: New York's
     /// subway (one letter or number, and the S shuttles; its buses all have more) and Muni Metro's
-    /// J, K, L, M, N and T (not the F, a streetcar on the street, nor the "KBUS" standing in for one).
+    /// J, K, L, M, N and T, and its historic streetcars, the E and F (not the "KBUS" or "FBUS"
+    /// standing in for one).
     /// As the site's (pages/s.html, src/card.ts).
     static func isRound(_ ids: [String], in city: City) -> Bool {
         !ids.isEmpty && ids.allSatisfy { id in
             switch city {
             case .nyc: id.count == 1 || id.hasPrefix("S ")
-            case .sf: ["J", "K", "L", "M", "N", "T"].contains(id)
+            case .sf: ["E", "F", "J", "K", "L", "M", "N", "T"].contains(id)
             case .seattle: false
             }
         }
@@ -77,6 +78,10 @@ extension LineBadge {
             case "M": ("#008547", false)
             case "N": ("#005B95", false)
             case "T": ("#BF2B45", false)
+            // Muni's tan for the F; the E isn't in its data while it isn't running, so the grey its
+            // route logo has.
+            case "F": ("#B49A36", true)
+            case "E": ("#666666", false)
             default: nil
             }
         case .seattle: nil
@@ -90,6 +95,9 @@ struct BadgePart: Codable, Hashable {
     /// "#RRGGBB"; the app's red without one.
     var color: String? = nil
     var darkText = false
+    /// Round, or a rectangle; as the whole choice's (`LineBadges.round`) when not set, as in Live
+    /// Activities started before parts had their own.
+    var round: Bool? = nil
 }
 
 extension Selection {
@@ -97,18 +105,20 @@ extension Selection {
     var roundBadge: Bool { LineBadge.isRound(lineIDs, in: city) }
 
     /// Its badges: one, in the app's red ("37", "5·21"), except for subway and Muni Metro lines,
-    /// which come in their colors, those sharing one together (the A, C and E as a blue "ACE",
-    /// with the 2 next to it in red).
+    /// which come round and in their colors, those sharing one together (the A, C and E as a blue
+    /// "ACE", with the 2 next to it in red). Any others with them share a red rectangle (the K, L
+    /// and M in their circles, then an "F").
     var badgeParts: [BadgePart] {
-        guard roundBadge else { return [BadgePart(label: lineLabel)] }
+        guard lineIDs.contains(where: { LineBadge.isRound([$0], in: city) }) else { return [BadgePart(label: lineLabel)] }
         var groups: [(color: (hex: String, darkText: Bool)?, ids: [String])] = []
         for id in lineIDs {
-            let color = LineBadge.roundColor(of: id, in: city)
+            // A line without a round badge has no color of its own here: it goes with the other such.
+            let color = LineBadge.isRound([id], in: city) ? LineBadge.roundColor(of: id, in: city) : nil
             if let i = groups.firstIndex(where: { $0.color?.hex == color?.hex }) { groups[i].ids.append(id) } else { groups.append((color, [id])) }
         }
         return groups.map { color, ids in
             BadgePart(label: ids.joined(separator: ids.allSatisfy { $0.count == 1 } ? "" : "·"),
-                      color: color?.hex, darkText: color?.darkText ?? false)
+                      color: color?.hex, darkText: color?.darkText ?? false, round: color != nil)
         }
     }
 }
@@ -123,7 +133,7 @@ struct LineBadges: View {
         HStack(spacing: 3) {
             ForEach(parts, id: \.self) { part in
                 LineBadge(line: part.label, font: font, color: Color(hex: part.color) ?? LineBadge.red,
-                          textColor: part.darkText ? .black : .white, round: round)
+                          textColor: part.darkText ? .black : .white, round: part.round ?? round)
             }
         }
     }
