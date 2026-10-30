@@ -1,62 +1,134 @@
 /**
- * New York's ferries: NYC Ferry and NY Waterway (across the Hudson to New Jersey), with live times and
- * boat positions from their GTFS-realtime feeds while boats are running, and the Staten Island Ferry,
- * from its published schedule (it has no live feed). All come from the operators' static GTFS, fetched
- * at most once a day; a departure the live feed doesn't mention is the scheduled one (and says so: not
- * live). Served under /v1/nyc/... next to the subway and buses (see nyc.ts). Stop ids carry the
- * operator: "NYCF_4", "SIF_stgeorge", "NYW_4".
+ * Ferries, from each operator's static GTFS (fetched at most once a day), with live times and boat
+ * positions from their GTFS-realtime feeds where they have them; a departure the live feed doesn't
+ * mention is the scheduled one (and says so: not live). Served next to each city's other lines:
  *
- * Not Seastreak (to the Highlands and Sandy Hook): its GTFS has each return trip as a jumbled copy of
- * the trip out, at the same times, which would list boats that don't run.
+ *   New York (see nyc.ts): NYC Ferry and NY Waterway (across the Hudson to New Jersey), live, and the
+ *     Staten Island Ferry, from its schedule.
+ *   San Francisco (see index.ts): Golden Gate Ferry, live, and San Francisco Bay Ferry, from its
+ *     schedule (its live times are only on 511, whose hourly budget Muni takes).
+ *   Seattle (see index.ts): Washington State Ferries, from its schedule.
+ *
+ * Stop ids carry the operator: "NYCF_4", "SIF_stgeorge", "NYW_4", "GGF_43000", "SFBF_berkeley", "WSF_3".
+ *
+ * Not Seastreak (New York to the Highlands and Sandy Hook): its GTFS has each return trip as a jumbled
+ * copy of the trip out, at the same times, which would list boats that don't run.
  */
 
 import { decodeFeed, Reader } from "./nyc";
 import { hexColor, linePairs, parseCSV, readZipEntry, simplify, stopsOfLines, type Polyline } from "./geo";
 
+export type FerryCity = "nyc" | "sf" | "seattle";
+
 interface Operator {
   /** Prefix of this operator's stop and trip ids. */
   key: string;
   gtfs: string;
-  /** The rider-facing line id for a route. */
+  /** The rider-facing line id for a route; routes with the same one are one line. */
   lineId: (route: Record<string, string>) => string;
-  /** The route's name, where its own wants spelling out. */
+  /** The line's name, where the route's own wants spelling out. */
   name?: (route: Record<string, string>) => string;
   tripUpdates?: string;
   vehiclePositions?: string;
 }
 
-const OPERATORS: Operator[] = [
-  {
-    key: "NYCF",
-    gtfs: "http://nycferry.connexionz.net/rtt/public/resource/gtfs.zip",
-    // NYC Ferry's own route codes, as on its maps: "ER" East River, "SB" South Brooklyn.
-    lineId: (route) => route.route_short_name || route.route_id,
-    tripUpdates: "http://nycferry.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/tripupdate",
-    vehiclePositions: "http://nycferry.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/vehicleposition",
+const CITIES: Record<FerryCity, { timeZone: string; operators: Operator[] }> = {
+  nyc: {
+    timeZone: "America/New_York",
+    operators: [
+      {
+        key: "NYCF",
+        gtfs: "http://nycferry.connexionz.net/rtt/public/resource/gtfs.zip",
+        // NYC Ferry's own route codes, as on its maps: "ER" East River, "SB" South Brooklyn.
+        lineId: (route) => route.route_short_name || route.route_id,
+        tripUpdates: "http://nycferry.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/tripupdate",
+        vehiclePositions: "http://nycferry.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/vehicleposition",
+      },
+      {
+        key: "SIF",
+        gtfs: "https://www.nyc.gov/html/dot/downloads/misc/siferry-gtfs.zip",
+        lineId: () => "SI Ferry",
+      },
+      {
+        // The same Connexionz system as NYC Ferry's.
+        key: "NYW",
+        gtfs: "http://nywaterway.connexionz.net/rtt/public/resource/gtfs.zip",
+        // Its route numbers ("15" Hoboken – Pier 11), as on its timetables.
+        lineId: (route) => route.route_short_name || route.route_id,
+        // Its names are cut to fit its timetables: "Pt Imp & H14 - BPT & P11".
+        name: (route) => [
+          [/\bPt Imp\b/g, "Port Imperial"], [/\bH14\b/g, "Hoboken 14th St"], [/\bH\/NJT\b/g, "Hoboken/NJT"],
+          [/\bBPT\b/g, "Brookfield Place"], [/\bP11\b/g, "Pier 11"], [/\bLin Har\b/g, "Lincoln Harbor"],
+          [/\bLib Har\b/g, "Liberty Harbor"], [/\bPaulus Hk\b/g, "Paulus Hook"], [/ - /g, " – "],
+        ].reduce((name, [from, to]) => name.replace(from as RegExp, to as string), route.route_long_name),
+        tripUpdates: "http://nywaterway.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/tripupdate",
+        vehiclePositions: "http://nywaterway.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/vehicleposition",
+      },
+    ],
   },
-  {
-    key: "SIF",
-    gtfs: "https://www.nyc.gov/html/dot/downloads/misc/siferry-gtfs.zip",
-    lineId: () => "SI Ferry",
+  sf: {
+    timeZone: "America/Los_Angeles",
+    operators: [
+      {
+        // Golden Gate Transit's buses and ferries; only the boats are taken.
+        key: "GGF",
+        gtfs: "https://realtime.goldengate.org/gtfsstatic/GTFSTransitData.zip",
+        // "Larkspur - San Francisco Ferry" is the Larkspur ferry.
+        lineId: (route) => route.route_long_name.replace(/ - San Francisco Ferry$/, "").replace(/ Ferry$/, ""),
+        name: (route) => route.route_long_name.replace(/ - /g, " – "),
+        tripUpdates: "https://realtime.goldengate.org/gtfsrealtime/TripUpdates",
+        vehiclePositions: "https://realtime.goldengate.org/gtfsrealtime/VehiclePositions",
+      },
+      {
+        key: "SFBF",
+        gtfs: "https://gtfs.sanfranciscobayferry.com/gtfs.zip",
+        // Its own route codes: "OA" Oakland & Alameda, "VJO" Vallejo.
+        lineId: (route) => route.route_short_name || route.route_id,
+      },
+    ],
   },
-  {
-    // The same Connexionz system as NYC Ferry's.
-    key: "NYW",
-    gtfs: "http://nywaterway.connexionz.net/rtt/public/resource/gtfs.zip",
-    // Its route numbers ("15" Hoboken – Pier 11), as on its timetables.
-    lineId: (route) => route.route_short_name || route.route_id,
-    // Its names are cut to fit its timetables: "Pt Imp & H14 - BPT & P11".
-    name: (route) => [
-      [/\bPt Imp\b/g, "Port Imperial"], [/\bH14\b/g, "Hoboken 14th St"], [/\bH\/NJT\b/g, "Hoboken/NJT"],
-      [/\bBPT\b/g, "Brookfield Place"], [/\bP11\b/g, "Pier 11"], [/\bLin Har\b/g, "Lincoln Harbor"],
-      [/\bLib Har\b/g, "Liberty Harbor"], [/\bPaulus Hk\b/g, "Paulus Hook"], [/ - /g, " – "],
-    ].reduce((name, [from, to]) => name.replace(from as RegExp, to as string), route.route_long_name),
-    tripUpdates: "http://nywaterway.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/tripupdate",
-    vehiclePositions: "http://nywaterway.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/vehicleposition",
+  seattle: {
+    timeZone: "America/Los_Angeles",
+    operators: [
+      {
+        key: "WSF",
+        gtfs: "https://business.wsdot.wa.gov/Transit/csv_files/wsf/google_transit.zip",
+        // A route per way and pair of landings ("Seattle - Bainbridge Island", "Bainbridge Island -
+        // Seattle"); riders know them by WSF's routes, as on its schedules and signs.
+        lineId: (route) => WSF_ROUTES.find(([, landings]) => landings.every((l) => route.route_long_name.includes(l)))?.[0]
+          ?? route.route_long_name,
+        name: (route) => WSF_NAMES[WSF_ROUTES.find(([, landings]) => landings.every((l) => route.route_long_name.includes(l)))?.[0] ?? ""]
+          ?? route.route_long_name.replace(/ - /g, " – "),
+      },
+    ],
   },
+};
+
+/** Washington State Ferries' routes, by two landings their GTFS routes' names have. */
+const WSF_ROUTES: [string, string[]][] = [
+  ["SEA-BI", ["Seattle", "Bainbridge"]],
+  ["SEA-BR", ["Seattle", "Bremerton"]],
+  ["ED-KING", ["Edmonds", "Kingston"]],
+  ["MUK-CL", ["Mukilteo", "Clinton"]],
+  ["PT-COU", ["Port Townsend", "Coupeville"]],
+  ["PD-TAL", ["Point Defiance", "Tahlequah"]],
+  // The triangle: any two of Fauntleroy, Vashon and Southworth.
+  ["F-V-S", ["Fauntleroy", "Vashon"]], ["F-V-S", ["Fauntleroy", "Southworth"]], ["F-V-S", ["Vashon", "Southworth"]],
+  // Anacortes and the San Juan Islands, between any of them.
+  ...["Anacortes", "Lopez", "Shaw", "Orcas", "Friday Harbor"].flatMap((a, i, all) =>
+    all.slice(i + 1).map((b) => ["ANA-SJ", [a, b]] as [string, string[]])),
 ];
 
-export const FERRY_STOP = /^(NYCF|SIF|NYW)_\w+$/;
+const WSF_NAMES: Record<string, string> = {
+  "SEA-BI": "Seattle – Bainbridge Island", "SEA-BR": "Seattle – Bremerton", "ED-KING": "Edmonds – Kingston",
+  "MUK-CL": "Mukilteo – Clinton", "PT-COU": "Port Townsend – Coupeville", "PD-TAL": "Point Defiance – Tahlequah",
+  "F-V-S": "Fauntleroy – Vashon – Southworth", "ANA-SJ": "Anacortes – San Juan Islands",
+};
+
+/** Whether `stop` is one of `city`'s ferry landings, by its operator's prefix. */
+export function isFerryStop(city: FerryCity, stop: string): boolean {
+  return CITIES[city].operators.some((o) => stop.startsWith(`${o.key}_`));
+}
 
 const NETWORK_TTL_MS = 24 * 3600_000;
 const FEED_TTL_MS = 30_000;
@@ -115,8 +187,8 @@ interface Network {
 
 // MARK: - Requests
 
-export async function handleFerry(parts: string[], url: URL): Promise<{ body: unknown; status?: number; maxAge?: number }> {
-  const network = await loadNetwork();
+export async function handleFerry(city: FerryCity, parts: string[], url: URL): Promise<{ body: unknown; status?: number; maxAge?: number }> {
+  const network = await loadNetwork(city);
 
   if (parts[0] === "lines" && parts.length === 2) {
     const line = network.lines.find((l) => l.id === decodeURIComponent(parts[1]));
@@ -139,9 +211,9 @@ export async function handleFerry(parts: string[], url: URL): Promise<{ body: un
     const code = url.searchParams.get("line");
     if (!code || !stop.split(",").every((s) => stops.has(s))) return { body: { error: "stop and line are required" }, status: 400 };
     const wanted = linePairs(code, url.searchParams.get("direction"), stop);
-    const live = await loadLive();
+    const live = await loadLive(city);
     const now = Date.now();
-    const departures = scheduled(network, now)
+    const departures = scheduled(network, now, CITIES[city].timeZone)
       .flatMap(({ trip, midnight }) => {
         const match = wanted.find((w) => w.line === trip.line && w.stop !== trip.last && trip.times.has(w.stop)
           && (!w.direction || w.direction === trip.direction));
@@ -172,26 +244,26 @@ export async function handleFerry(parts: string[], url: URL): Promise<{ body: un
   return { body: { error: "not found" }, status: 404 };
 }
 
-/** The ferry lines as the NYC line list wants them. */
-export async function ferryLines() {
-  return (await loadNetwork()).lines.map(({ id, name, mode }) => ({ id, name, mode }));
+/** The city's ferry lines as its line list wants them. */
+export async function ferryLines(city: FerryCity) {
+  return (await loadNetwork(city)).lines.map(({ id, name, mode }) => ({ id, name, mode }));
 }
 
-/** The ferry lines for the NYC line map: one direction's shapes is enough to draw a route. */
-export async function ferryMap() {
-  return (await loadNetwork()).lines.map(({ id, name, mode, color, textColor, directions }) => ({
+/** The city's ferry lines for its line map: one direction's shapes is enough to draw a route. */
+export async function ferryMap(city: FerryCity) {
+  return (await loadNetwork(city)).lines.map(({ id, name, mode, color, textColor, directions }) => ({
     id, name, mode, color, textColor,
     shapes: [...directions].sort((a, b) => b.shapes.length - a.shapes.length)[0]?.shapes ?? [],
   }));
 }
 
-/** Every ferry landing, with its lines, for the map's stop dots. */
-export async function ferryStops() {
-  return stopsOfLines((await loadNetwork()).lines);
+/** Every ferry landing in the city, with its lines, for the map's stop dots. */
+export async function ferryStops(city: FerryCity) {
+  return stopsOfLines((await loadNetwork(city)).lines);
 }
 
-export async function ferryLineIds() {
-  return new Set((await loadNetwork()).lines.map((l) => l.id));
+export async function ferryLineIds(city: FerryCity) {
+  return new Set((await loadNetwork(city)).lines.map((l) => l.id));
 }
 
 function linesAt(network: Network, stop: string) {
@@ -200,12 +272,12 @@ function linesAt(network: Network, stop: string) {
     .map((d) => ({ line: l.id, direction: d.id, destination: d.destination })));
 }
 
-/** Every trip running yesterday (after midnight) or today in New York, with its service day's midnight. */
-function scheduled(network: Network, now: number) {
+/** Every trip running yesterday (after midnight) or today in `timeZone`, with its service day's midnight. */
+function scheduled(network: Network, now: number, timeZone: string) {
   const found: { trip: ScheduledTrip; midnight: number }[] = [];
   for (const day of [-1, 0]) {
-    const date = nycDate(now + day * 86400_000);
-    const midnight = nycMidnight(date);
+    const date = localDate(now + day * 86400_000, timeZone);
+    const midnight = localMidnight(date, timeZone);
     const running = new Map([...network.calendars].map(([operator, calendar]) => [operator, servicesOn(calendar, date)]));
     for (const trip of network.trips) {
       if (!running.get(trip.operator)?.has(trip.service)) continue;
@@ -228,49 +300,50 @@ function servicesOn(calendar: Calendar, date: string): Set<string> {
   return services;
 }
 
-/** "20261028": the date in New York at `ms`. */
-function nycDate(ms: number): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+/** "20261028": the date in `timeZone` at `ms`. */
+function localDate(ms: number, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
   return parts.replaceAll("-", "");
 }
 
-/** Midnight in New York at the start of `date` ("20261028"), as epoch milliseconds. */
-function nycMidnight(date: string): number {
+/** Midnight in `timeZone` at the start of `date` ("20261028"), as epoch milliseconds. */
+function localMidnight(date: string, timeZone: string): number {
   const [y, m, d] = [Number(date.slice(0, 4)), Number(date.slice(4, 6)), Number(date.slice(6))];
   const noon = Date.UTC(y, m - 1, d, 12);
-  // "GMT-4" in summer, "GMT-5" in winter; noon's offset is the day's (clocks change at 2 am).
-  const offset = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "shortOffset" })
-    .formatToParts(noon).find((p) => p.type === "timeZoneName")?.value ?? "GMT-5";
+  // "GMT-4" in New York's summer, "GMT-5" in its winter; noon's offset is the day's (clocks change at 2 am).
+  const offset = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "shortOffset" })
+    .formatToParts(noon).find((p) => p.type === "timeZoneName")?.value ?? "GMT";
   const hours = Number(offset.replace("GMT", "") || 0);
   return Date.UTC(y, m - 1, d) - hours * 3600_000;
 }
 
 // MARK: - The network, from the operators' GTFS
 
-let network: { value: Promise<Network>; at: number } | undefined;
+const networks = new Map<FerryCity, { value: Promise<Network>; at: number }>();
 
-function loadNetwork(): Promise<Network> {
+function loadNetwork(city: FerryCity): Promise<Network> {
+  const network = networks.get(city);
   if (network && Date.now() - network.at < NETWORK_TTL_MS) return network.value;
-  const previous = network;
-  const value = buildNetwork().catch((error) => {
+  const value = buildNetwork(city).catch((error) => {
     // Keep serving yesterday's network on a hiccup; try again in a few minutes.
-    if (previous) {
-      network = { value: previous.value, at: Date.now() - NETWORK_TTL_MS + 300_000 };
-      return previous.value;
+    if (network) {
+      networks.set(city, { value: network.value, at: Date.now() - NETWORK_TTL_MS + 300_000 });
+      return network.value;
     }
-    network = undefined;
+    networks.delete(city);
     throw error;
   });
-  network = { value, at: Date.now() };
+  networks.set(city, { value, at: Date.now() });
   return value;
 }
 
-async function buildNetwork(): Promise<Network> {
-  const built = await Promise.all(OPERATORS.map(readOperator));
+async function buildNetwork(city: FerryCity): Promise<Network> {
+  const operators = CITIES[city].operators;
+  const built = await Promise.all(operators.map(readOperator));
   return {
     lines: built.flatMap((b) => b.lines),
     trips: built.flatMap((b) => b.trips),
-    calendars: new Map(built.map((b, i) => [OPERATORS[i].key, b.calendar])),
+    calendars: new Map(built.map((b, i) => [operators[i].key, b.calendar])),
   };
 }
 
@@ -309,12 +382,20 @@ async function readOperator(operator: Operator) {
 
   const lines: Line[] = [];
   const trips: ScheduledTrip[] = [];
-  // Boats only: NYC Ferry also runs shuttle buses around the Rockaways (route type 3).
+  // Boats only: NYC Ferry also runs shuttle buses around the Rockaways, Golden Gate Transit its buses
+  // (route type 3). Routes with the same line id are one line (Washington State Ferries has a route per way).
+  const byLine = new Map<string, Record<string, string>[]>();
   for (const route of routes.filter((r) => r.route_type === "4")) {
-    const lineId = operator.lineId(route);
-    const routeTrips = tripRows.filter((t) => t.route_id === route.route_id && timesByTrip.get(t.trip_id)?.length);
-    // A direction is GTFS's direction_id where there is one, else where the boat ends up.
-    const directionOf = (t: Record<string, string>) => t.direction_id || timesByTrip.get(t.trip_id)!.at(-1)!.stop;
+    byLine.set(operator.lineId(route), [...(byLine.get(operator.lineId(route)) ?? []), route]);
+  }
+  for (const [lineId, lineRoutes] of byLine) {
+    const route = lineRoutes[0];
+    const routeIds = new Set(lineRoutes.map((r) => r.route_id));
+    const routeTrips = tripRows.filter((t) => routeIds.has(t.route_id) && timesByTrip.get(t.trip_id)?.length);
+    // A direction is GTFS's direction_id where there is one (and one route to say what it means),
+    // else where the boat ends up.
+    const directionOf = (t: Record<string, string>) =>
+      (lineRoutes.length === 1 && t.direction_id) || timesByTrip.get(t.trip_id)!.at(-1)!.stop;
     const byDirection = new Map<string, Record<string, string>[]>();
     for (const t of routeTrips) byDirection.set(directionOf(t), [...(byDirection.get(directionOf(t)) ?? []), t]);
 
@@ -397,16 +478,16 @@ interface Live {
   fetchedAt: number;
 }
 
-let live: Promise<Live> | undefined;
+const lives = new Map<FerryCity, Promise<Live>>();
 
-/** The operators' trip updates and boat positions, at most every FEED_TTL_MS; an operator's are empty
- *  when they can't be had. */
-async function loadLive(): Promise<Live> {
-  const cached = await live?.catch(() => undefined);
+/** The city's operators' trip updates and boat positions, at most every FEED_TTL_MS; an operator's are
+ *  empty when they can't be had. */
+async function loadLive(city: FerryCity): Promise<Live> {
+  const cached = await lives.get(city)?.catch(() => undefined);
   if (cached && Date.now() - cached.fetchedAt < FEED_TTL_MS) return cached;
-  live = (async () => {
+  const live = (async () => {
     const get = (feed: string) => fetch(feed).then(async (r) => (r.ok ? new Uint8Array(await r.arrayBuffer()) : undefined)).catch(() => undefined);
-    const feeds = await Promise.all(OPERATORS.filter((o) => o.tripUpdates).map(async (operator) => {
+    const feeds = await Promise.all(CITIES[city].operators.filter((o) => o.tripUpdates).map(async (operator) => {
       const [updates, positions] = await Promise.all([get(operator.tripUpdates!), get(operator.vehiclePositions!)]);
       const key = (trip: string) => `${operator.key}:${trip}`;
       return {
@@ -420,6 +501,7 @@ async function loadLive(): Promise<Live> {
       fetchedAt: Date.now(),
     };
   })();
+  lives.set(city, live);
   return live;
 }
 

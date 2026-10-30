@@ -234,7 +234,8 @@ async function fetchLines(deps: Deps): Promise<SeattleLine[]> {
     lines.push({
       id: code,
       name: SHORT_CODES[route.shortName] ? String(route.shortName) : longName,
-      mode: route.type === 3 ? "bus" : route.type === 2 ? "rail" : "metro",
+      // Type 4: King County's Water Taxis.
+      mode: route.type === 3 ? "bus" : route.type === 2 ? "rail" : route.type === 4 ? "ferry" : "metro",
       routeId: String(route.id),
       color: hexColor(route.color),
       textColor: hexColor(route.textColor),

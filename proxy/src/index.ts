@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleActivity, type ActivityEnv } from "./activities";
 import { BART_STOP, bartLines, bartMap, bartStops, handleBart, isBartLine } from "./bart";
+import { ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop, type FerryCity } from "./ferries";
 import { handleNYC } from "./nyc";
 import { handleSeattle } from "./seattle";
 import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, parseCSV, readZipEntry, simplify, type NearbyLine, type Polyline } from "./geo";
@@ -75,7 +76,18 @@ export default {
     // platforms' stops ("M16-1"), and added to Muni's line list and map.
     const url = new URL(request.url);
     const parts = pathname.split("/").filter(Boolean);
-    const sfStop = (url.searchParams.get("stop") ?? "").split(",")[0];
+    // San Francisco's and Seattle's ferries (see ferries.ts) likewise: a ferry line or landing is
+    // theirs to answer, and they're added to the city's line list, map and stops.
+    const city: FerryCity = parts[1] === "seattle" ? "seattle" : "sf";
+    const rest = city === "seattle" ? parts.slice(2) : parts.slice(1);
+    const firstStop = (url.searchParams.get("stop") ?? "").split(",")[0];
+    if (parts[1] !== "nyc" && ((rest[0] === "lines" && rest.length === 2
+          && (await ferryLineIds(city).catch(() => new Set<string>())).has(decodeURIComponent(rest[1])))
+        || (["stop", "nearby", "departures"].includes(rest[0] ?? "") && isFerryStop(city, firstStop)))) {
+      const result = await handleFerry(city, rest, url);
+      return json(result.body, result.status ?? 200, result.maxAge ?? 0);
+    }
+    const sfStop = firstStop;
     if ((parts[1] === "lines" && parts.length === 3 && isBartLine(decodeURIComponent(parts[2])))
         || (["stop", "nearby", "departures"].includes(parts[1] ?? "") && BART_STOP.test(sfStop))) {
       const result = await handleBart(parts.slice(1).join("/"), url);
@@ -86,14 +98,16 @@ export default {
     // doubled buses. Bump the suffix again if ever needed; the new one starts with empty caches.
     const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v5`));
     const response = await stub.fetch(request);
-    if (response.ok && (pathname === "/v1/lines" || pathname === "/v1/map")) {
+    const list = parts[1] !== "nyc" && rest.length === 1 ? rest[0] : undefined;
+    if (response.ok && (list === "lines" || list === "map")) {
       const body: any = await response.json();
-      body.lines = [...body.lines, ...(pathname === "/v1/map" ? bartMap() : bartLines())];
+      const ferries = await (list === "map" ? ferryMap(city) : ferryLines(city)).catch(() => []);
+      body.lines = [...body.lines, ...(city === "sf" ? (list === "map" ? bartMap() : bartLines()) : []), ...ferries];
       return json(body, 200, 3600);
     }
-    if (response.ok && pathname === "/v1/stops") {
+    if (response.ok && list === "stops") {
       const body: any = await response.json();
-      body.stops = [...body.stops, ...bartStops()];
+      body.stops = [...body.stops, ...(city === "sf" ? bartStops() : []), ...(await ferryStops(city).catch(() => []))];
       return json(body, 200, 3600);
     }
     return response;

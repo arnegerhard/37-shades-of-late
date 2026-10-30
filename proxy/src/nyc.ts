@@ -15,7 +15,7 @@
  *   GET /v1/nyc/map                            every line's track shape, for picking a line on a map
  *   GET /v1/nyc/stops                          every platform, bus stop and ferry landing with its lines, for the map's stop dots
  *
- * The ferries (NYC Ferry, the Staten Island Ferry and NY Waterway, see nyc-ferry.ts) are
+ * The ferries (NYC Ferry, the Staten Island Ferry and NY Waterway, see ferries.ts) are
  * part of every list and map; a ferry line or landing ("NYCF_4", "SIF_stgeorge") is theirs to answer.
  *
  * Subway trains have no GPS; a train on the map is drawn at the station it's at, or partway to
@@ -24,7 +24,7 @@
 
 import network from "./nyc-subway.json";
 import { NYC_BUS } from "./nyc-bus";
-import { FERRY_STOP, ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry } from "./nyc-ferry";
+import { ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop } from "./ferries";
 import { handleOBA, type SeattleDeps } from "./seattle";
 import { closestPerLine, linePairs, metersBetween, NEARBY_METERS, stopsOfLines, type NearbyLine, type Polyline } from "./geo";
 
@@ -82,17 +82,17 @@ export async function handleNYC(parts: string[], url: URL, bus?: SeattleDeps): P
   const result = await handleNYCWithoutFerries(parts, url, bus);
   // The ferries join the lists and maps, unless they can't be had today.
   const body = result.body as any;
-  if (!result.status && parts[0] === "lines" && parts.length === 1) body.lines = [...body.lines, ...(await ferryLines().catch(() => []))];
-  if (!result.status && parts[0] === "map") body.lines = [...body.lines, ...(await ferryMap().catch(() => []))];
-  if (!result.status && parts[0] === "stops") body.stops = [...body.stops, ...(await ferryStops().catch(() => []))];
+  if (!result.status && parts[0] === "lines" && parts.length === 1) body.lines = [...body.lines, ...(await ferryLines("nyc").catch(() => []))];
+  if (!result.status && parts[0] === "map") body.lines = [...body.lines, ...(await ferryMap("nyc").catch(() => []))];
+  if (!result.status && parts[0] === "stops") body.stops = [...body.stops, ...(await ferryStops("nyc").catch(() => []))];
   return result;
 }
 
 async function handleNYCWithoutFerries(parts: string[], url: URL, bus?: SeattleDeps): Promise<{ body: unknown; status?: number; maxAge?: number }> {
-  if (parts[0] === "lines" && parts.length === 2 && (await ferryLineIds().catch(() => new Set<string>())).has(decodeURIComponent(parts[1]))) {
-    return handleFerry(parts, url);
+  if (parts[0] === "lines" && parts.length === 2 && (await ferryLineIds("nyc").catch(() => new Set<string>())).has(decodeURIComponent(parts[1]))) {
+    return handleFerry("nyc", parts, url);
   }
-  if (FERRY_STOP.test((url.searchParams.get("stop") ?? "").split(",")[0])) return handleFerry(parts, url);
+  if (isFerryStop("nyc", (url.searchParams.get("stop") ?? "").split(",")[0])) return handleFerry("nyc", parts, url);
   const buses = (path: string[]) => handleOBA(path, url, bus!, NYC_BUS);
   if (!bus) return handleRail(parts, url);
 
