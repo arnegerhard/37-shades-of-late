@@ -46,6 +46,8 @@ struct LineMapPicker: View {
     @State private var visibleRect: MKMapRect?
     @State private var cameraBeforeAlso: MapCameraPosition?
     @State private var heading: CLLocationDirection = 0
+    /// Where the map's camera is, to slide it without zooming.
+    @State private var camera: MapCamera?
     /// Where each line's name badge may go (worked out once per line map), and the badges shown now.
     @State private var labelSpots: [String: [LabelSpot]] = [:]
     @State private var labels: [LineLabel] = []
@@ -62,6 +64,19 @@ struct LineMapPicker: View {
     /// Every stop in the city, and those in view once zoomed in far enough to show them.
     @State private var allStops: [MapStop] = []
     @State private var shownStops: [MapStop] = []
+    /// Zoomed in to the stops, a circle in the middle of the map gathers those within a short walk
+    /// (`cornerMeters`) of it: their codes, nearest the middle first, and once looked up, the lines
+    /// and directions at each. Its size on screen, in points across.
+    @State private var circleCodes: [String] = []
+    @State private var circleStops: [CircleStop] = []
+    @State private var circleDiameter: CGFloat = 0
+    /// Lines' directions read for the circle so far, by line: reading them again (Seattle's come with
+    /// their whole route shapes) every time it moves would keep the phone busy for seconds.
+    @State private var circleDirections: [String: [Direction]] = [:]
+    /// How tall the circle's list is. It doesn't push the map up (that would zoom it out, away from
+    /// the stops that brought the list up): it lies over the map instead, and the circle sits in the
+    /// middle of what's left.
+    @State private var cardHeight: CGFloat = 0
     @State private var error: String?
     /// The lines and their badges blend in once the map is up (after it zooms out of the home screen's).
     @State private var fade: Double = 0
@@ -75,6 +90,14 @@ struct LineMapPicker: View {
     }
 
     private var selected: MapLine? { candidates.first { $0.id == selectedID } }
+
+    /// Whether the circle is out: zoomed in to the stops, with no line picked yet.
+    private var isCircling: Bool { selectedID == nil && !shownStops.isEmpty }
+
+    /// The lines stopping inside the circle, drawn up on the map while it's out.
+    private var circleLineIDs: Set<String> {
+        isCircling ? Set(circleStops.flatMap { $0.ways.map(\.line.id) }) : []
+    }
 
     /// The lines added with "Also fine with" (their map line IDs).
     private var alsoLineIDs: Set<String> {
@@ -105,7 +128,7 @@ struct LineMapPicker: View {
             Map(position: $position) {
                 // Selected line last, so it's drawn on top of the lines it shares streets with.
                 LineLayer(lines: drawOrder, paths: paths, pathsVersion: pathsVersion, selectedID: selectedID,
-                          alsoLineIDs: alsoLineIDs, candidateIDs: Set(candidates.map(\.id)),
+                          alsoLineIDs: alsoLineIDs, candidateIDs: Set(candidates.map(\.id)), circleLineIDs: circleLineIDs,
                           colorScheme: colorScheme, isBackground: isBackground, fade: fade)
 
                 // Line names. While a line is picked they step back like the other lines do.
@@ -150,8 +173,10 @@ struct LineMapPicker: View {
 
                 // Every stop around, underneath the selected line's own.
                 ForEach(shownStops) { stop in
+                    let inside = isCircling && circleCodes.contains(stop.code)
                     Annotation("", coordinate: stop.coordinate, anchor: .center) {
-                        Circle().fill(.white).stroke(.gray, lineWidth: 1.5).frame(width: 8, height: 8)
+                        Circle().fill(.white).stroke(inside ? Color.primary : .gray, lineWidth: inside ? 2 : 1.5)
+                            .frame(width: inside ? 10 : 8, height: inside ? 10 : 8)
                             .allowsHitTesting(false)
                     }
                     .annotationTitles(.hidden)
@@ -191,8 +216,26 @@ struct LineMapPicker: View {
             }
             // A muted base map lets the route colors carry the picture.
             .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
+            .overlay {
+                // Not a map circle: drawn over the map's middle, it stays put while the map moves under it.
+                if isCircling {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.12))
+                        .strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 2)
+                        .frame(width: circleDiameter, height: circleDiameter)
+                        .position(circleSpot)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: isCircling)
             .onMapCameraChange(frequency: .continuous) { context in
                 heading = context.camera.heading
+                if mapSize.width > 0 {
+                    let metersPerPoint = context.rect.width * MKMetersPerMapPointAtLatitude(context.rect.origin.coordinate.latitude) / mapSize.width
+                    circleDiameter = 2 * Self.cornerMeters / metersPerPoint
+                }
+                if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
                 // The badges follow a pinch or pan as it happens, not just once it's let go.
                 guard Date.now.timeIntervalSince(liveRelabelAt) > 0.15 else { return }
                 liveRelabelAt = .now
@@ -201,8 +244,14 @@ struct LineMapPicker: View {
             }
             .onMapCameraChange(frequency: .onEnd) {
                 visibleRect = $0.rect
+                camera = $0.camera
                 measure($0.rect)
+                if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
                 relabel(proxy)
+            }
+            // Once the list is up, the circle's middle moves up with it.
+            .onChange(of: circleSpot) {
+                if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
             }
             .onGeometryChange(for: CGSize.self, of: \.size) { mapSize = $0 }
             .task(id: lines.count) {
@@ -226,17 +275,33 @@ struct LineMapPicker: View {
                 }
             }
             .onChange(of: alsoLineIDs) { relabel(proxy) }
+            .onChange(of: circleLineIDs) { relabel(proxy) }
             // Alongside the map's own gestures, which would otherwise swallow a plain tap.
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in handleTap(at: tap.location, proxy: proxy) })
         }
         .safeAreaInset(edge: .bottom) {
             // The map fits itself to the space above the card, so a card changing height moves the map.
             // While a line is selected the space only grows: switching lines or stops leaves it be.
-            card
-                .onGeometryChange(for: CGFloat.self, of: \.size.height) { height in
-                    if selectedID == nil || height > cardRoom { cardRoom = height }
-                }
-                .frame(height: max(cardRoom, 1), alignment: .bottom)
+            // The circle's list doesn't take room from the map (see `cardHeight`): it lies over it.
+            if isCircling {
+                Color.clear.frame(height: max(cardRoom, 1))
+            } else {
+                card
+                    .onGeometryChange(for: CGFloat.self, of: \.size.height) { height in
+                        if selectedID == nil || height > cardRoom { cardRoom = height }
+                    }
+                    .frame(height: max(cardRoom, 1), alignment: .bottom)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if isCircling {
+                circleList
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .padding()
+                    .onGeometryChange(for: CGFloat.self, of: \.size.height) { cardHeight = $0 }
+            }
         }
         .overlay {
             if let error {
@@ -268,6 +333,7 @@ struct LineMapPicker: View {
         .task(id: city) {
             allStops = []
             shownStops = []
+            circleDirections = [:]
             // Thousands of them (New York's buses): read off the main thread.
             allStops = await Task.detached(priority: .userInitiated) { TransitService.cachedStops(in: city) }.value
             if let visibleRect { showStops(in: visibleRect) }
@@ -297,6 +363,14 @@ struct LineMapPicker: View {
                     rank($0) != rank($1) ? rank($0) < rank($1) : $0.line.localizedStandardCompare($1.line) == .orderedAscending
                 }
             }
+        }
+        .task(id: circleCodes) {
+            // A moment's rest first: a pan drags stops in and out of the circle.
+            try? await Task.sleep(for: .seconds(0.25))
+            guard !Task.isCancelled else { return }
+            let found = await lookUpCircle(circleCodes)
+            guard !Task.isCancelled else { return }
+            withAnimation(.snappy(duration: 0.2)) { circleStops = found }
         }
         .task(id: alsoLineIDs) {
             // The stops of each added line, in the direction it goes from the picked stop.
@@ -380,6 +454,14 @@ struct LineMapPicker: View {
                                 }
                             }
                             Spacer(minLength: 0)
+                            if !shownStops.isEmpty {
+                                // Back to the stops in the circle.
+                                Button { withAnimation(.snappy(duration: 0.25)) { deselect() } } label: {
+                                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Back to the stops around")
+                            }
                         }
                         if !corner.isEmpty {
                             VStack(spacing: 6) {
@@ -589,6 +671,11 @@ struct LineMapPicker: View {
                 return distance <= 16 ? (stop, distance) : nil
             })
             .min(by: { $0.1 < $1.1 })?.0 {
+            if selectedID == nil {
+                // The circle goes to it, and lists what stops there.
+                center(on: stop.coordinate, proxy: proxy)
+                return
+            }
             tapCoordinate = stop.coordinate
             if arrows.contains(where: { $0.stop.code == stop.code }) {
                 withAnimation(.snappy(duration: 0.25)) { pickCorner(near: stop.coordinate) }
@@ -647,7 +734,144 @@ struct LineMapPicker: View {
     private func measure(_ rect: MKMapRect) {
         guard mapSize.width > 0 else { return }
         metersPerPoint = rect.width * MKMetersPerMapPointAtLatitude(rect.origin.coordinate.latitude) / mapSize.width
+        circleDiameter = 2 * Self.cornerMeters / metersPerPoint
         showStops(in: rect)
+    }
+
+    /// The middle of the map that the card leaves showing, where the circle goes.
+    private var circleSpot: CGPoint {
+        let covered = isCircling ? max(0, cardHeight - cardRoom) : 0
+        return CGPoint(x: mapSize.width / 2, y: (mapSize.height - covered) / 2)
+    }
+
+    /// The stops within the circle around `middle`, nearest first.
+    private func gather(around middle: CLLocationCoordinate2D) {
+        let codes = shownStops
+            .map { ($0.code, meters($0.coordinate, middle)) }
+            .filter { $0.1 <= Self.cornerMeters }
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
+        if codes != circleCodes { circleCodes = codes }
+    }
+
+    /// Slides the map so `coordinate` is under the circle, as far in as it is now.
+    private func center(on coordinate: CLLocationCoordinate2D, proxy: MapProxy) {
+        guard let camera, let middle = proxy.convert(CGPoint(x: mapSize.width / 2, y: mapSize.height / 2), from: .local),
+              let spot = proxy.convert(circleSpot, from: .local)
+        else { return }
+        // The circle is above the map's middle by this much; the camera's center goes that much below the stop.
+        let shift = CLLocationCoordinate2D(latitude: middle.latitude - spot.latitude, longitude: middle.longitude - spot.longitude)
+        withAnimation(.smooth(duration: 0.4)) {
+            position = .camera(MapCamera(
+                centerCoordinate: CLLocationCoordinate2D(latitude: coordinate.latitude + shift.latitude,
+                                                         longitude: coordinate.longitude + shift.longitude),
+                distance: camera.distance, heading: camera.heading, pitch: camera.pitch))
+        }
+    }
+
+    /// The lines and directions at each of `codes`, in that order: which lines stop where comes with
+    /// the stops, or else from the proxy (Muni's, from the live times); each line's directions that
+    /// call there (from the device, or downloaded once) give the way it goes and the stop's name.
+    private func lookUpCircle(_ codes: [String]) async -> [CircleStop] {
+        let stops = codes.compactMap { code in shownStops.first { $0.code == code } }
+        var linesAt = Dictionary(stops.compactMap { s in s.lines.map { (s.code, $0) } }, uniquingKeysWith: { a, _ in a })
+        let asking = stops.filter { $0.lines == nil }.map(\.code)
+        if !asking.isEmpty, let found = try? await TransitService.linesAtStops(asking, in: city) {
+            for line in found where !(linesAt[line.stop ?? asking[0]] ?? []).contains(line.line) {
+                linesAt[line.stop ?? asking[0], default: []].append(line.line)
+            }
+        }
+        let wanted = Set(linesAt.values.flatMap { $0 })
+            .filter { circleDirections[$0] == nil }
+            .compactMap { id in lines.first { $0.id == id } }
+        let city = city
+        let loaded = await withTaskGroup(of: (String, [Direction]).self) { group in
+            for line in wanted {
+                group.addTask {
+                    var loaded = TransitService.cachedDirections(for: line.line, in: city)
+                    if loaded == nil { loaded = try? await TransitService.directions(for: line.line, in: city) }
+                    return (line.id, loaded ?? [])
+                }
+            }
+            var all: [String: [Direction]] = [:]
+            for await (id, loaded) in group { all[id] = loaded }
+            return all
+        }
+        circleDirections.merge(loaded) { _, new in new }
+        let directions = circleDirections
+        // Each way from each stop, by the stop's name: the two sides of a street (or the corners of
+        // an intersection) that share one are one place to riders.
+        var byName: [(name: String, ways: [CircleWay])] = []
+        for stop in stops {
+            for id in linesAt[stop.code] ?? [] {
+                guard let line = lines.first(where: { $0.id == id }) else { continue }
+                for direction in directions[id] ?? [] {
+                    // Not where it ends: nobody gets on there.
+                    guard let i = direction.stops.firstIndex(where: { $0.code == stop.code }), i < direction.stops.count - 1
+                    else { continue }
+                    let way = CircleWay(line: line, direction: direction, stop: stop.code, coordinate: stop.coordinate)
+                    let name = direction.stops[i].name
+                    if let at = byName.firstIndex(where: { $0.name == name }) {
+                        if !byName[at].ways.contains(way) { byName[at].ways.append(way) }
+                    } else {
+                        byName.append((name, [way]))
+                    }
+                }
+            }
+        }
+        return byName.map { name, ways in
+            CircleStop(name: name, codes: Set(ways.map(\.stop)), ways: ways.sorted {
+                $0.line.id != $1.line.id ? $0.line.id.localizedStandardCompare($1.line.id) == .orderedAscending
+                                         : $0.direction.destination < $1.direction.destination
+            })
+        }
+    }
+
+    /// The stops in the circle, each with the lines and ways it has; a row picks that line, stop and way.
+    private var circleList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(circleCodes.isEmpty ? "Slide the circle over where you wait." : "What stops around here")
+                .font(.subheadline).foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(circleStops.filter { !$0.codes.isDisjoint(with: circleCodes) }) { stop in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(stop.name).font(.headline).lineLimit(1)
+                            ForEach(stop.ways) { way in
+                                Button { pick(way) } label: {
+                                    HStack(spacing: 10) {
+                                        LineBadge(line: way.line.id, font: .system(.subheadline, design: .rounded).weight(.heavy),
+                                                  color: way.line.mapColor, textColor: way.line.badgeTextColor)
+                                            .fixedSize()
+                                        Text("To \(way.direction.destination)").font(.subheadline).lineLimit(1)
+                                        Spacer(minLength: 4)
+                                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                    }
+                                    .padding(.vertical, 6)
+                                    .padding(.horizontal, 10)
+                                    .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Line \(way.line.id) to \(way.direction.destination), at \(stop.name)")
+                            }
+                        }
+                    }
+                    if !circleCodes.isEmpty, !circleStops.contains(where: { !$0.codes.isDisjoint(with: circleCodes) }) {
+                        ProgressView().frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        // A set height, so the map's middle (and with it the circle) doesn't move as the list does.
+        .frame(height: 240, alignment: .top)
+    }
+
+    /// Picks `way` from the circle's list: the line, its stop, and that way.
+    private func pick(_ way: CircleWay) {
+        tapCoordinate = way.coordinate
+        select(way.line, among: [way.line], way: (way.direction.id, way.stop))
     }
 
     /// The stops in (and just around) `rect`, once few enough are in view to tell apart: sooner where
@@ -728,7 +952,7 @@ struct LineMapPicker: View {
     /// Selects `line` and its stop nearest the last tap together, once its stops are at hand, so the
     /// card and map change once, straight from the old line to the new one. Stops seen before are on
     /// the device already; others need one download, during which the old line stays up.
-    private func select(_ line: MapLine, among nearby: [MapLine]) {
+    private func select(_ line: MapLine, among nearby: [MapLine], way: (direction: String, stop: String)? = nil) {
         lineLoad?.cancel()
         let show = { (loaded: [Direction]) in
             let lineArrows = StopArrow.arrows(for: loaded, lineShape: paths[line.id] ?? [])
@@ -741,6 +965,10 @@ struct LineMapPicker: View {
                 corner = []
                 picked = nil
                 if let tapCoordinate { pickCorner(near: tapCoordinate) }
+                if let way, let arrow = lineArrows.first(where: { $0.direction.id == way.direction && $0.stop.code == way.stop }) {
+                    if !corner.contains(arrow) { corner = StopArrow.corner(near: arrow.position, in: lineArrows) }
+                    picked = corner.first { $0.id == arrow.id } ?? arrow
+                }
             }
         }
         if let cached = TransitService.cachedDirections(for: line.line, in: city) { return show(cached) }
@@ -768,8 +996,9 @@ struct LineMapPicker: View {
         let metersPerPoint = visibleRect.width * MKMetersPerMapPointAtLatitude(visibleRect.origin.coordinate.latitude) / mapSize.width
         // Clear of the edges, so no badge is cut off.
         let bounds = CGRect(origin: .zero, size: mapSize).insetBy(dx: 8, dy: 6)
+        let circled = circleLineIDs
         let placed = LineLabels.place(
-            lines: lines, spots: labelSpots, excluding: alsoLineIDs.union([selectedID].compactMap { $0 }),
+            lines: circled.isEmpty ? lines : lines.filter { circled.contains($0.id) }, spots: labelSpots, excluding: alsoLineIDs.union([selectedID].compactMap { $0 }),
             previous: labels, visible: visibleRect, bounds: bounds, metersPerPoint: metersPerPoint,
             convert: { proxy.convert($0, to: .local) })
         // Map annotations can't animate coming and going, so a badge taken off stays a moment to fade out.
@@ -849,6 +1078,27 @@ struct LineMapPicker: View {
             position = .rect(rect.insetBy(dx: -pad, dy: -pad))
         }
     }
+}
+
+/// A stop inside the circle as riders name it (both sides of the street, often), with the ways its
+/// lines go from there.
+struct CircleStop: Identifiable, Equatable {
+    let name: String
+    /// The stops by that name.
+    let codes: Set<String>
+    let ways: [CircleWay]
+    var id: String { name }
+}
+
+/// One line going one way from a stop in the circle.
+struct CircleWay: Identifiable, Equatable {
+    let line: MapLine
+    let direction: Direction
+    let stop: String
+    let coordinate: CLLocationCoordinate2D
+    var id: String { "\(line.id)|\(direction.id)|\(stop)" }
+
+    static func == (a: CircleWay, b: CircleWay) -> Bool { a.id == b.id }
 }
 
 /// One stop in one direction of travel, drawn as an arrow pointing the way the bus goes from there.
@@ -1106,6 +1356,8 @@ private struct LineLayer: MapContent, Equatable {
     let selectedID: String?
     let alsoLineIDs: Set<String>
     let candidateIDs: Set<String>
+    /// The lines stopping inside the circle, while it's out: up front, the rest stepping back.
+    let circleLineIDs: Set<String>
     let colorScheme: ColorScheme
     let isBackground: (MapLine) -> Bool
     /// 0 to 1 as the lines blend in.
@@ -1113,23 +1365,26 @@ private struct LineLayer: MapContent, Equatable {
 
     static func == (a: Self, b: Self) -> Bool {
         a.fade == b.fade && a.pathsVersion == b.pathsVersion && a.selectedID == b.selectedID && a.alsoLineIDs == b.alsoLineIDs
-            && a.candidateIDs == b.candidateIDs && a.colorScheme == b.colorScheme && a.lines.map(\.id) == b.lines.map(\.id)
+            && a.candidateIDs == b.candidateIDs && a.circleLineIDs == b.circleLineIDs && a.colorScheme == b.colorScheme && a.lines.map(\.id) == b.lines.map(\.id)
     }
 
     var body: some MapContent {
         ForEach(lines) { line in
             let isSelected = line.id == selectedID || alsoLineIDs.contains(line.id)
             let isCandidate = !isSelected && candidateIDs.contains(line.id)
+            let isCircled = circleLineIDs.contains(line.id)
+            let isStepBack = selectedID == nil && !circleLineIDs.isEmpty && !isCircled
             // Many lines share a color (all Muni buses are blue), so only the selected line
             // keeps full strength; nearby ones stay a bit clearer than the rest.
             // New York's buses are a fine, faint web under the trains until one is picked.
             let background = isBackground(line) && !isSelected
-            let width: CGFloat = isSelected ? 7 : isCandidate ? 3.5 : background ? 1.5 : 3
+            let width: CGFloat = isSelected ? 7 : isCircled ? 5 : isCandidate ? 3.5 : background ? 1.5 : 3
             let ferry = line.mode == "ferry"
             ForEach(Array((paths[line.id] ?? []).enumerated()), id: \.offset) { _, path in
                 MapPolyline(coordinates: path)
                     .stroke(line.mapColor.legible(on: colorScheme)
-                                .opacity((selectedID == nil || isSelected ? 1 : isCandidate ? 0.5 : 0.22) * (background && !isCandidate ? 0.45 : 1) * fade),
+                                .opacity((isStepBack ? 0.22 : selectedID == nil || isSelected ? 1 : isCandidate ? 0.5 : 0.22)
+                                         * (background && !isCandidate && !isCircled ? 0.45 : 1) * fade),
                             // Ferries dashed across the water (flat ends, or round ones would fill the gaps).
                             style: StrokeStyle(lineWidth: width, lineCap: ferry ? .butt : .round, lineJoin: .round,
                                                dash: ferry ? [width * 2.5, width * 1.5] : []))
