@@ -73,8 +73,7 @@ struct LinePicker: View {
             ForEach(filtered) { line in
                 NavigationLink(value: line) {
                     HStack(spacing: 10) {
-                        LineBadge(line: LineBadge.short(line.id, in: city), font: .system(.body, design: .rounded).weight(.heavy),
-                                  round: LineBadge.isRound([line.id], in: city), spoken: line.id)
+                        LineBadge.single(line.id, in: city, font: .system(.body, design: .rounded).weight(.heavy))
                             .frame(minWidth: 52, alignment: .leading)
                         Text(line.name)
                     }
