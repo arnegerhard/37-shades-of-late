@@ -79,6 +79,9 @@ struct LineMapPicker: View {
     /// the list's height would move the circle, which changes the list.
     private static let circleListHeight: CGFloat = 240
     @State private var circleRowsHeight: CGFloat = 0
+    /// Where the circle's list and the map are on screen, to tell taps on the list from taps on the map.
+    @State private var circleListFrame: CGRect = .null
+    @State private var mapFrame: CGRect = .zero
     @State private var error: String?
     /// The lines and their badges blend in once the map is up (after it zooms out of the home screen's).
     @State private var fade: Double = 0
@@ -257,6 +260,7 @@ struct LineMapPicker: View {
                 if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
             }
             .onGeometryChange(for: CGSize.self, of: \.size) { mapSize = $0 }
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { mapFrame = $0 }
             .task(id: lines.count) {
                 // Off the main thread: a city's worth of lines takes a moment.
                 let paths = paths
@@ -280,7 +284,11 @@ struct LineMapPicker: View {
             .onChange(of: alsoLineIDs) { relabel(proxy) }
             .onChange(of: circleLineIDs) { relabel(proxy) }
             // Alongside the map's own gestures, which would otherwise swallow a plain tap.
-            .simultaneousGesture(SpatialTapGesture().onEnded { tap in handleTap(at: tap.location, proxy: proxy) })
+            // Not for taps on the circle's list over the map, which the map hears too: those are the list's.
+            .simultaneousGesture(SpatialTapGesture(coordinateSpace: .global).onEnded { tap in
+                guard !circleListFrame.contains(tap.location) else { return }
+                handleTap(at: CGPoint(x: tap.location.x - mapFrame.minX, y: tap.location.y - mapFrame.minY), proxy: proxy)
+            })
         }
         .safeAreaInset(edge: .bottom) {
             // The map fits itself to the space above the card, so a card changing height moves the map.
@@ -302,6 +310,8 @@ struct LineMapPicker: View {
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { circleListFrame = $0 }
+                    .onDisappear { circleListFrame = .null }
                     .padding()
             }
         }
@@ -647,9 +657,11 @@ struct LineMapPicker: View {
         "\(max(10, Int((Double(line.distance ?? 0) / 10).rounded()) * 10)) m"
     }
 
-    /// An arrow at the picked stop picks that direction. Along the selected line, its stop nearest
-    /// the tap. Anywhere else, zoomed out too far for stops, it zooms in there; closer, the line
-    /// nearest the tap and its stop there (or none: let go).
+    /// An arrow at the picked stop picks that direction. Along the selected line (or on one of its
+    /// stops), its stop nearest the tap. Anywhere else, zoomed out too far for stops, it zooms in
+    /// there; closer, the circle goes there, letting go of the line: lines are picked from the
+    /// circle's list. (Picking the line nearest a tap had people in New York, where a fingertip
+    /// always covers one, hopping from line to line without ever seeing the circle.)
     private func handleTap(at point: CGPoint, proxy: MapProxy) {
         guard let coordinate = proxy.convert(point, from: .local),
               let edge = proxy.convert(CGPoint(x: point.x + 24, y: point.y), from: .local)
@@ -667,8 +679,7 @@ struct LineMapPicker: View {
             withAnimation(.snappy(duration: 0.2)) { picked = hit }
             return
         }
-        // A stop dot: the lines around it as chips, the selected one kept if it stops there (and
-        // moved to that stop at once, while the others are looked up).
+        // A stop dot: the selected line's own moves its stop there; any other takes the circle there.
         if let stop = shownStops
             .compactMap({ stop -> (MapStop, CGFloat)? in
                 guard let spot = proxy.convert(stop.coordinate, to: .local) else { return nil }
@@ -676,16 +687,12 @@ struct LineMapPicker: View {
                 return distance <= 16 ? (stop, distance) : nil
             })
             .min(by: { $0.1 < $1.1 })?.0 {
-            if selectedID == nil {
-                // The circle goes to it, and lists what stops there.
-                center(on: stop.coordinate, proxy: proxy)
+            if selectedID != nil, arrows.contains(where: { $0.stop.code == stop.code }) {
+                tapCoordinate = stop.coordinate
+                withAnimation(.snappy(duration: 0.25)) { pickCorner(near: stop.coordinate) }
                 return
             }
-            tapCoordinate = stop.coordinate
-            if arrows.contains(where: { $0.stop.code == stop.code }) {
-                withAnimation(.snappy(duration: 0.25)) { pickCorner(near: stop.coordinate) }
-            }
-            selectStop(stop, proxy: proxy)
+            circle(on: stop.coordinate, proxy: proxy)
             return
         }
         tapCoordinate = coordinate
@@ -698,27 +705,41 @@ struct LineMapPicker: View {
             zoomIn(on: coordinate)
             return
         }
-        selectLine(near: point, proxy: proxy)
+        circle(on: coordinate, proxy: proxy)
+    }
+
+    /// Lets go of the selected line, if any, and takes the circle to `coordinate`, to list what stops there.
+    private func circle(on coordinate: CLLocationCoordinate2D, proxy: MapProxy) {
+        if selectedID != nil { withAnimation(.snappy(duration: 0.25)) { deselect() } }
+        center(on: coordinate, proxy: proxy)
     }
 
     /// Zooms in on `coordinate`, just far enough for the stops around it to show (or, with none
     /// around, a step closer).
     private func zoomIn(on coordinate: CLLocationCoordinate2D) {
         guard let visibleRect, mapSize.width > 0 else { return }
+        let size = sizeShowingStops(around: coordinate, from: MKMapSize(width: visibleRect.width * 0.8, height: visibleRect.height * 0.8))
+        let center = MKMapPoint(coordinate)
+        withAnimation(.smooth(duration: 0.8)) {
+            position = .rect(MKMapRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height))
+        }
+    }
+
+    /// `size`, or smaller (a fifth at a time) until few enough stops are around `coordinate` for them
+    /// to show (see `showStops`), down to 600 m across.
+    private func sizeShowingStops(around coordinate: CLLocationCoordinate2D, from size: MKMapSize) -> MKMapSize {
         let center = MKMapPoint(coordinate)
         let metersPerMapPoint = MKMetersPerMapPointAtLatitude(coordinate.latitude)
-        func around(_ size: MKMapSize) -> MKMapRect {
-            MKMapRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
-        }
-        func fewEnoughStops(_ rect: MKMapRect) -> Bool {
-            rect.width * metersPerMapPoint / mapSize.width < Self.stopsConsideredBelowMetersPerPoint
+        func fewEnoughStops(_ size: MKMapSize) -> Bool {
+            let rect = MKMapRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+            return size.width * metersPerMapPoint / mapSize.width < Self.stopsConsideredBelowMetersPerPoint
                 && allStops.lazy.filter { rect.contains(MKMapPoint($0.coordinate)) }.count <= Self.mostStopsInView
         }
-        var size = visibleRect.size
-        repeat {
+        var size = size
+        while !fewEnoughStops(size) && size.width * metersPerMapPoint > 600 {
             size = MKMapSize(width: size.width * 0.8, height: size.height * 0.8)
-        } while !fewEnoughStops(around(size)) && size.width * metersPerMapPoint > 600
-        withAnimation(.smooth(duration: 0.8)) { position = .rect(around(size)) }
+        }
+        return size
     }
 
     /// Picks the selected line's stop nearest `coordinate`, with its directions; a stop served one way
@@ -761,17 +782,21 @@ struct LineMapPicker: View {
     }
 
     /// Slides the map so `coordinate` is under the circle, as far in as it is now.
+    /// Closer in, if that's what it takes for the stops there to show, and with them the circle.
     private func center(on coordinate: CLLocationCoordinate2D, proxy: MapProxy) {
-        guard let camera, let middle = proxy.convert(CGPoint(x: mapSize.width / 2, y: mapSize.height / 2), from: .local),
+        guard let camera, let visibleRect, let middle = proxy.convert(CGPoint(x: mapSize.width / 2, y: mapSize.height / 2), from: .local),
               let spot = proxy.convert(circleSpot, from: .local)
         else { return }
-        // The circle is above the map's middle by this much; the camera's center goes that much below the stop.
-        let shift = CLLocationCoordinate2D(latitude: middle.latitude - spot.latitude, longitude: middle.longitude - spot.longitude)
+        let zoom = sizeShowingStops(around: coordinate, from: visibleRect.size).width / visibleRect.width
+        // The circle is above the map's middle by this much (less, closer in); the camera's center goes
+        // that much below the stop.
+        let shift = CLLocationCoordinate2D(latitude: (middle.latitude - spot.latitude) * zoom,
+                                           longitude: (middle.longitude - spot.longitude) * zoom)
         withAnimation(.smooth(duration: 0.4)) {
             position = .camera(MapCamera(
                 centerCoordinate: CLLocationCoordinate2D(latitude: coordinate.latitude + shift.latitude,
                                                          longitude: coordinate.longitude + shift.longitude),
-                distance: camera.distance, heading: camera.heading, pitch: camera.pitch))
+                distance: camera.distance * zoom, heading: camera.heading, pitch: camera.pitch))
         }
     }
 
@@ -918,60 +943,12 @@ struct LineMapPicker: View {
     /// Further out than this (a few miles across), they aren't even counted.
     private static let stopsConsideredBelowMetersPerPoint = 30.0
 
-    /// Selects a line that stops at `stop`, with every line at the stops around it as chips (a busy
-    /// corner like Market and Church has a stop per line and direction), and opens on that stop.
-    /// Which lines stop where comes with the stops, or else from the proxy (Muni's, from the live
-    /// times); if none are running, the lines passing by will do.
-    private func selectStop(_ stop: MapStop, proxy: MapProxy) {
-        lineLoad?.cancel()
-        lineLoad = Task {
-            // Nearest first, so the tapped stop's own lines lead.
-            let around = allStops
-                .map { ($0, meters($0.coordinate, stop.coordinate)) }
-                .filter { $0.1 <= Self.cornerMeters }
-                .sorted { $0.1 < $1.1 }
-                .map(\.0)
-            var linesAt = Dictionary(around.compactMap { s in s.lines.map { (s.code, $0) } }, uniquingKeysWith: { a, _ in a })
-            let asking = around.filter { $0.lines == nil }.map(\.code)
-            if !asking.isEmpty, let found = try? await TransitService.linesAtStops(asking, in: city) {
-                for line in found { linesAt[line.stop ?? asking[0], default: []].append(line.line) }
-            }
-            guard !Task.isCancelled else { return }
-            let here = around.flatMap { linesAt[$0.code] ?? [] }.reduce(into: [MapLine]()) { found, id in
-                if let line = lines.first(where: { $0.id == id }), !found.contains(where: { $0.id == id }) { found.append(line) }
-            }
-            if let first = here.first(where: { $0.id == selectedID }) ?? here.first {
-                select(first, among: here)
-            } else if let point = proxy.convert(stop.coordinate, to: .local) {
-                selectLine(near: point, proxy: proxy)
-            }
-        }
-    }
-
-    /// How far around a tapped stop its corner reaches: as far as "Also fine with" looks (the proxy's
+    /// How far the circle reaches from its middle: as far as "Also fine with" looks (the proxy's
     /// NEARBY_METERS), a minute or two on foot.
     private static let cornerMeters = 150.0
 
     /// Stops along a line are a few hundred meters apart; this far in, that's a fingertip or more.
     private static let dotsBelowMetersPerPoint = 6.0
-
-    /// Lines within about a fingertip (24 pt) of the tap, nearest first.
-    private func selectLine(near point: CGPoint, proxy: MapProxy) {
-        guard let tap = proxy.convert(point, from: .local),
-              let edge = proxy.convert(CGPoint(x: point.x + 24, y: point.y), from: .local)
-        else { return }
-        let reach = meters(tap, edge)
-        let nearby = lines
-            .compactMap { line -> (MapLine, Double)? in
-                let distance = (paths[line.id] ?? []).map { distanceToPath(tap, $0) }.min() ?? .infinity
-                return distance <= reach ? (line, distance) : nil
-            }
-            .sorted { $0.1 < $1.1 }
-            .prefix(8)
-            .map(\.0)
-        guard let nearest = nearby.first else { return withAnimation(.snappy(duration: 0.25)) { deselect() } }
-        select(nearest, among: Array(nearby))
-    }
 
     /// Selects `line` and its stop nearest the last tap together, once its stops are at hand, so the
     /// card and map change once, straight from the old line to the new one. Stops seen before are on
