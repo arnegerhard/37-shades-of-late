@@ -138,3 +138,48 @@ extension Color {
                   blue: Double(value & 0xFF) / 255)
     }
 }
+
+extension LineBadge {
+    /// One line's badge, as on the line map: round and in its color where it has one (see
+    /// `isRound`, `roundColor`), else a rectangle in the app's red.
+    static func single(_ id: String, in city: City, font: Font) -> LineBadge {
+        let color = roundColor(of: id, in: city)
+        return LineBadge(line: id, font: font, color: Color(hex: color?.hex) ?? red,
+                         textColor: color?.darkText == true ? .black : .white, round: isRound([id], in: city))
+    }
+}
+
+/// A stop's next few waits, as `Departure.waits` words them, but for combined lines with each one's
+/// badge in front instead of its name: [A] 2 · [C] 5 · [E] 6 min. A single line's are just minutes.
+/// The minutes take the font and color around it; the badges, `badgeFont`, a size or so smaller.
+struct WaitsLabel: View {
+    let departures: [Departure]
+    let date: Date
+    let count: Int
+    let selection: Selection
+    var unit = true
+    var badgeFont: Font = .system(.caption2, design: .rounded).weight(.heavy)
+
+    var body: some View {
+        let next = Array(departures.filter { $0.time > date.addingTimeInterval(-30) }.prefix(count))
+        if selection.isMultiLine {
+            HStack(spacing: 3) {
+                ForEach(Array(next.enumerated()), id: \.offset) { i, departure in
+                    if i > 0 { Text("·").padding(.horizontal, 1) }
+                    if let line = departure.line {
+                        LineBadge.single(line, in: selection.city, font: badgeFont).fixedSize()
+                    }
+                    Text(wait(departure, last: i == next.count - 1))
+                }
+            }
+        } else {
+            Text(Departure.waits(next, from: date, count: count, unit: unit) ?? "")
+        }
+    }
+
+    /// "4", "now", or "16 min" for the last one (but not "now min").
+    private func wait(_ departure: Departure, last: Bool) -> String {
+        let minutes = max(0, Int(departure.time.timeIntervalSince(date) / 60))
+        return minutes == 0 ? "now" : "\(minutes)" + (unit && last ? " min" : "")
+    }
+}

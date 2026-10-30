@@ -64,6 +64,8 @@ async function card(request: Request, url: URL, env: Env, ctx: ExecutionContext)
     badge: ride.badge,
     round: ride.round,
     parts: ride.parts,
+    lineBadges: ride.combined ? Object.fromEntries(upcoming.map((d) => d.line ?? "").filter(Boolean)
+      .map((id) => [id, lineBadge(id, url.searchParams.get("c") ?? "sf")])) : undefined,
     destination: ride.destination,
     stop: ride.stop,
     minutes,
@@ -169,6 +171,12 @@ function badgeParts(ids: string[], city: string): BadgePart[] {
     if (group) group.ids.push(id); else groups.push({ color, ids: [id] });
   }
   return groups.map((g) => ({ label: join(g.ids), color: g.color?.[0], dark: g.color?.[1] }));
+}
+
+/** One line's badge, as on the line map: round and in its color where it has one, else in red. */
+function lineBadge(id: string, city: string): BadgePart & { round: boolean } {
+  const color = ROUND_COLORS[city]?.[id] ?? (city === "nyc" && id.startsWith("S ") ? ["#7C858C", false] as [string, boolean] : undefined);
+  return { label: id, color: color?.[0], dark: color?.[1], round: isRound([id], city) };
 }
 
 /** The line, stop and destination a shared link points to: /s?c=sf&l=37&s=13254&d=IB. Combined lines

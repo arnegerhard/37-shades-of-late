@@ -246,7 +246,16 @@ struct Bus37WidgetView: View {
             }
             Spacer(minLength: 2)
             // The small widget drops "min" so two waits always fit next to the badge.
-            Text(entry.waits(row, count: small ? 2 : 4, unit: !small) ?? (row.failed ? "–" : "none"))
+            Group {
+                if entry.upcoming(row).isEmpty {
+                    Text(row.failed ? "–" : "none")
+                } else {
+                    // Combined lines get a badge per wait: one fewer of them fits.
+                    WaitsLabel(departures: entry.upcoming(row), date: entry.date,
+                               count: (small ? 2 : 4) - (row.selection.isMultiLine ? 1 : 0), selection: row.selection,
+                               unit: !small, badgeFont: .system(size: small ? 9 : 10, weight: .heavy, design: .rounded))
+                }
+            }
                 .font(.system(small ? .callout : .subheadline, design: .rounded).weight(.semibold))
                 .monospacedDigit()
                 .lineLimit(1)

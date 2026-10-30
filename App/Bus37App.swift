@@ -460,8 +460,14 @@ struct ContentView: View {
                         .layoutPriority(1)
                     Text("To \(favorite.destination)").font(.subheadline.weight(.semibold))
                     Spacer(minLength: 4)
-                    Text(Departure.waits(upcoming, from: context.date, count: 1, lines: favorite.isMultiLine)
-                         ?? (loaded == nil ? "…" : "none"))
+                    Group {
+                        if upcoming.isEmpty {
+                            Text(loaded == nil ? "…" : "none")
+                        } else {
+                            WaitsLabel(departures: upcoming, date: context.date, count: 1, selection: favorite,
+                                       badgeFont: .system(.footnote, design: .rounded).weight(.heavy))
+                        }
+                    }
                         .font(.system(.headline, design: .rounded).weight(.semibold))
                         .foregroundStyle(upcoming.first?.isLive == true ? .green : .secondary)
                         .monospacedDigit()
@@ -470,8 +476,9 @@ struct ContentView: View {
                 HStack(spacing: 8) {
                     Text(favorite.stopName).font(.footnote).foregroundStyle(.secondary)
                     Spacer(minLength: 4)
-                    if let later = Departure.waits(Array(upcoming.dropFirst()), from: context.date, count: 2, unit: false, lines: favorite.isMultiLine) {
-                        Text(later)
+                    if upcoming.count > 1 {
+                        WaitsLabel(departures: Array(upcoming.dropFirst()), date: context.date, count: 2, selection: favorite,
+                                   unit: false, badgeFont: .system(size: 9, weight: .heavy, design: .rounded))
                             .font(.system(.caption, design: .rounded).weight(.medium))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()

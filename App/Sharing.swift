@@ -222,13 +222,19 @@ struct ShareCard: View {
             }
             Spacer(minLength: 18)
             if let next = upcoming.first {
-                Text(Departure.waits([next], from: now, count: 1, lines: selection.isMultiLine) ?? "")
+                WaitsLabel(departures: [next], date: now, count: 1, selection: selection,
+                           badgeFont: .system(size: 40, weight: .heavy, design: .rounded))
                     .font(.system(size: 76, weight: .heavy, design: .rounded))
                     .foregroundStyle(next.isLive ? .green : .white.opacity(0.6))
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
-                if let later = Departure.waits(Array(upcoming.dropFirst()), from: now, count: 2, unit: false, lines: selection.isMultiLine) {
-                    Text("then \(later)").font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.6))
+                if upcoming.count > 1 {
+                    HStack(spacing: 4) {
+                        Text("then")
+                        WaitsLabel(departures: Array(upcoming.dropFirst()), date: now, count: 2, selection: selection, unit: false,
+                                   badgeFont: .system(size: 12, weight: .heavy, design: .rounded))
+                    }
+                    .font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.6))
                 }
             } else {
                 Text("??").font(.system(size: 76, weight: .heavy, design: .rounded)).foregroundStyle(.white.opacity(0.6))

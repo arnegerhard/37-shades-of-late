@@ -26,6 +26,8 @@ export interface Card {
   round?: boolean;
   /** The badges, in their colors (see `badgeParts` in worker.ts); `badge` in red without them. */
   parts?: BadgePart[];
+  /** Each combined line's own badge, for the waits (see `lineBadge` in worker.ts). */
+  lineBadges?: Record<string, BadgePart & { round: boolean }>;
   destination: string;
   stop: string;
   /** Minutes until the next few, the first one big; empty when none is coming. */
@@ -96,6 +98,42 @@ const background = `<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><s
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bg)"/>`;
 
 /** What follows the first wait: "then 12 · 19 min", or "the K, then L 4 · M 9 min". */
+/** `thenLine`, with each line drawn as its badge, as the app does: "the [A], then [C] 9 · [E] 12
+ * min". Text and badges in a row from `x`, cut off (with an ellipsis) at `room`. */
+function thenRow(card: Card, x: number, y: number, size: number, room: number): string {
+  if (!card.lines) {
+    const text = thenLine(card);
+    return text ? `<text x="${x}" y="${y}" font-size="${size}" font-weight="600" fill="${muted}">${escape(fit(text, size, room, false))}</text>` : "";
+  }
+  const [first, ...later] = card.minutes;
+  const pieces: (string | { line: string })[] = [];
+  if (first !== undefined) pieces.push("the ", { line: card.lines[0] });
+  if (later.length) {
+    pieces.push(first !== undefined ? ", then " : "then ");
+    later.slice(0, 2).forEach((m, i) => pieces.push(...(i ? [" · "] : []), { line: card.lines![i + 1] }, ` ${m}`));
+    pieces.push(" min");
+  }
+  let at = x;
+  const out: string[] = [];
+  const height = Math.round(size * 1.05);
+  for (const piece of pieces) {
+    if (at - x > room) break;
+    if (typeof piece === "string") {
+      out.push(`<text x="${at}" y="${y}" font-size="${size}" font-weight="600" fill="${muted}" xml:space="preserve">${escape(piece)}</text>`);
+      at += textWidth(piece, size, false);
+    } else {
+      const badge = card.lineBadges?.[piece.line] ?? { label: piece.line, round: false };
+      const label = badge.label, small = Math.round(size * 0.72);
+      const width = Math.max(badge.round ? height : 0, Math.round(textWidth(label, small, true) + height * (badge.round ? 0.4 : 0.5)));
+      const top = y - size * 0.82;
+      out.push(`<rect x="${at}" y="${top}" width="${width}" height="${height}" rx="${badge.round ? height / 2 : height * 0.16}" fill="${badge.color ?? red}"/>`,
+        `<text x="${at + width / 2}" y="${top + height * 0.73}" font-size="${small}" font-weight="900" fill="${badge.dark ? "#000" : "#fff"}" text-anchor="middle">${escape(label)}</text>`);
+      at += width;
+    }
+  }
+  return out.join("\n  ");
+}
+
 function thenLine(card: Card): string {
   const [first, ...later] = card.minutes;
   const then = later.slice(0, 2).map((m, i) => (card.lines ? `${card.lines[i + 1]} ` : "") + m).join(" · ");
@@ -118,7 +156,6 @@ function footer(x: number, y: number, size: number): string {
 function withMap(card: Card, map: CardMap): string {
   const left = 64, width = WIDTH - MAP_WIDTH - left - 40, mapLeft = WIDTH - MAP_WIDTH;
   const badge = badges(card, left, 56, 76, 52, width);
-  const thenText = thenLine(card);
   const quip = wrap(`“${card.quip}”`, 30, width, 2);
   const at = (p: { x: number; y: number }) => `${(mapLeft + p.x).toFixed(1)},${p.y.toFixed(1)}`;
   const route = map.route.filter((line) => line.length > 1)
@@ -138,7 +175,7 @@ function withMap(card: Card, map: CardMap): string {
   <text x="${left}" y="192" font-size="38" font-weight="900" fill="#fff">${escape(fit(`To ${card.destination}`, 38, width, true))}</text>
   <text x="${left}" y="234" font-size="28" font-weight="600" fill="${muted}">${escape(fit(card.stop, 28, width, false))}</text>
   ${wait(card, 150, left - 4, 392)}
-  ${thenText ? `<text x="${left}" y="442" font-size="28" font-weight="600" fill="${muted}">${escape(fit(thenText, 28, width, false))}</text>` : ""}
+  ${thenRow(card, left, 442, 28, width)}
   ${quip.map((line, i) => `<text x="${left}" y="${494 + i * 36}" font-size="30" font-weight="600" fill="#fff">${escape(line)}</text>`).join("\n  ")}
   ${footer(left, 604, 20)}
 </svg>`;
@@ -150,7 +187,6 @@ function textOnly(card: Card): string {
   const badge = badges(card, left, 64, 92, 64, 520);
   const textLeft = left + badge.width + 28;
   const room = WIDTH - textLeft - 72;
-  const thenText = thenLine(card);
   const quip = fit(`“${card.quip}”`, 40, WIDTH - left * 2, false);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   ${background}
@@ -158,7 +194,7 @@ function textOnly(card: Card): string {
   <text x="${textLeft}" y="104" font-size="44" font-weight="900" fill="#fff">${escape(fit(`To ${card.destination}`, 44, room, true))}</text>
   <text x="${textLeft}" y="150" font-size="32" font-weight="600" fill="${muted}">${escape(fit(card.stop, 32, room, false))}</text>
   ${wait(card, 190, left, 380)}
-  ${thenText ? `<text x="${left}" y="440" font-size="36" font-weight="600" fill="${muted}">${escape(fit(thenText, 36, WIDTH - left * 2, false))}</text>` : ""}
+  ${thenRow(card, left, 440, 36, WIDTH - left * 2)}
   <text x="${left}" y="508" font-size="40" font-weight="600" fill="#fff">${escape(quip)}</text>
   ${footer(left, HEIGHT - 56, 26)}
   <text x="${left + 360}" y="${HEIGHT - 56}" font-size="26" font-weight="600" fill="${muted}">37shadesoflate.com</text>
