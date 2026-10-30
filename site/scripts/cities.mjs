@@ -1,7 +1,9 @@
-// Draws images/cities.svg, the homepage's map of the cities: the lower 48 (the Census Bureau's outlines,
-// public domain, from us-atlas) with a card per city showing its trains in their colors, from the app's
-// bundled line maps (App/Snapshots), tied by a line to where the city is. build.sh inlines it; the page
-// pops the cities in one by one (see "The cities" in index.src.html). Run it again when a city is added:
+// Draws images/cities.svg, the homepage's origin story on a map: the 37 and its stop at Church & 14th,
+// every Muni line and BART around it, and the lower 48 (the Census Bureau's outlines, public domain, from
+// us-atlas) with a card per city showing its trains in their colors, from the app's bundled line maps
+// (App/Snapshots), tied by a line to where the city is. All in one projection, so the page can zoom out
+// from the stop to San Francisco to the country as you scroll (the svg's data-view-* boxes; see "Origin
+// story" in index.src.html). build.sh inlines it. Run it again when a city is added:
 //
 //     npm install --prefix /tmp/geo d3-geo@3.1.1 topojson-client@3.1.0 us-atlas@3.0.1
 //     node site/scripts/cities.mjs /tmp/geo/node_modules
@@ -66,6 +68,37 @@ function cardCenter(city) {
 
 const r1 = (n) => Math.round(n * 10) / 10;
 
+// ---- San Francisco up close, in the same projection: a few units across, so in finer numbers.
+const r4 = (n) => Math.round(n * 10000) / 10000;
+const sfLines = JSON.parse(readFileSync(join(snapshots, "linemap-sf.json"), "utf8")).lines;
+/** A line's shapes as a path, leaving out points closer than `step` units apart. */
+function traced(line, step) {
+  return line.shapes.filter((sh) => sh.length > 1).map((sh) => {
+    const placed = sh.map(([lat, lon]) => projection([lon, lat]).map(r4))
+      .filter((p, i, all) => i === 0 || i === all.length - 1 || Math.hypot(p[0] - all[i - 1][0], p[1] - all[i - 1][1]) >= step);
+    return "M" + placed.map((p) => p.join(" ")).join("L");
+  }).join("");
+}
+// Buses first and quiet, in Muni red; Metro, cable cars and BART on top in their colors.
+const sfLayer = [...sfLines].sort((a, b) => (a.mode === "bus") === (b.mode === "bus") ? 0 : a.mode === "bus" ? -1 : 1)
+  .filter((l) => l.id !== "37")
+  .map((l) => `<path class="${l.mode === "bus" ? "bus" : "rail"}" d="${traced(l, 0.004)}"${l.mode === "bus" ? "" : ` stroke="${legible(l.color ?? "#BF1A26")}"`}/>`).join("");
+const the37 = sfLines.find((l) => l.id === "37");
+// The 37's stop toward the Haight, 14th St & Church St, where it all started.
+const stop = projection([-122.42898, 37.76783]).map(r4);
+
+/** A box around points, with room around it (a share of its size). */
+function around(points, room) {
+  const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const [w, h] = [x1 - x0, y1 - y0];
+  return [x0 - w * room, y0 - h * room, w * (1 + 2 * room), h * (1 + 2 * room)].map(r4).join(" ");
+}
+const project = (line) => line.shapes.flat().map(([lat, lon]) => projection([lon, lat]));
+// The 37 close up; then San Francisco itself (Muni's lines, not BART's run out into the East Bay).
+const view37 = around(project(the37), 0.15);
+const viewSF = around(sfLines.filter((l) => !/^[A-Z][a-z]+$|^OAK$/.test(l.id)).flatMap(project), 0.04);
+
 /** A city's trains fitted into its card's picture, a path per line in its color. */
 function network(city, box) {
   const lines = JSON.parse(readFileSync(join(snapshots, `linemap-${city.id}.json`), "utf8")).lines.filter((l) => isNetwork(l, city.id));
@@ -104,9 +137,11 @@ const cards = CITIES.map((city, i) => {
 </g></g>`;
 }).join("\n");
 
-const svg = `<svg class="us" viewBox="0 0 ${W} ${H}" role="img" aria-label="A map of the United States with the seven cities 37 Shades of Late covers: ${CITIES.map((c) => c.name).join(", ")}">
+const svg = `<svg class="us" viewBox="0 0 ${W} ${H}" data-view-37="${view37}" data-view-sf="${viewSF}" data-view-us="0 0 ${W} ${H}" role="img" aria-label="The 37 at Church and 14th Street in San Francisco, then every Muni line, then a map of the United States with the seven cities 37 Shades of Late covers: ${CITIES.map((c) => c.name).join(", ")}">
 <path class="land" d="${path(nation)}"/>
 <path class="borders" d="${path(borders)}"/>
+<g class="sf">${sfLayer}</g>
+<g class="the37"><path d="${traced(the37, 0.002)}"/><circle class="ring" cx="${stop[0]}" cy="${stop[1]}" r="0.012"/><circle class="stop" cx="${stop[0]}" cy="${stop[1]}" r="0.012"/></g>
 ${cards}
 </svg>
 `;
