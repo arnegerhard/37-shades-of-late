@@ -72,6 +72,8 @@ struct ShareSheet: View {
     @State private var card: UIImage?
     /// The website's card, with the map, once it's here; the app's own card until then (or without a connection).
     @State private var webCard: UIImage?
+    /// When the website's card was asked for, while it's on its way.
+    @State private var cardAsked: Date?
     @State private var sending = false
 
     var body: some View {
@@ -102,6 +104,12 @@ struct ShareSheet: View {
                                     .transition(.opacity)
                             } else {
                                 ShareCard(selection: selection, departures: departures, now: .now)
+                            }
+                        }
+                        // While the map's version is on its way, a bar along the bottom, like the live map's.
+                        .overlay(alignment: .bottom) {
+                            if let cardAsked {
+                                CardLoadingBar(since: cardAsked).transition(.opacity)
                             }
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -145,11 +153,35 @@ struct ShareSheet: View {
             renderer.scale = 3
             card = renderer.uiImage
             // Then the website's, with the map, as the link's preview shows it everywhere else.
+            cardAsked = .now
+            defer { withAnimation(.easeOut(duration: 0.3)) { cardAsked = nil } }
             if let (data, response) = try? await URLSession.shared.data(from: selection.shareCardURL),
                (response as? HTTPURLResponse)?.statusCode == 200, let image = UIImage(data: data) {
                 withAnimation(.easeInOut(duration: 0.3)) { webCard = image }
             }
         }
+    }
+}
+
+/// The live map's refresh bar, filling instead of emptying while the website draws its card: there's
+/// no knowing how long that takes (a few seconds, with the map), so it slows as it goes, never quite full.
+private struct CardLoadingBar: View {
+    let since: Date
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.1)) { context in
+            let progress = 0.92 * (1 - exp(-context.date.timeIntervalSince(since) / 2.5))
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(.black.opacity(0.12))
+                    Rectangle()
+                        .fill(LineBadge.red)
+                        .frame(width: geometry.size.width * progress)
+                }
+            }
+        }
+        .frame(height: 3)
+        .accessibilityHidden(true)
     }
 }
 
