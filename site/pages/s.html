@@ -29,7 +29,7 @@
   .card { background: #15172c; border: 1px solid var(--line); border-radius: 28px; padding: 26px 24px; }
   .ride { display: flex; align-items: center; gap: 12px; }
   .badge { background: var(--red); color: #fff; border-radius: 9px; padding: 6px 10px; font: 900 22px/1 var(--round); white-space: nowrap; }
-  /* New York's subway and Muni Metro: a circle, or a pill for "KLM", in the lines' colors. */
+  /* New York's subway, Muni Metro, BART and Sound Transit: a circle per line, in its color. */
   .badge.round { border-radius: 999px; padding: 6px; min-width: 22px; text-align: center; }
   .badges { display: flex; gap: 4px; }
   .to { font: 800 21px/1.2 var(--round); }
@@ -87,7 +87,7 @@
   const base = API + (city === "sf" ? "" : city + "/");
   const $ = (id) => document.getElementById(id);
   // As the app's (Selection.badgeParts): lines with badges of their own come in their colors, those
-  // sharing one in one badge (a blue "ACE"). Round for New York's subway (one letter or number, and
+  // sharing one next to each other. Round for New York's subway (one letter or number, and
   // the S shuttles; its buses all have more), Muni's J, K, L, M, N, T, E and F, and Sound Transit's
   // 1, 2, T, N and S Lines (a "1" in its circle) and BART's (a "Y" for Yellow); a rectangle for
   // Seattle's RapidRide, in its dark red. Any others with them share a red rectangle.
@@ -112,7 +112,9 @@
     const group = groups.find((g) => g.color === color && g.round === round);
     if (group) group.ids.push(id); else groups.push({ color, round, ids: [id] });
   }
-  $("badges").replaceChildren(...(groups.length ? groups : [{ ids }]).map((group) => {
+  // A circle per line, those sharing a color next to each other (the A, C and E in three blue circles).
+  const parts = groups.flatMap((g) => (g.round ? g.ids.map((id) => ({ ...g, ids: [id] })) : [g]));
+  $("badges").replaceChildren(...(parts.length ? parts : [{ ids }]).map((group) => {
     const span = document.createElement("span");
     span.className = group.round ? "badge round" : "badge";
     const labels = group.round ? group.ids.map((id) => BART[id] || id.replace(/ Line$/, "")) : group.ids;

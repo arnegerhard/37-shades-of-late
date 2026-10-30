@@ -179,8 +179,9 @@ function colorOf(id: string, city: string): [string, boolean] | undefined {
 }
 
 /** A link's badges, as the app's (Selection.badgeParts): one in the app's red, except for lines with
- * badges of their own: subway, Muni Metro and Sound Transit lines come round and in their colors,
- * those sharing one together (a blue "ACE"), and RapidRide in its dark red. Any others with them share
+ * badges of their own: subway, Muni Metro and Sound Transit lines come round and in their colors, a
+ * circle each, those sharing a color next to each other (the A, C and E in three blue circles), and
+ * RapidRide in its dark red. Any others with them share
  * a red rectangle (the K, L and M in their circles, then a 24). */
 function badgeParts(ids: string[], city: string): BadgePart[] {
   const join = (group: string[]) => group.join(group.every((id) => id.length === 1) ? "" : "·");
@@ -191,7 +192,9 @@ function badgeParts(ids: string[], city: string): BadgePart[] {
     const group = groups.find((g) => g.color?.[0] === color?.[0] && g.round === round);
     if (group) group.ids.push(id); else groups.push({ color, round, ids: [id] });
   }
-  return groups.map((g) => ({ label: join(g.round ? g.ids.map(short) : g.ids), color: g.color?.[0], dark: g.color?.[1], round: g.round }));
+  return groups.flatMap((g) => g.round
+    ? g.ids.map((id) => ({ label: short(id), color: g.color?.[0], dark: g.color?.[1], round: true }))
+    : [{ label: join(g.ids), color: g.color?.[0], dark: g.color?.[1], round: false }]);
 }
 
 /** One line's badge, as on the line map: round and in its color where it has one, else a rectangle

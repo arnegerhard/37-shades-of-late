@@ -6,7 +6,7 @@ struct LineBadge: View {
     var font: Font = .system(.caption, design: .rounded).weight(.heavy)
     var color: Color = LineBadge.red
     var textColor: Color = .white
-    /// A circle (a pill for "KLM"), as New York's subway, Muni Metro and Sound Transit have them; see
+    /// A circle (a pill for a longer name, BART's "OAK"), as New York's subway, Muni Metro and Sound Transit have them; see
     /// `isRound`. Sound Transit's say just the number or letter: "1", not "1 Line".
     var round = false
 
@@ -133,9 +133,10 @@ extension Selection {
     var roundBadge: Bool { LineBadge.isRound(lineIDs, in: city) }
 
     /// Its badges: one, in the app's red ("37", "5·21"), except for lines with badges of their own:
-    /// subway, Muni Metro and Sound Transit lines come round and in their colors, those sharing one
-    /// together (the A, C and E as a blue "ACE", with the 2 next to it in red), and RapidRide in its
-    /// dark red. Any others with them share a red rectangle (the K, L and M in their circles, then a 24).
+    /// subway, Muni Metro and Sound Transit lines come round and in their colors, a circle each, those
+    /// sharing a color next to each other, as on New York's signs (the A, C and E in three blue circles,
+    /// then the 2 in red), and RapidRide in its dark red. Any others with them share a red rectangle
+    /// (the K, L and M in their circles, then a 24).
     var badgeParts: [BadgePart] {
         guard lineIDs.contains(where: { LineBadge.color(of: $0, in: city) != nil }) else { return [BadgePart(label: lineLabel)] }
         var groups: [(color: (hex: String, darkText: Bool)?, round: Bool, ids: [String])] = []
@@ -147,10 +148,11 @@ extension Selection {
                 groups.append((color, round, [id]))
             }
         }
-        return groups.map { color, round, ids in
-            let labels = round ? ids.map(LineBadge.short) : ids
-            return BadgePart(label: labels.joined(separator: labels.allSatisfy { $0.count == 1 } ? "" : "·"),
-                             color: color?.hex, darkText: color?.darkText ?? false, round: round)
+        return groups.flatMap { color, round, ids in
+            round
+                ? ids.map { BadgePart(label: LineBadge.short($0), color: color?.hex, darkText: color?.darkText ?? false, round: true) }
+                : [BadgePart(label: ids.joined(separator: ids.allSatisfy { $0.count == 1 } ? "" : "·"),
+                             color: color?.hex, darkText: color?.darkText ?? false, round: false)]
         }
     }
 }
