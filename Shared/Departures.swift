@@ -323,13 +323,15 @@ struct Departure: Hashable, Codable {
 extension Departure {
     /// Minutes until the next `count` departures, like "4 · 16 · 31 min" or "now · 9 min".
     /// With `lines`, each wait gets its line in front: "L 2 · K 5 · M 6 min".
-    static func waits(_ departures: [Departure], from date: Date, count: Int, unit: Bool = true, lines: Bool = false) -> String? {
+    /// `name` says each line as the text wants it (the Lock Screen's "Y" for BART's Yellow).
+    static func waits(_ departures: [Departure], from date: Date, count: Int, unit: Bool = true, lines: Bool = false,
+                      name: (String) -> String = { $0 }) -> String? {
         let next = departures.filter { $0.time > date.addingTimeInterval(-30) }.prefix(count)
         guard !next.isEmpty else { return nil }
         let minutes = next.map { max(0, Int($0.time.timeIntervalSince(date) / 60)) }
         let parts = zip(next, minutes).map { departure, minutes in
             let wait = minutes == 0 ? "now" : "\(minutes)"
-            return lines ? "\(departure.line ?? "") \(wait)".trimmingCharacters(in: .whitespaces) : wait
+            return lines ? "\(departure.line.map(name) ?? "") \(wait)".trimmingCharacters(in: .whitespaces) : wait
         }
         return parts.joined(separator: " · ") + (unit && minutes.last != 0 ? " min" : "")
     }

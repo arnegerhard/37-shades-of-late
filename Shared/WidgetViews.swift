@@ -42,7 +42,8 @@ struct DeparturesEntry: TimelineEntry {
 
     /// "4 · 16 · 31 min", or "now · 9 min".
     func waits(_ row: WidgetRow, count: Int, unit: Bool = true) -> String? {
-        Departure.waits(upcoming(row), from: date, count: count, unit: unit, lines: row.selection.isMultiLine)
+        Departure.waits(upcoming(row), from: date, count: count, unit: unit, lines: row.selection.isMultiLine,
+                        name: { LineBadge.short($0, in: row.selection.city) })
     }
 
     /// With favorites from more than one city, each row is tagged with its city ("SF", "SEA"),
