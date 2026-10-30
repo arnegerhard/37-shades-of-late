@@ -155,19 +155,33 @@ extension Selection {
     }
 }
 
-/// A choice's badges side by side (see `Selection.badgeParts`).
+/// A choice's badges side by side (see `Selection.badgeParts`), or with `columns`, in rows of that
+/// many, for where there's height to spare and not width (three or four BART lines at a stop).
 struct LineBadges: View {
     let parts: [BadgePart]
     var font: Font = .system(.caption, design: .rounded).weight(.heavy)
     var round = false
+    var columns: Int? = nil
 
     var body: some View {
-        HStack(spacing: 3) {
-            ForEach(parts, id: \.self) { part in
-                LineBadge(line: part.label, font: font, color: Color(hex: part.color) ?? LineBadge.red,
-                          textColor: part.darkText ? .black : .white, round: part.round ?? round)
+        if let columns, parts.count > columns {
+            Grid(alignment: .leading, horizontalSpacing: 3, verticalSpacing: 3) {
+                ForEach(Array(stride(from: 0, to: parts.count, by: columns)), id: \.self) { start in
+                    GridRow {
+                        ForEach(parts[start..<min(start + columns, parts.count)], id: \.self, content: badge)
+                    }
+                }
+            }
+        } else {
+            HStack(spacing: 3) {
+                ForEach(parts, id: \.self, content: badge)
             }
         }
+    }
+
+    private func badge(_ part: BadgePart) -> some View {
+        LineBadge(line: part.label, font: font, color: Color(hex: part.color) ?? LineBadge.red,
+                  textColor: part.darkText ? .black : .white, round: part.round ?? round)
     }
 }
 

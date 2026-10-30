@@ -133,7 +133,9 @@ struct BusActivityView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            LineBadges(parts: attributes.badgeParts, font: .system(.subheadline, design: .rounded).weight(.heavy), round: attributes.round ?? false)
+            // Two to a row: the card has height to spare, and the text and times need the width.
+            LineBadges(parts: attributes.badgeParts, font: .system(.subheadline, design: .rounded).weight(.heavy),
+                       round: attributes.round ?? false, columns: 2)
                 .fixedSize()
             VStack(alignment: .leading, spacing: 1) {
                 Text(isStale ? "Gone. Hope you made it." : whereItIs).font(.headline)
