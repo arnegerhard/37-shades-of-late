@@ -89,8 +89,8 @@
   // As the app's (Selection.badgeParts): lines with badges of their own come in their colors, those
   // sharing one in one badge (a blue "ACE"). Round for New York's subway (one letter or number, and
   // the S shuttles; its buses all have more), Muni's J, K, L, M, N, T, E and F, and Sound Transit's
-  // 1, 2, T, N and S Lines (a "1" in its circle); a rectangle for Seattle's RapidRide, in its dark
-  // red, as BART's are in theirs. Any others with them share a red rectangle.
+  // 1, 2, T, N and S Lines (a "1" in its circle) and BART's (a "Y" for Yellow); a rectangle for
+  // Seattle's RapidRide, in its dark red. Any others with them share a red rectangle.
   const COLORS = {
     nyc: { 1: "#D82233", 2: "#D82233", 3: "#D82233", 4: "#009952", 5: "#009952", 6: "#009952", 7: "#9A38A1",
            A: "#0062CF", C: "#0062CF", E: "#0062CF", B: "#EB6800", D: "#EB6800", F: "#EB6800", M: "#EB6800",
@@ -100,9 +100,11 @@
     seattle: { "1 Line": "#28813F", "2 Line": "#007CAD", "T Line": "#F38B00", "N Line": "#9AB6D3", "S Line": "#9AB6D3",
                ...Object.fromEntries("ABCDEFGH".split("").map((l) => [`${l} Line`, "#9C182F"])) },
   };
+  // BART's lines by their colors, as the app's (LineBadge.short): a "Y" for Yellow.
+  const BART = { Red: "R", Orange: "O", Yellow: "Y", Green: "G", Blue: "B", OAK: "OAK" };
   const DARK_TEXT = ["#F6BC26", "#B49A36", "#F38B00", "#9AB6D3", "#FF9933", "#FFFF33", "#B0BEC7"];
   const roundLine = (id) => city === "nyc" ? id.length === 1 || id.startsWith("S ")
-    : city === "sf" ? /^[EFJKLMNT]$/.test(id) : city === "seattle" && /^[12TNS] Line$/.test(id);
+    : city === "sf" ? /^[EFJKLMNT]$/.test(id) || id in BART : city === "seattle" && /^[12TNS] Line$/.test(id);
   const colorOf = (id) => (COLORS[city] || {})[id] || (city === "nyc" && id.startsWith("S ") ? "#7C858C" : undefined);
   const groups = [];
   for (const id of ids.some(colorOf) ? ids : []) {
@@ -113,7 +115,7 @@
   $("badges").replaceChildren(...(groups.length ? groups : [{ ids }]).map((group) => {
     const span = document.createElement("span");
     span.className = group.round ? "badge round" : "badge";
-    const labels = group.round ? group.ids.map((id) => id.replace(/ Line$/, "")) : group.ids;
+    const labels = group.round ? group.ids.map((id) => BART[id] || id.replace(/ Line$/, "")) : group.ids;
     span.textContent = labels.join(labels.every((id) => id.length === 1) ? "" : "·");
     if (group.color) {
       span.style.background = group.color;

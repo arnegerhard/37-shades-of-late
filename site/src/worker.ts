@@ -142,15 +142,18 @@ interface Ride {
 
 /** Whether `ids` all have famously round badges, as the app's (LineBadge.isRound): New York's subway
  * (one letter or number, and the S shuttles; its buses all have more), Muni Metro's J, K, L, M, N, T
- * and its historic streetcars, the E and F, and Sound Transit's 1, 2, T, N and S Lines. */
+ * and its historic streetcars, the E and F, BART's lines, and Sound Transit's 1, 2, T, N and S Lines. */
 function isRound(ids: string[], city: string): boolean {
   return ids.every((id) => city === "nyc" ? id.length === 1 || id.startsWith("S ")
-    : city === "sf" ? /^[EFJKLMNT]$/.test(id)
+    : city === "sf" ? /^[EFJKLMNT]$/.test(id) || id in BART_INITIALS
     : city === "seattle" && /^[12TNS] Line$/.test(id));
 }
 
-/** What a round badge says: Sound Transit's "1 Line" is a "1" in its circle. */
-const short = (id: string) => id.endsWith(" Line") ? id.slice(0, -5) : id;
+/** What a round badge says: Sound Transit's "1 Line" is a "1" in its circle, BART's Yellow a "Y". */
+const short = (id: string) => BART_INITIALS[id] ?? (id.endsWith(" Line") ? id.slice(0, -5) : id);
+
+/** BART's lines, by their colors, as the app's (LineBadge.short). */
+const BART_INITIALS: Record<string, string> = { Red: "R", Orange: "O", Yellow: "Y", Green: "G", Blue: "B", OAK: "OAK" };
 
 /** The colors of the lines with badges of their own, as the app's (LineBadge.color): "#RRGGBB", and
  * whether the letters on it are black (New York's yellow lines). The round ones, BART's lines, and

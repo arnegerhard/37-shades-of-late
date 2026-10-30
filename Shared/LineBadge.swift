@@ -13,7 +13,8 @@ struct LineBadge: View {
     static let red = Color(red: 0.75, green: 0.1, blue: 0.15)
 
     var body: some View {
-        let text = Text(round ? Self.short(line) : line).font(font).foregroundStyle(textColor)
+        // VoiceOver says the whole name: "Yellow", not "Y".
+        let text = Text(round ? Self.short(line) : line).font(font).foregroundStyle(textColor).accessibilityLabel(line)
         if round {
             AtLeastSquare { text.padding(.horizontal, 4).padding(.vertical, 2) }
                 .background(color, in: Capsule())
@@ -27,23 +28,27 @@ struct LineBadge: View {
     /// Whether `ids` (combined, "KLM") are all lines whose badges are famously round: New York's
     /// subway (one letter or number, and the S shuttles; its buses all have more) and Muni Metro's
     /// J, K, L, M, N and T, and its historic streetcars, the E and F (not the "KBUS" or "FBUS"
-    /// standing in for one), and Sound Transit's 1, 2 and T Lines and its Sounder trains, the N and
+    /// standing in for one), BART's lines (a "Y" for Yellow: their names would crowd out everything
+    /// next to them, four at a stop), and Sound Transit's 1, 2 and T Lines and its Sounder trains, the N and
     /// S Lines (not King County Metro's RapidRide "A Line" and on, nor the "2 Line Shuttle" bus).
     /// As the site's (pages/s.html, src/card.ts).
     static func isRound(_ ids: [String], in city: City) -> Bool {
         !ids.isEmpty && ids.allSatisfy { id in
             switch city {
             case .nyc: id.count == 1 || id.hasPrefix("S ")
-            case .sf: ["E", "F", "J", "K", "L", "M", "N", "T"].contains(id)
+            case .sf: ["E", "F", "J", "K", "L", "M", "N", "T"].contains(id) || bartInitials[id] != nil
             case .seattle: ["1 Line", "2 Line", "T Line", "N Line", "S Line"].contains(id)
             }
         }
     }
 
-    /// What a round badge says: Sound Transit's "1 Line" is a "1" in its circle.
+    /// What a round badge says: Sound Transit's "1 Line" is a "1" in its circle, BART's Yellow a "Y".
     static func short(_ id: String) -> String {
-        id.hasSuffix(" Line") ? String(id.dropLast(5)) : id
+        bartInitials[id] ?? (id.hasSuffix(" Line") ? String(id.dropLast(5)) : id)
     }
+
+    /// BART's lines, by their colors (the airport connector, "OAK", keeps its name in its circle).
+    private static let bartInitials = ["Red": "R", "Orange": "O", "Yellow": "Y", "Green": "G", "Blue": "B", "OAK": "OAK"]
 }
 
 /// At least as wide as it is tall, so one character in a capsule makes a circle.
