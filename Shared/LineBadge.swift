@@ -11,7 +11,7 @@ struct LineBadge: View {
     var round = false
     var spoken: String? = nil
 
-    static let red = Color(red: 0.75, green: 0.1, blue: 0.15)
+    nonisolated static let red = Color(red: 0.75, green: 0.1, blue: 0.15)
 
     var body: some View {
         // VoiceOver says the whole name: "Yellow", not "Y".

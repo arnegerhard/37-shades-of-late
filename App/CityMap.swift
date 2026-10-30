@@ -29,9 +29,10 @@ struct CityMap: View {
     /// across. The name and who runs it take a quarter of the card, under its picture.
     static func cards(across width: CGFloat) -> (width: CGFloat, height: CGFloat, textHeight: CGFloat) {
         let most = max(columns(true), columns(false))
-        let cardWidth = min(124, (width - 10 - most * 10) / most)
+        // Never below nothing: the first layout measures the map at no width at all.
+        let cardWidth = max(0, min(124, (width - 10 - most * 10) / most))
         let cardHeight = cardWidth * 1.05
-        return (cardWidth, cardHeight, (cardHeight - 2 * CityCard.inset) / 4)
+        return (cardWidth, cardHeight, max(0, (cardHeight - 2 * CityCard.inset) / 4))
     }
 
     /// The size of a card's picture on a map `width` across.
@@ -50,7 +51,7 @@ struct CityMap: View {
             let (cardWidth, cardHeight, textHeight) = Self.cards(across: size.width)
             // The subtitles all at one size, which fits the longest ("Metro · Sound Transit") across.
             let widest = City.allCases.map { ($0.agencies as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 10)]).width }.max() ?? 1
-            let subtitleSize = min(textHeight * 0.4, 10 * (cardWidth - 2 * CityCard.inset) / widest * 0.9)
+            let subtitleSize = max(1, min(textHeight * 0.4, 10 * (cardWidth - 2 * CityCard.inset) / widest * 0.9))
             let card = { (city: City) -> CGPoint in
                 let slot = Self.slots[city] ?? (true, 1)
                 let x = (size.width - 2 * 10) / columns(slot.top) * (CGFloat(slot.column) + 0.5) + 10
@@ -147,7 +148,7 @@ private struct CityCard: View {
                     .opacity(isChosen ? 1 : 0.5)
                 VStack(spacing: 0) {
                     Text(byCode ? city.code : city.name)
-                        .font(.system(size: textHeight * 0.5, weight: .bold))
+                        .font(.system(size: max(1, textHeight * 0.5), weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                     Text(city.agencies)
