@@ -15,8 +15,8 @@
  *   GET /v1/nyc/map                            every line's track shape, for picking a line on a map
  *   GET /v1/nyc/stops                          every platform, bus stop and ferry landing with its lines, for the map's stop dots
  *
- * The ferries (NYC Ferry and the Staten Island Ferry, see nyc-ferry.ts) are part of every list and
- * map; a ferry line or landing ("NYCF_4", "SIF_stgeorge") is theirs to answer.
+ * The ferries (NYC Ferry, the Staten Island Ferry and NY Waterway, see nyc-ferry.ts) are
+ * part of every list and map; a ferry line or landing ("NYCF_4", "SIF_stgeorge") is theirs to answer.
  *
  * Subway trains have no GPS; a train on the map is drawn at the station it's at, or partway to
  * the one it's heading for.

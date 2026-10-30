@@ -98,7 +98,7 @@ struct Selection: Codable, Hashable, Identifiable {
     /// From the line's mode where it's known (Link, Muni Metro and BART are trains; Seattle's Water
     /// Taxi is a ferry, though it's filed with the trains); otherwise from the stop: New York's bus
     /// stops are MTA Bus Time's ("MTA_308214"), its ferry landings NYC Ferry's or the Staten Island
-    /// Ferry's ("NYCF_4", "SIF_stgeorge"), the rest of it rails; in San Francisco, BART's platforms
+    /// Ferry's or NY Waterway's ("NYCF_4", "SIF_stgeorge", "NYW_4"), the rest of it rails; in San Francisco, BART's platforms
     /// ("M16-1") are trains.
     var vehicle: String {
         if let line = Line.known(lineID, in: city) {
@@ -112,7 +112,7 @@ struct Selection: Codable, Hashable, Identifiable {
             }
         }
         switch city {
-        case .nyc: return stopCode.hasPrefix("MTA_") ? "bus" : stopCode.hasPrefix("NYCF_") || stopCode.hasPrefix("SIF_") ? "ferry" : "train"
+        case .nyc: return stopCode.hasPrefix("MTA_") ? "bus" : ["NYCF_", "SIF_", "NYW_"].contains(where: stopCode.hasPrefix) ? "ferry" : "train"
         case .sf: return stopCode.wholeMatch(of: /[A-Z]\d+-\d/) != nil ? "train" : "bus"
         case .seattle: return "bus"
         }

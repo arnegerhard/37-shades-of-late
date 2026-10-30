@@ -1,9 +1,13 @@
 /**
- * New York's ferries: NYC Ferry, with live times and boat positions from its GTFS-realtime feeds while
- * boats are running, and the Staten Island Ferry, from its published schedule (it has no live feed).
- * Both networks come from the operators' static GTFS, fetched at most once a day; a departure the live
- * feed doesn't mention is the scheduled one (and says so: not live). Served under /v1/nyc/... next to
- * the subway and buses (see nyc.ts). Stop ids carry the operator: "NYCF_4", "SIF_stgeorge".
+ * New York's ferries: NYC Ferry and NY Waterway (across the Hudson to New Jersey), with live times and
+ * boat positions from their GTFS-realtime feeds while boats are running, and the Staten Island Ferry,
+ * from its published schedule (it has no live feed). All come from the operators' static GTFS, fetched
+ * at most once a day; a departure the live feed doesn't mention is the scheduled one (and says so: not
+ * live). Served under /v1/nyc/... next to the subway and buses (see nyc.ts). Stop ids carry the
+ * operator: "NYCF_4", "SIF_stgeorge", "NYW_4".
+ *
+ * Not Seastreak (to the Highlands and Sandy Hook): its GTFS has each return trip as a jumbled copy of
+ * the trip out, at the same times, which would list boats that don't run.
  */
 
 import { decodeFeed, Reader } from "./nyc";
@@ -15,6 +19,8 @@ interface Operator {
   gtfs: string;
   /** The rider-facing line id for a route. */
   lineId: (route: Record<string, string>) => string;
+  /** The route's name, where its own wants spelling out. */
+  name?: (route: Record<string, string>) => string;
   tripUpdates?: string;
   vehiclePositions?: string;
 }
@@ -33,9 +39,24 @@ const OPERATORS: Operator[] = [
     gtfs: "https://www.nyc.gov/html/dot/downloads/misc/siferry-gtfs.zip",
     lineId: () => "SI Ferry",
   },
+  {
+    // The same Connexionz system as NYC Ferry's.
+    key: "NYW",
+    gtfs: "http://nywaterway.connexionz.net/rtt/public/resource/gtfs.zip",
+    // Its route numbers ("15" Hoboken – Pier 11), as on its timetables.
+    lineId: (route) => route.route_short_name || route.route_id,
+    // Its names are cut to fit its timetables: "Pt Imp & H14 - BPT & P11".
+    name: (route) => [
+      [/\bPt Imp\b/g, "Port Imperial"], [/\bH14\b/g, "Hoboken 14th St"], [/\bH\/NJT\b/g, "Hoboken/NJT"],
+      [/\bBPT\b/g, "Brookfield Place"], [/\bP11\b/g, "Pier 11"], [/\bLin Har\b/g, "Lincoln Harbor"],
+      [/\bLib Har\b/g, "Liberty Harbor"], [/\bPaulus Hk\b/g, "Paulus Hook"], [/ - /g, " – "],
+    ].reduce((name, [from, to]) => name.replace(from as RegExp, to as string), route.route_long_name),
+    tripUpdates: "http://nywaterway.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/tripupdate",
+    vehiclePositions: "http://nywaterway.connexionz.net/rtt/public/utility/gtfsrealtime.aspx/vehicleposition",
+  },
 ];
 
-export const FERRY_STOP = /^(NYCF|SIF)_\w+$/;
+export const FERRY_STOP = /^(NYCF|SIF|NYW)_\w+$/;
 
 const NETWORK_TTL_MS = 24 * 3600_000;
 const FEED_TTL_MS = 30_000;
@@ -127,8 +148,8 @@ export async function handleFerry(parts: string[], url: URL): Promise<{ body: un
         if (!match) return [];
         const destination = network.lines.find((l) => l.id === trip.line)?.directions.find((d) => d.id === trip.direction)?.destination ?? "";
         // The live feed's time for this boat, where it has one.
-        const update = live.trips.get(trip.id)?.stops.find((s) => `${trip.operator}_${s.stop}` === match.stop);
-        const vehicle = live.positions.get(trip.id);
+        const update = live.trips.get(`${trip.operator}:${trip.id}`)?.stops.find((s) => `${trip.operator}_${s.stop}` === match.stop);
+        const vehicle = live.positions.get(`${trip.operator}:${trip.id}`);
         const time = update?.time ? update.time * 1000 : midnight + trip.times.get(match.stop)! * 1000;
         return [{ line: trip.line, time: new Date(time).toISOString(), live: Boolean(update?.time), destination, vehicle }];
       })
@@ -320,7 +341,7 @@ async function readOperator(operator: Operator) {
 
     lines.push({
       id: lineId,
-      name: route.route_long_name || lineId,
+      name: operator.name?.(route) ?? (route.route_long_name || lineId),
       mode: "ferry",
       color: hexColor(route.route_color),
       textColor: hexColor(route.route_text_color),
@@ -367,9 +388,10 @@ function mergePatterns(patterns: string[][]): string[] {
   return merged;
 }
 
-// MARK: - NYC Ferry's live feeds
+// MARK: - The live feeds (NYC Ferry's and NY Waterway's)
 
 interface Live {
+  /** By operator and trip: "NYW:12345". */
   trips: Map<string, { stops: { stop: string; time: number }[] }>;
   positions: Map<string, { lat: number; lon: number; bearing?: number }>;
   fetchedAt: number;
@@ -377,17 +399,24 @@ interface Live {
 
 let live: Promise<Live> | undefined;
 
-/** NYC Ferry's trip updates and boat positions, at most every FEED_TTL_MS; empty when they can't be had. */
+/** The operators' trip updates and boat positions, at most every FEED_TTL_MS; an operator's are empty
+ *  when they can't be had. */
 async function loadLive(): Promise<Live> {
   const cached = await live?.catch(() => undefined);
   if (cached && Date.now() - cached.fetchedAt < FEED_TTL_MS) return cached;
   live = (async () => {
-    const operator = OPERATORS.find((o) => o.tripUpdates)!;
     const get = (feed: string) => fetch(feed).then(async (r) => (r.ok ? new Uint8Array(await r.arrayBuffer()) : undefined)).catch(() => undefined);
-    const [updates, positions] = await Promise.all([get(operator.tripUpdates!), get(operator.vehiclePositions!)]);
+    const feeds = await Promise.all(OPERATORS.filter((o) => o.tripUpdates).map(async (operator) => {
+      const [updates, positions] = await Promise.all([get(operator.tripUpdates!), get(operator.vehiclePositions!)]);
+      const key = (trip: string) => `${operator.key}:${trip}`;
+      return {
+        trips: (updates ? decodeFeed(updates) : []).flatMap((t) => (t.id ? [[key(t.id), t] as const] : [])),
+        positions: [...(positions ? decodePositions(positions) : new Map())].map(([trip, p]) => [key(trip), p] as const),
+      };
+    }));
     return {
-      trips: new Map((updates ? decodeFeed(updates) : []).flatMap((t) => (t.id ? [[t.id, t] as const] : []))),
-      positions: positions ? decodePositions(positions) : new Map(),
+      trips: new Map(feeds.flatMap((f) => f.trips)),
+      positions: new Map(feeds.flatMap((f) => f.positions)),
       fetchedAt: Date.now(),
     };
   })();
