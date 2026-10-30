@@ -71,7 +71,7 @@ async function card(request: Request, url: URL, env: Env, ctx: ExecutionContext)
     minutes,
     live: upcoming[0]?.live ?? false,
     lines: ride.combined ? upcoming.map((d) => d.line ?? "") : undefined,
-    quip: minutes.length ? quip(minutes[0], upcoming[0].line || ride.first) : `Schrödinger's ${ride.line}: both coming and not coming.`,
+    quip: minutes.length ? quip(minutes[0], said(upcoming[0].line || ride.first, url.searchParams.get("c") ?? "sf")) : `Schrödinger's ${ride.line}: both coming and not coming.`,
     map,
   });
   const response = new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=60" } });
@@ -111,6 +111,14 @@ function meters(a: Point, b: Point): number {
 }
 
 /** As the page's own quips (pages/s.html). */
+/** A line as a sentence says it: Boston's subway by its full name ("the Red Line", "the Green Line B",
+ * as the MBTA does), every other as it's called ("the 37", "the N"). As the page's (pages/s.html). */
+function said(id: string, city: string): string {
+  if (city !== "boston") return id;
+  if (/^[BCDE]$/.test(id)) return `Green Line ${id}`;
+  return ["Red", "Orange", "Blue", "Mattapan"].includes(id) ? `${id} Line` : id;
+}
+
 function quip(minutes: number, line: string): string {
   if (minutes < 4) return `Holy shit, the ${line} is real.`;
   if (minutes < 9) return "Stay put, lazy bastard.";
@@ -236,7 +244,9 @@ async function lookUp(params: URLSearchParams): Promise<Ride | undefined> {
     ?? directions.find((d) => d.stops.some((s) => s.code === stop));
   const here = direction?.stops.find((s) => s.code === stop);
   const name = here?.name;
-  const spoken = ids.length > 1 ? ids.slice(0, -1).join(", ") + " or " + ids[ids.length - 1] : line;
+  const city = params.get("c") ?? "sf";
+  const names = ids.map((id) => said(id, city));
+  const spoken = names.length > 1 ? names.slice(0, -1).join(", ") + " or " + names[names.length - 1] : names[0];
   // As the app's badges: "37", "KLM", "5·21".
   const badge = ids.join(ids.every((id) => id.length === 1) ? "" : "·");
   if (!direction || !name || here?.lat === undefined || here.lon === undefined) return undefined;

@@ -83,7 +83,12 @@
   const ids = lines.split(","), line = ids[0], stop = stops.split(",")[0], way = ways.split(",")[0];
   const combined = ids.length > 1;
   // "K, L or M" in sentences (the badges are below).
-  const spoken = combined ? ids.slice(0, -1).join(", ") + " or " + ids[ids.length - 1] : line;
+  // Boston's subway by its full name, as the MBTA says it ("the Red Line", "the Green Line B"), as the
+  // server's (src/worker.ts said).
+  const said = (id) => city !== "boston" ? id : /^[BCDE]$/.test(id) ? `Green Line ${id}`
+    : ["Red", "Orange", "Blue", "Mattapan"].includes(id) ? `${id} Line` : id;
+  const names = ids.map(said);
+  const spoken = combined ? names.slice(0, -1).join(", ") + " or " + names[names.length - 1] : names[0];
   const base = API + (city === "sf" ? "" : city + "/");
   const $ = (id) => document.getElementById(id);
   // As the app's (Selection.badgeParts): lines with badges of their own come in their colors, those
@@ -232,7 +237,7 @@
         const then = later.map((d) => (combined ? `${d.line} ` : "") + minutes(d)).join(" · ");
         $("later").textContent = (combined ? `the ${upcoming[0].line}` : "") + (combined && later.length ? ", " : "")
           + (later.length ? `then ${then} min` : "");
-        $("quip").textContent = `“${quip(first, upcoming[0].line || line)}”`;
+        $("quip").textContent = `“${quip(first, said(upcoming[0].line || line))}”`;
       } else {
         $("mins").textContent = "??";
         $("later").textContent = "";
