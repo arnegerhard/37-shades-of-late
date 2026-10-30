@@ -24,6 +24,8 @@ extension ScreenshotScreen {
             Selection.current = first
         }
         guard UserDefaults.standard.bool(forKey: "seedFavorites") else { return }
+        // Every city, with no map of them to pick from first.
+        City.chosen = City.allCases
         let sf = City.sf.defaultSelection
         Selection.favorites = [
             sf,

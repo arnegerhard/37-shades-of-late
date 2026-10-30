@@ -4,6 +4,10 @@ import WidgetKit
 
 @main
 struct Bus37App: App {
+    /// The widget walkthrough and the map of cities, before the home screen: on the first launch, and
+    /// once for those who updated from before there were cities to pick.
+    @State private var welcoming = Welcome.isNeeded
+
     init() {
         #if DEBUG
         ScreenshotScreen.seedFavoritesIfAsked()
@@ -18,17 +22,28 @@ struct Bus37App: App {
         try? Tips.configure()
     }
 
+    @ViewBuilder private var home: some View {
+        if welcoming {
+            Welcome {
+                WidgetGuide.hasBeenShown = true
+                withAnimation { welcoming = false }
+            }
+        } else {
+            // Over everything, where the island is: it opens out there when handed a watch.
+            ContentView().overlay { IslandShowOffView() }
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             #if DEBUG
             if let screen = ScreenshotScreen.current, [.widgets, .lock, .lockwidget].contains(screen) {
                 WidgetShowcase(screen: screen)
             } else {
-                ContentView().overlay { IslandShowOffView() }
+                home
             }
             #else
-            // Over everything, where the island is: it opens out there when handed a watch.
-            ContentView().overlay { IslandShowOffView() }
+            home
             #endif
         }
     }
@@ -49,7 +64,8 @@ struct ContentView: View {
     /// A stop from a shared link, waiting for "Add".
     @State private var incoming: Selection?
     @State private var favorites = Selection.favorites
-    @State private var showingGuide = !WidgetGuide.hasBeenShown
+    /// The widget walkthrough again (screenshot runs; the first launch's is `Welcome`).
+    @State private var showingGuide = false
     /// The cities shown, with a page each (see `City.chosen`), and whether their map is up to change them.
     @State private var cities = City.chosen
     @State private var choosingCities = false
@@ -79,8 +95,18 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // The title is drawn here rather than by the navigation bar, which would follow the
                 // lists' scrolling and shift the pages under it a moment after a scroll comes to rest.
-                Text("37 Shades of Late")
-                    .font(.largeTitle.bold())
+                // The 37 as the app icon has it: white on the red, in a rounded box.
+                HStack(spacing: 8) {
+                    Text("37")
+                        .font(.system(.largeTitle, design: .rounded).weight(.heavy))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .background(LineBadge.red, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    Text("Shades of Late")
+                        .font(.largeTitle.bold())
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("37 Shades of Late")
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
                     .padding(.bottom, 8)
@@ -206,11 +232,7 @@ struct ContentView: View {
                 .modifier(ZoomTransition(id: selection.city, in: mapZoom))
             }
             .fullScreenCover(isPresented: $showingGuide) {
-                Welcome {
-                    WidgetGuide.hasBeenShown = true
-                    showingGuide = false
-                    setCities(City.chosen)
-                }
+                WidgetGuide { showingGuide = false }
             }
             .sheet(isPresented: $choosingCities) {
                 CityChooser {
@@ -433,7 +455,8 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 if shownCities.count > 1 {
                     Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
-                        ForEach(shownCities) { Text($0.shortName).tag($0) }
+                        // Five or more don't fit by name next to the pencil: by their codes, as on the widgets.
+                        ForEach(shownCities) { Text(shownCities.count > 4 ? $0.code : $0.shortName).tag($0) }
                     }
                     .pickerStyle(.segmented)
                 } else {

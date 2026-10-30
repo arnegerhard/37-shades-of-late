@@ -35,11 +35,12 @@ struct CityMap: View {
                 ZStack {
                     Map(initialPosition: .region(Self.us), interactionModes: [])
                         .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
-                        .onMapCameraChange(frequency: .onEnd) {
-                            spots = Dictionary(uniqueKeysWithValues: City.allCases.compactMap { city in
-                                proxy.convert(CLLocationCoordinate2D(latitude: city.center.lat, longitude: city.center.lon), to: .local)
-                                    .map { (city, $0) }
-                            })
+                        .onMapCameraChange(frequency: .onEnd) { spots = Self.spots(proxy) }
+                        // And once it's in place: sliding in (after the widget walkthrough), it says where
+                        // the cities are from where it is on the way, and nothing tells it it's arrived.
+                        .task {
+                            try? await Task.sleep(for: .seconds(0.6))
+                            spots = Self.spots(proxy)
                         }
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
@@ -75,6 +76,13 @@ struct CityMap: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 20))
     }
+
+    private static func spots(_ proxy: MapProxy) -> [City: CGPoint] {
+        Dictionary(uniqueKeysWithValues: City.allCases.compactMap { city in
+            proxy.convert(CLLocationCoordinate2D(latitude: city.center.lat, longitude: city.center.lon), to: .local)
+                .map { (city, $0) }
+        })
+    }
 }
 
 /// A city on the map: its trains, its name and whose they are.
@@ -87,8 +95,9 @@ private struct CityCard: View {
     var body: some View {
         Button(action: toggle) {
             VStack(spacing: 3) {
-                NetworkDrawing(lines: lines)
+                NetworkMap(lines: lines)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                     .saturation(isChosen ? 1 : 0)
                     .opacity(isChosen ? 1 : 0.5)
                 Text(city.name)
@@ -129,32 +138,62 @@ private struct CityCard: View {
     }
 }
 
-/// Lines drawn to fit, in their colors (on a flat projection, fine at city scale).
-private struct NetworkDrawing: View {
+/// A city's trains on its map, in the app's map style: a still picture of the map with the lines drawn
+/// on it where they run. (A live map this small wouldn't zoom out far enough, and each would carry
+/// its own Legal link; the map of the US behind the cards has it.)
+private struct NetworkMap: View {
     let lines: [MapLine]
+    @State private var picture: UIImage?
 
     var body: some View {
-        Canvas { context, size in
-            let points = lines.flatMap { $0.shapes.joined() }
-            guard let minLat = points.map({ $0[0] }).min(), let maxLat = points.map({ $0[0] }).max(),
-                  let minLon = points.map({ $0[1] }).min(), let maxLon = points.map({ $0[1] }).max() else { return }
-            let squeeze = cos((minLat + maxLat) / 2 * .pi / 180)
-            let scale = min(size.width / max((maxLon - minLon) * squeeze, 1e-6), size.height / max(maxLat - minLat, 1e-6))
-            let place = { (p: [Double]) in
-                CGPoint(x: size.width / 2 + (p[1] - (minLon + maxLon) / 2) * squeeze * scale,
-                        y: size.height / 2 - (p[0] - (minLat + maxLat) / 2) * scale)
+        GeometryReader { geo in
+            ZStack {
+                Color(white: 0.12)
+                if let picture { Image(uiImage: picture).resizable() }
             }
-            for line in lines {
-                var path = Path()
-                for shape in line.shapes where shape.count > 1 {
-                    path.move(to: place(shape[0]))
-                    for p in shape.dropFirst() { path.addLine(to: place(p)) }
-                }
-                let color = (Color(hex: line.color) ?? LineBadge.red).legible(on: .dark)
-                context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            .task(id: "\(geo.size.width)x\(geo.size.height) \(lines.count)") {
+                picture = await Self.picture(of: lines, size: geo.size)
             }
         }
         .accessibilityHidden(true)
+    }
+
+    private static func picture(of lines: [MapLine], size: CGSize) async -> UIImage? {
+        let points = lines.flatMap { $0.shapes.joined() }
+        guard size.width > 0, size.height > 0,
+              let minLat = points.map({ $0[0] }).min(), let maxLat = points.map({ $0[0] }).max(),
+              let minLon = points.map({ $0[1] }).min(), let maxLon = points.map({ $0[1] }).max() else { return nil }
+        let options = MKMapSnapshotter.Options()
+        // Around every line, with a little room; the picture widens it to its own shape.
+        options.region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2),
+                                            span: MKCoordinateSpan(latitudeDelta: (maxLat - minLat) * 1.15, longitudeDelta: (maxLon - minLon) * 1.15))
+        // Twice as big, then shrunk into the card: the map's labels come out half their size, small
+        // enough to show where it is without covering the lines.
+        let zoom: CGFloat = 2
+        options.size = CGSize(width: size.width * zoom, height: size.height * zoom)
+        let configuration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
+        configuration.pointOfInterestFilter = .excludingAll
+        options.preferredConfiguration = configuration
+        options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
+        guard let snapshot = try? await MKMapSnapshotter(options: options).start() else { return nil }
+        return UIGraphicsImageRenderer(size: size).image { renderer in
+            snapshot.image.draw(in: CGRect(origin: .zero, size: size))
+            let context = renderer.cgContext
+            context.setLineWidth(1.5)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            for line in lines {
+                context.setStrokeColor(UIColor((Color(hex: line.color) ?? LineBadge.red).legible(on: .dark)).cgColor)
+                for shape in line.shapes where shape.count > 1 {
+                    let at = shape.map { p -> CGPoint in
+                        let at = snapshot.point(for: CLLocationCoordinate2D(latitude: p[0], longitude: p[1]))
+                        return CGPoint(x: at.x / zoom, y: at.y / zoom)
+                    }
+                    context.addLines(between: at)
+                }
+                context.strokePath()
+            }
+        }
     }
 }
 
@@ -236,18 +275,30 @@ struct CityChooser: View {
         .background(Color(.systemBackground))
         .preferredColorScheme(.dark)
         .task {
-            // Where this phone seems to be, to start with.
-            if isWelcome, chosen.isEmpty, let nearest = await TransitService.nearestCity(), chosen.isEmpty {
+            // To start with, the cities with favorites (after an update), or where this phone seems to be.
+            guard isWelcome, chosen.isEmpty else { return }
+            let withFavorites = Set(Selection.favorites.map(\.city))
+            if !withFavorites.isEmpty { return chosen = withFavorites }
+            if let nearest = await TransitService.nearestCity(), chosen.isEmpty {
                 withAnimation(.snappy) { _ = chosen.insert(nearest) }
             }
         }
     }
 }
 
-/// The first launch: how to add the Lock Screen widget, then which cities to show.
+/// Before the home screen, the first time: how to add the Lock Screen widget, then which cities to
+/// show. After an update from before there were cities to pick, just the cities.
 struct Welcome: View {
     let onDone: () -> Void
-    @State private var pickingCities = false
+    @State private var pickingCities = WidgetGuide.hasBeenShown
+
+    static var isNeeded: Bool {
+        #if DEBUG
+        // Screenshot runs open a specific screen; don't cover it.
+        if UserDefaults.standard.string(forKey: "screen") != nil { return false }
+        #endif
+        return !WidgetGuide.hasBeenShown || City.picked == nil
+    }
 
     var body: some View {
         if pickingCities {
