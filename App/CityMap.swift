@@ -92,6 +92,7 @@ struct CityMap: View {
                         // Too narrow for "Washington, D.C.": by their codes, as the crowded city tabs.
                         CityCard(city: city, isChosen: chosen.contains(city), byCode: cardWidth < 100,
                                  textHeight: textHeight, subtitleSize: subtitleSize) {
+                            Journey.shared.tap("cities.toggle", "\(chosen.contains(city) ? "off" : "on") \(city.rawValue)")
                             withAnimation(.snappy) {
                                 if chosen.contains(city) { chosen.remove(city) } else { chosen.insert(city) }
                             }
@@ -304,7 +305,7 @@ struct CityChooser: View {
         VStack(alignment: .leading, spacing: 0) {
             if !isWelcome {
                 HStack {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") { Journey.shared.tap("cities.cancel"); dismiss() }
                     Spacer()
                 }
                 .padding(.horizontal, 24)
@@ -324,6 +325,7 @@ struct CityChooser: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 16)
             Button {
+                Journey.shared.tap("cities.done", "\(chosen.count) of \(City.allCases.count)")
                 City.chosen = Array(chosen)
                 onDone()
             } label: {
@@ -340,6 +342,7 @@ struct CityChooser: View {
         }
         .background(Color(.systemBackground))
         .preferredColorScheme(.dark)
+        .journeyScreen("cities", isWelcome ? "welcome" : "edit")
         .task {
             // To start with, the cities with favorites (after an update), or where this phone seems to be.
             guard isWelcome, chosen.isEmpty else { return }

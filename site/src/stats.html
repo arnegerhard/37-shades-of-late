@@ -92,6 +92,25 @@
   #tip { position: fixed; pointer-events: none; z-index: 10; background: #20244a; border: 1px solid #3a4078; color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 12px; line-height: 1.35; white-space: nowrap; opacity: 0; transition: opacity .1s; box-shadow: 0 8px 20px #0008; }
   #tip b { font-variant-numeric: tabular-nums; }
   .error { background: #3a1018; border: 1px solid #7a1f2c; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; display: none; }
+  .tabs { display: flex; gap: 6px; margin: 0 0 16px; }
+  .tabs button { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font: 800 15px var(--round); padding: 8px 16px; border-radius: 999px; cursor: pointer; }
+  .tabs button[aria-selected="true"] { background: #262a4a; color: var(--ink); border-color: #3a4078; }
+  .grid[hidden] { display: none; }
+  .empty.wide { grid-column: span 12; background: var(--surface); border: 1px dashed var(--line); border-radius: 16px; padding: 16px 18px; color: var(--muted); }
+  .screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .screen-card { display: grid; grid-template-columns: 96px 1fr; gap: 14px; background: #0f1124; border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .screen-card.unseen { opacity: .5; }
+  .screen-card img { width: 96px; border-radius: 12px; border: 1px solid var(--line); align-self: start; }
+  .screen-card h3 { margin: 0 0 6px; font: 800 15px var(--round); }
+  .facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--muted); }
+  .facts b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .facts .warn b, .facts .warn { color: #ffb020; }
+  .facts .bad b, .facts .bad { color: var(--red-glow); }
+  .flow { margin-top: 8px; font-size: 12px; color: var(--faint); line-height: 1.7; }
+  .chip { display: inline-block; background: #1b1f3d; color: var(--ink); border-radius: 6px; padding: 1px 6px; margin: 0 4px 2px 0; font-size: 12px; white-space: nowrap; }
+  .chip small { color: var(--muted); }
+  .screen-taps { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .paths .l { white-space: normal; max-width: none; font-size: 13px; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .note { color: var(--faint); font-size: 12px; margin-top: 26px; }
 </style>
@@ -103,14 +122,70 @@
     <div class="controls">
       <span id="as-of"></span>
       <label class="mine-toggle"><input type="checkbox" id="exclude-mine"> <span id="exclude-label">Leave out my installs</span></label>
+      <label class="mine-toggle" title="Builds run from Xcode, left out otherwise"><input type="checkbox" id="include-debug"> <span>With my Xcode builds</span></label>
       <div class="range" role="group" aria-label="Time range">
         <button data-days="7">7 days</button><button data-days="30" aria-pressed="true">30 days</button><button data-days="90">90 days</button>
       </div>
     </div>
   </header>
   <div class="error" id="error"></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="experience">Experience</button><button role="tab" data-tab="usage">Usage</button>
+  </nav>
 
-  <div class="grid">
+  <div class="grid" id="experience" role="tabpanel">
+    <div class="tiles" id="ux-tiles"></div>
+    <p class="empty wide" id="journey-empty" hidden>No journeys yet. The app sends them from its next build on: every screen opened, button tapped, and where it was put away or crashed, a batch with each request to the proxy. Tick "With my Xcode builds" to see your own from the simulator.</p>
+
+    <section class="panel wide">
+      <h2>Screens</h2>
+      <p class="sub">Each screen people get to, as it looks, and how it goes there: visits and installs, the typical stay, how often a visit is over within 3 seconds (opened by mistake, or not what they wanted), how often the session ends there, crashes, where people come from and go next, and what they tap. Amber marks what stands out.</p>
+      <div class="screens" id="screens"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Ways through the app</h2>
+      <p class="sub">The screens of each session in order (the first five), most common first.</p>
+      <div class="rows paths" id="paths"></div>
+    </section>
+    <section class="panel">
+      <h2>Session lengths</h2>
+      <p class="sub">From opening the app to putting it away.</p>
+      <div id="session-lengths"></div>
+    </section>
+
+    <section class="panel">
+      <h2>First time</h2>
+      <p class="sub">Installs that started with the welcome (the widget guide and the map of cities), and how far they got.</p>
+      <div class="rows" id="onboarding"></div>
+      <div class="rows" id="guide-skips" style="margin-top:14px"></div>
+    </section>
+    <section class="panel">
+      <h2>Adding a favorite</h2>
+      <p class="sub">From tapping Add favorite to choosing a stop: how many get there, how long it takes, and what gets in the way.</p>
+      <div class="rows" id="picking"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Features</h2>
+      <p class="sub">Share of installs (with journeys) that used each at least once, and how often those do.</p>
+      <div class="rows" id="adoption"></div>
+    </section>
+    <section class="panel">
+      <h2>Buttons</h2>
+      <p class="sub">Taps, and the installs tapping (after the dot). Hover or tap a bar for what they chose.</p>
+      <div class="rows" id="taps"></div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Crashes and hangs</h2>
+      <p class="sub">Where the app was when it stopped while on screen, and the last button tapped before; below, what the system reported about them (a launch or so later).</p>
+      <div id="crashes"></div>
+      <div class="rows" id="reports" style="margin-top:14px"></div>
+    </section>
+  </div>
+
+  <div class="grid" id="usage" role="tabpanel" hidden>
     <div class="tiles" id="tiles"></div>
 
     <section class="panel wide">
@@ -222,6 +297,7 @@
   };
   let mine = new Set(store.get("mine", []));
   let excludeMine = store.get("excludeMine", false);
+  let includeDebug = store.get("includeDebug", false);
   let days = 30;
   function saveMine() { store.set("mine", [...mine]); }
 
@@ -319,6 +395,18 @@
     if (excludeMine) load(days);
   });
   $("exclude-mine").addEventListener("change", (e) => { excludeMine = e.target.checked; store.set("excludeMine", excludeMine); load(days); });
+  $("include-debug").checked = includeDebug;
+  $("include-debug").addEventListener("change", (e) => { includeDebug = e.target.checked; store.set("includeDebug", includeDebug); load(days); });
+
+  // ---- Tabs: the experience, and the usage; the last one open stays open.
+  function showTab(tab) {
+    document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+    $("experience").hidden = tab !== "experience";
+    $("usage").hidden = tab !== "usage";
+    store.set("tab", tab);
+  }
+  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  showTab(store.get("tab", "experience"));
 
   async function load(asked) {
     days = asked;
@@ -329,7 +417,7 @@
     try {
       if (excludeMine && !mine.size) $("mine-list").textContent = "Star your installs in the table to leave them out.";
       const exclude = excludeMine && mine.size ? `&exclude=${[...mine].join(",")}` : "";
-      const response = await fetch(`/stats/data?days=${days}${exclude}`, { cache: "no-store" });
+      const response = await fetch(`/stats/data?days=${days}${exclude}${includeDebug ? "&debug=1" : ""}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await response.text());
       data = await response.json();
       $("error").style.display = "none";
@@ -429,6 +517,232 @@
     $("day").max = Math.max(0, mapDays.length - 1);
     $("day").value = $("day").max;
     showDay(Number($("day").max));
+    showJourney(data.journey ?? []);
+  }
+
+  // ---- The experience: how people get around the app, from Journey's events (see the app). Each
+  // session is followed through in order: a visit to a screen lasts until the next screen, or the
+  // session's end; the crash and exit say where it ended.
+  const SCREENS = { home: "Home", livemap: "Live map", "picker.map": "Picker · map", "picker.list": "Picker · line list",
+                    "picker.stops": "Picker · stops", share: "Share", cities: "City map", guide: "Widget guide" };
+  const TAPS = {
+    "favorite.open": "Favorite: open", "favorite.add": "Add favorite", "favorite.delete": "Favorite: delete", "favorite.reorder": "Favorite: reorder",
+    "favorites.edit": "Favorites: Edit", "favorites.done": "Favorites: Done", "pill": "Pill (island)", "livemap.open": "Map: open live map",
+    "livemap.close": "Live map: close", "livemap.watch": "Live map: watch", "share.open": "Share: open", "share.send": "Share: send",
+    "share.done": "Share: done", "city.switch": "Switch city", "cities.edit": "Pencil (cities)", "cities.toggle": "City map: city on/off",
+    "cities.done": "City map: done", "cities.cancel": "City map: cancel", "guide.open": "Lock Screen guide: open", "guide.next": "Guide: next",
+    "guide.skip": "Guide: skip", "guide.done": "Guide: done", "picker.toggle": "Picker: map/list", "picker.city": "Picker: city",
+    "picker.map.tap": "Picker: tap on map", "picker.circle.line": "Picker: line in circle", "picker.line.switch": "Picker: other line",
+    "picker.line.close": "Picker: close line", "picker.direction": "Picker: direction", "picker.also": "Picker: also fine with",
+    "picker.choose": "Picker: choose", "picker.search": "Picker: search", "picker.search.empty": "Picker: search found nothing",
+    "picker.line": "Picker: line from list", "widget.open": "Opened from a widget", "link.open": "Opened a shared link",
+    "link.add": "Shared link: add", "link.dismiss": "Shared link: not now",
+  };
+  const screenName = (id) => SCREENS[id] ?? id;
+  const tapName = (id) => TAPS[id] ?? id;
+  const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : "–");
+  const median = (xs) => {
+    if (!xs.length) return null;
+    const sorted = [...xs].sort((a, b) => a - b), mid = sorted.length >> 1;
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  const duration = (s) => s == null ? "–" : s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s` : `${(s / 3600).toFixed(1)}h`;
+  const tally = (items) => { const m = new Map(); for (const it of items) m.set(it, (m.get(it) ?? 0) + 1); return [...m].sort((a, b) => b[1] - a[1]); };
+  const chips = (pairs, total) => pairs.map(([name, count]) => `<span class="chip">${esc(name)} <small>${pct(count, total)}</small></span>`).join("");
+
+  function showJourney(journey) {
+    const num = (x) => Number(x) || 0;
+    const events = journey.map((r) => ({ ...r, at: num(r.at), seq: num(r.seq), seconds: num(r.seconds) }));
+    $("journey-empty").hidden = events.length > 0;
+
+    // Sessions, each in order.
+    const sessions = new Map();
+    for (const e of events) {
+      if (!sessions.has(e.session)) sessions.set(e.session, []);
+      sessions.get(e.session).push(e);
+    }
+    const visits = [], allSessions = [];
+    for (const [id, list] of sessions) {
+      list.sort((a, b) => a.at - b.at || a.seq - b.seq);
+      const install = list[0].install;
+      let current = null, last = null;
+      const session = { id, install, start: list[0].at, screens: [], length: null, crashed: false, exit: null };
+      const close = (at, how) => {
+        if (!current) return;
+        current.dwell = at == null ? null : Math.max(0, at - current.at);
+        if (how) current[how] = true;
+        visits.push(current);
+        last = current;
+        current = null;
+      };
+      for (const e of list) {
+        if (e.kind === "screen") {
+          if (current?.screen === e.name) continue; // a step within it (the guide's)
+          close(e.at);
+          if (last && last.session === id && !last.next) last.next = e.name;
+          current = { screen: e.name, at: e.at, came: e.came || null, install, session: id };
+          if (session.screens.at(-1) !== e.name) session.screens.push(e.name);
+        } else if (e.kind === "exit") {
+          close(e.at, "ended");
+          session.length = e.seconds;
+          session.exit = e.name;
+        } else if (e.kind === "crash" && e.name !== "report") {
+          close(null, "crashed");
+          session.crashed = true;
+        }
+      }
+      close(null); // still open, or not heard from yet
+      allSessions.push(session);
+    }
+    const taps = events.filter((e) => e.kind === "tap");
+    const installs = new Set(events.map((e) => e.install));
+    const crashes = events.filter((e) => e.kind === "crash" && e.name !== "report");
+    const reports = events.filter((e) => (e.kind === "crash" || e.kind === "hang") && e.name === "report");
+    const lengths = allSessions.map((s) => s.length).filter((x) => x != null);
+
+    $("ux-tiles").innerHTML = [
+      [fmt(allSessions.length), "sessions"],
+      [fmt(installs.size), "installs with journeys"],
+      [duration(median(lengths)), "typical session"],
+      [fmt(Math.round(allSessions.length / Math.max(1, installs.size) * 10) / 10), "sessions per install"],
+      [pct(allSessions.filter((s) => !s.crashed).length, allSessions.length), "sessions without a crash"],
+      [fmt(reports.filter((r) => r.kind === "hang").length), "hangs reported"],
+    ].map(([value, key]) => `<div class="tile"><div class="n">${value}</div><div class="k">${key}</div></div>`).join("");
+
+    // ---- Each screen, as it looks, and how it goes there.
+    const seen = [...new Set(visits.map((v) => v.screen))];
+    const order = [...Object.keys(SCREENS), ...seen.filter((id) => !SCREENS[id])];
+    $("screens").innerHTML = order.map((id) => {
+      const here = visits.filter((v) => v.screen === id);
+      const dwells = here.map((v) => v.dwell).filter((x) => x != null);
+      const quick = dwells.filter((x) => x < 3).length;
+      const ended = here.filter((v) => v.ended).length, crashed = here.filter((v) => v.crashed).length;
+      const from = tally(here.map((v) => v.came ? screenName(v.came) : "app opens")).slice(0, 3);
+      const to = tally(here.map((v) => v.next ? screenName(v.next) : v.ended ? "puts it away" : v.crashed ? "crash" : "…")).slice(0, 3);
+      const tapsHere = tally(taps.filter((t) => t.came === id).map((t) => tapName(t.name))).slice(0, 5);
+      const quickRate = dwells.length ? quick / dwells.length : 0, endRate = here.length ? ended / here.length : 0;
+      const picture = SCREENS[id] ? `<img src="/stats/screens/${id}.jpg" alt="${esc(screenName(id))}" loading="lazy">` : `<div></div>`;
+      return `<article class="screen-card${here.length ? "" : " unseen"}">${picture}<div>
+        <h3>${esc(screenName(id))}</h3>
+        ${here.length ? `<div class="facts">
+          <span><b>${fmt(here.length)}</b> visits</span><span><b>${fmt(new Set(here.map((v) => v.install)).size)}</b> installs</span>
+          <span><b>${duration(median(dwells))}</b> typical stay</span>
+          <span class="${quickRate > 0.3 && dwells.length >= 5 ? "warn" : ""}"><b>${pct(quick, dwells.length)}</b> over in 3s</span>
+          <span class="${endRate > 0.5 && here.length >= 5 ? "warn" : ""}"><b>${pct(ended, here.length)}</b> end here</span>
+          ${crashed ? `<span class="bad"><b>${fmt(crashed)}</b> crash${crashed === 1 ? "" : "es"}</span>` : ""}
+        </div>
+        <div class="flow">From ${chips(from, here.length)}<br>Then ${chips(to, here.length)}</div>
+        ${tapsHere.length ? `<div class="screen-taps">Taps: ${tapsHere.map(([name, count]) => `<span class="chip">${esc(name)} <small>${fmt(count)}</small></span>`).join("")}</div>` : ""}`
+        : `<div class="facts">Not visited yet.</div>`}
+      </div></article>`;
+    }).join("");
+
+    // ---- Ways through, and how long sessions last.
+    const paths = tally(allSessions.filter((s) => s.screens.length).map((s) => s.screens.slice(0, 5).map(screenName).join(" → ") + (s.screens.length > 5 ? " → …" : ""))).slice(0, 10);
+    rows($("paths"), paths, (p) => p[1], (p) => esc(p[0]), (p) => ` <small>${pct(p[1], allSessions.length)}</small>`);
+    const buckets = [["< 10s", 10], ["10–30s", 30], ["30s–1m", 60], ["1–3m", 180], ["3–10m", 600], ["10m+", Infinity]];
+    columns($("session-lengths"), buckets.map(([label, below], i) => ({
+      value: lengths.filter((x) => x < below && x >= (i ? buckets[i - 1][1] : 0)).length, tipLabel: label, axis: label,
+    })), { label: "sessions" });
+
+    // ---- First time: installs whose first session started at the welcome.
+    const byInstall = new Map();
+    for (const e of events) { if (!byInstall.has(e.install)) byInstall.set(e.install, []); byInstall.get(e.install).push(e); }
+    const did = (list, test) => list.some(test);
+    const newcomers = [...byInstall.values()].filter((list) => {
+      const first = list.find((e) => e.kind === "screen");
+      return first && (first.name === "guide" || (first.name === "cities" && first.detail === "welcome"));
+    });
+    const steps = [
+      ["Started the welcome", () => true],
+      ["Went through the widget guide", (l) => did(l, (e) => e.name === "guide.done")],
+      ["Skipped the widget guide", (l) => did(l, (e) => e.name === "guide.skip")],
+      ["Picked their cities", (l) => did(l, (e) => e.name === "cities.done")],
+      ["Got to Home", (l) => did(l, (e) => e.kind === "screen" && e.name === "home")],
+      ["Opened the picker", (l) => did(l, (e) => e.name === "favorite.add")],
+      ["Added a favorite", (l) => did(l, (e) => e.name === "picker.choose")],
+      ["Came back another time", (l) => new Set(l.map((e) => e.session)).size > 1],
+    ].map(([name, test]) => ({ name, count: newcomers.filter(test).length }));
+    rows($("onboarding"), newcomers.length ? steps : [], (s) => s.count, (s) => esc(s.name), (s) => ` <small>${pct(s.count, newcomers.length)}</small>`);
+    const skips = tally(taps.filter((t) => t.name === "guide.skip").map((t) => t.detail || "?"));
+    rows($("guide-skips"), skips, (s) => s[1], (s) => `Skipped the guide at ${esc(s[0])}`, () => "");
+
+    // ---- Adding a favorite: from Add favorite to a chosen stop, in the same session.
+    const opens = taps.filter((t) => t.name === "favorite.add");
+    let chosen = 0, cancelled = 0; const times = [], mapTaps = [];
+    for (const open of opens) {
+      const list = sessions.get(open.session) ?? [];
+      const after = list.filter((e) => e.at >= open.at && e.seq > open.seq);
+      const end = after.find((e) => e.name === "picker.choose" || (e.kind === "screen" && e.name === "home") || e.kind === "exit");
+      if (end?.name === "picker.choose") {
+        chosen++;
+        times.push(end.at - open.at);
+        mapTaps.push(after.filter((e) => e.seq < end.seq && e.name === "picker.map.tap").length);
+      } else if (end) cancelled++;
+    }
+    const chooses = taps.filter((t) => t.name === "picker.choose");
+    rows($("picking"), opens.length || chooses.length ? [
+      { name: "Opened the picker", value: opens.length, extra: "" },
+      { name: "Chose a stop", value: chosen, extra: ` <small>${pct(chosen, opens.length)}, typically in ${duration(median(times))}</small>` },
+      { name: "Went back without one", value: cancelled, extra: ` <small>${pct(cancelled, opens.length)}</small>` },
+      { name: "Chose on the map", value: chooses.filter((t) => (t.detail ?? "").startsWith("map")).length, extra: "" },
+      { name: "Chose in the line list", value: chooses.filter((t) => t.detail === "list").length, extra: "" },
+      { name: "Added lines that are also fine", value: chooses.filter((t) => (t.detail ?? "").includes("more")).length, extra: "" },
+      { name: "Taps on the map before choosing", value: Math.round(median(mapTaps) ?? 0), extra: " <small>typically</small>" },
+      { name: "Searched and found nothing", value: taps.filter((t) => t.name === "picker.search.empty").length, extra: "" },
+    ] : [], (x) => x.value, (x) => esc(x.name), (x) => x.extra);
+
+    // ---- Features: share of installs that used each, and how often those do.
+    const FEATURES_USED = [
+      ["Opened the live map", (e) => e.kind === "screen" && e.name === "livemap"],
+      ["Watched from the island", (e) => (e.name === "pill" || e.name === "livemap.watch") && e.detail === "watch"],
+      ["Added a favorite", (e) => e.name === "picker.choose"],
+      ["Switched city", (e) => e.name === "city.switch"],
+      ["Shared a stop", (e) => e.name === "share.send"],
+      ["Reordered favorites", (e) => e.name === "favorite.reorder"],
+      ["Deleted a favorite", (e) => e.name === "favorite.delete"],
+      ["Changed their cities", (e) => e.name === "cities.edit"],
+      ["Used the line list", (e) => e.kind === "screen" && e.name === "picker.list"],
+      ["Searched for a line", (e) => e.name === "picker.search"],
+      ["Opened from a widget", (e) => e.name === "widget.open"],
+      ["Opened a shared link", (e) => e.name === "link.open"],
+      ["Opened the widget guide again", (e) => e.name === "guide.open"],
+    ].map(([name, test]) => {
+      const counts = [...byInstall.values()].map((list) => list.filter(test).length).filter((c) => c > 0);
+      return { name, installs: counts.length, typical: median(counts) };
+    }).sort((a, b) => b.installs - a.installs);
+    rows($("adoption"), byInstall.size ? FEATURES_USED : [], (f) => f.installs, (f) => esc(f.name),
+         (f) => ` <small>${pct(f.installs, byInstall.size)}${f.installs ? ` · ${fmt(f.typical)}× each` : ""}</small>`);
+
+    // ---- Buttons.
+    const byTap = new Map();
+    for (const t of taps) {
+      const b = byTap.get(t.name) ?? { name: t.name, count: 0, installs: new Set(), details: [] };
+      b.count++; b.installs.add(t.install); if (t.detail) b.details.push(t.detail);
+      byTap.set(t.name, b);
+    }
+    // What they chose (a button's details) goes in its tip, to keep the line short on a phone.
+    const tapRows = [...byTap.values()].sort((a, b) => b.count - a.count).slice(0, 20);
+    const tapPeak = Math.max(1, ...tapRows.map((b) => b.count));
+    $("taps").innerHTML = tapRows.length ? tapRows.map((b) => {
+      const tip = `${esc(tapName(b.name))}: <b>${fmt(b.count)}</b> taps by ${fmt(b.installs.size)} install${b.installs.size === 1 ? "" : "s"}`
+        + (b.details.length ? `<br>${tally(b.details).slice(0, 6).map(([d, c]) => `${esc(d)}: ${fmt(c)}`).join("<br>")}` : "");
+      return `<span class="l">${esc(tapName(b.name))}</span>
+        <span class="b" tabindex="0" data-tip="${esc(tip)}"><i style="width:${(b.count / tapPeak) * 100}%"></i></span>
+        <span class="v">${fmt(b.count)} <small>· ${fmt(b.installs.size)}</small></span>`;
+    }).join("") : `<div class="empty" style="grid-column: 1 / -1">Nothing yet.</div>`;
+
+    // ---- Crashes: where, after which tap, on which version; then what the system said.
+    const crashGroups = tally(crashes.map((c) => `${screenName(c.name)}|${c.detail ? tapName(c.detail.split(" ")[0]) + (c.detail.includes(" ") ? " " + c.detail.split(" ").slice(1).join(" ") : "") : "—"}|${c.version}`));
+    $("crashes").innerHTML = crashGroups.length ? `<div class="table-scroll"><table><thead><tr><th>Screen</th><th>Last tap</th><th>Version</th><th class="num">Crashes</th><th>Last</th></tr></thead><tbody>
+      ${crashGroups.map(([key, count]) => {
+        const [screen, tap, version] = key.split("|");
+        const latest = Math.max(...crashes.filter((c) => screenName(c.name) === screen && c.version === version).map((c) => c.at));
+        return `<tr><td>${esc(screen)}</td><td>${esc(tap)}</td><td>${esc(version)}</td><td class="num">${fmt(count)}</td>
+          <td>${esc(new Date(latest * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</td></tr>`;
+      }).join("")}</tbody></table></div>` : `<div class="empty">No crashes. 🎉</div>`;
+    rows($("reports"), tally(reports.map((r) => `${r.kind === "hang" ? "Hang" : "Crash"}: ${r.detail || "?"} (${r.version})`)),
+         (r) => r[1], (r) => esc(r[0]), () => "");
   }
 
   document.querySelectorAll(".range button").forEach((b) => b.addEventListener("click", () => load(Number(b.dataset.days))));

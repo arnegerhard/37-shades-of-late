@@ -122,7 +122,7 @@ struct ShareSheet: View {
                     .frame(maxHeight: .infinity)
                 }
 
-                Button { sending = true } label: {
+                Button { Journey.shared.tap("share.send", showingQR ? "qr" : "card"); sending = true } label: {
                     Label(showingQR ? "Send the link" : "Send to a friend", systemImage: "square.and.arrow.up")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
@@ -144,9 +144,10 @@ struct ShareSheet: View {
             .navigationTitle("Share the suffering")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { Journey.shared.tap("share.done"); dismiss() } }
             }
         }
+        .journeyScreen("share")
         .task {
             // The app's own card first, so there's something to send right away; at 3x it's sharp.
             let renderer = ImageRenderer(content: ShareCard(selection: selection, departures: departures, now: .now))

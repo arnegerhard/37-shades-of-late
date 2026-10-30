@@ -20,6 +20,7 @@ struct Bus37App: App {
         WidgetCenter.shared.reloadAllTimelines()
         #endif
         try? Tips.configure()
+        SystemDiagnostics.shared.start()
     }
 
     private var home: some View {
@@ -34,6 +35,7 @@ struct Bus37App: App {
                 ContentView().overlay { IslandShowOffView() }
             }
         }
+        .journeySessions()
         // The map of cities' pictures, made in the background from the start, so it opens with them.
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { CityPictures.shared.prepare(forScreen: $0) }
     }
@@ -136,8 +138,13 @@ struct ContentView: View {
             }
             .background(Color(.systemGroupedBackground))
             .toolbar(.hidden, for: .navigationBar)
+            .journeyScreen("home")
+            .onAppear { Journey.shared.setCity(selection.city.rawValue) }
             .navigationDestination(isPresented: $showingMap) {
-                RouteMap(selection: selection, feed: feed, onClose: { showingMap = false }, onShare: { sharing = selection })
+                RouteMap(selection: selection, feed: feed,
+                         onClose: { Journey.shared.tap("livemap.close"); showingMap = false },
+                         onShare: { Journey.shared.tap("share.open", "livemap"); sharing = selection })
+                    .journeyScreen("livemap")
                     // The map draws its own header, with a button that shrinks it back.
                     .toolbar(.hidden, for: .navigationBar)
                     .sheet(item: $sharing) { stop in
@@ -169,11 +176,13 @@ struct ContentView: View {
                 // A widget tap: that line and stop on the live map.
                 if let tapped = Selection(openURL: url) { return openFromWidget(tapped) }
                 // A friend's stop, from a 37shadesoflate.com/s link (or its QR code).
+                Journey.shared.tap("link.open")
                 Task { incoming = await Selection.shared(by: url) }
             }
             .alert(incoming.map { "Add the \($0.spokenLines) at \($0.stopName)?" } ?? "",
                    isPresented: Binding(get: { incoming != nil }, set: { if !$0 { incoming = nil } })) {
                 Button("Add to favorites") {
+                    Journey.shared.tap("link.add")
                     if let picked = incoming {
                         // A friend's stop in a city left out brings the city back.
                         if !cities.contains(picked.city) { setCities(cities + [picked.city]) }
@@ -181,7 +190,7 @@ struct ContentView: View {
                         select(picked)
                     }
                 }
-                Button("Not now", role: .cancel) {}
+                Button("Not now", role: .cancel) { Journey.shared.tap("link.dismiss") }
             } message: {
                 if let incoming { Text("To \(incoming.destination), in \(incoming.city.endingSentence) It joins your favorites there.") }
             }
@@ -280,6 +289,7 @@ struct ContentView: View {
                             if editingCity == city {
                                 // Deletes at once: no Delete button to confirm with, it's only a favorite.
                                 Button {
+                                    Journey.shared.tap("favorite.delete")
                                     withAnimation { favorites.removeAll { $0.id == favorite.id } }
                                     if !favorites.contains(where: { $0.city == city }) { editingCity = nil }
                                 } label: {
@@ -291,7 +301,10 @@ struct ContentView: View {
                                 .accessibilityLabel("Delete \(favorite.lineLabel) to \(favorite.destination)")
                                 .transition(.move(edge: .leading).combined(with: .opacity))
                             }
-                            Button { select(favorite) } label: { favoriteRow(favorite) }
+                            Button {
+                                Journey.shared.tap("favorite.open", favorite.id == selection.id ? "already" : nil)
+                                select(favorite)
+                            } label: { favoriteRow(favorite) }
                             .buttonStyle(.borderless)
                             .tint(.primary)
                             // In edit mode the list draws its own handle.
@@ -309,6 +322,7 @@ struct ContentView: View {
                         .deleteDisabled(true)
                     }
                     .onMove { from, to in
+                        Journey.shared.tap("favorite.reorder")
                         // Only this city's order changes; each city keeps its own list.
                         var reordered = cityFavorites
                         reordered.move(fromOffsets: from, toOffset: to)
@@ -320,6 +334,7 @@ struct ContentView: View {
                         Spacer()
                         if !cityFavorites.isEmpty {
                             Button(editingCity == city ? "Done" : "Edit") {
+                                Journey.shared.tap(editingCity == city ? "favorites.done" : "favorites.edit")
                                 withAnimation { editingCity = editingCity == city ? nil : city }
                             }
                             .font(.subheadline.weight(.semibold))
@@ -338,7 +353,7 @@ struct ContentView: View {
                         if !cityFavorites.isEmpty {
                             Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. Tap the map to watch the \(ride) not move, live. Hold and drag to reorder; Edit to delete.")
                         }
-                        Button { showingGuide = true } label: {
+                        Button { Journey.shared.tap("guide.open"); showingGuide = true } label: {
                             Label("Put your \(cityFavorites.isEmpty ? city.vehicles : rides) on the Lock Screen", systemImage: "lock.iphone")
                                 .font(.subheadline.weight(.semibold))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -415,7 +430,7 @@ struct ContentView: View {
                     }
                     .overlay(alignment: .topTrailing) {
                         if openIsFavorite {
-                        Button { sharing = open } label: {
+                        Button { Journey.shared.tap("share.open", "home"); sharing = open } label: {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.subheadline.weight(.semibold))
                                 .frame(width: 38, height: 38)
@@ -428,7 +443,7 @@ struct ContentView: View {
                     }
                     .overlay(alignment: .bottomTrailing) {
                         // Says out loud what tapping the map does; the map alone reads as a picture.
-                        Button { choosing = true } label: {
+                        Button { Journey.shared.tap("favorite.add"); choosing = true } label: {
                             Label("Add favorite", systemImage: "plus.circle.fill")
                                 .font(.subheadline.weight(.semibold))
                                 .padding(.horizontal, 12)
@@ -468,7 +483,7 @@ struct ContentView: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Button { choosingCities = true } label: {
+                Button { Journey.shared.tap("cities.edit"); choosingCities = true } label: {
                     Image(systemName: "pencil")
                         .font(.subheadline.weight(.semibold))
                         .frame(width: 22, height: 22)
@@ -572,6 +587,7 @@ struct ContentView: View {
         let canWatch = BusActivities.shared.isAvailable
         let watching = BusActivities.shared.isWatching(open)
         return Button {
+            Journey.shared.tap("pill", !canWatch ? "livemap" : watching ? "unwatch" : "watch")
             if canWatch {
                 BusActivities.shared.toggle(open, departures: departures,
                                             fetchedAt: open.id == selection.id ? feed.refresh?.fetchedAt ?? .now : .now)
@@ -632,6 +648,7 @@ struct ContentView: View {
     /// Opens the line a widget row showed on its live map, over whatever was on screen. Back from
     /// the map, it stays the open stop: it's the one you came for.
     private func openFromWidget(_ tapped: Selection) {
+        Journey.shared.tap("widget.open")
         choosing = false
         sharing = nil
         editingCity = nil
@@ -645,6 +662,7 @@ struct ContentView: View {
 
     /// Blows the home map up into the live map.
     private func openLiveMap() {
+        Journey.shared.tap("livemap.open")
         editingCity = nil
         showingMap = true
     }
@@ -653,6 +671,7 @@ struct ContentView: View {
     private func select(_ picked: Selection) {
         guard picked.id != selection.id else { return }
         Selection.current = picked
+        Journey.shared.setCity(picked.city.rawValue)
         // Keep the old times on screen (dimmed) until the new ones arrive, so the list
         // resizes once, straight to its new height.
         withAnimation(Self.switchAnimation) { selection = picked }
@@ -686,6 +705,7 @@ struct ContentView: View {
 
     private func switchCity(to city: City) {
         guard city != selection.city else { return }
+        Journey.shared.tap("city.switch", city.rawValue)
         editingCity = nil
         Selection.setLastOpened(selection)
         select(opening(city))

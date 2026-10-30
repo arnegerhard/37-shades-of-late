@@ -86,6 +86,9 @@ export default {
     const page = pathname.replace(/\/+$/, "").replace(/\.html$/, "");
     if (page === "/privacy" || page === "/support") return Response.redirect(`${SITE}${page}`, 301);
     if (page === "") return Response.redirect(SITE, 301);
+    recordJourney(request, env);
+    // The app sending what's waiting of its journey on its own, as it goes away: nothing else to it.
+    if (pathname === "/v1/journey") return json({}, 200, 0);
     recordUsage(request, env);
     if (pathname === "/v1/city") return json(whereabouts(request));
     // BART lives in San Francisco next to Muni (see bart.ts) but needs nothing from the shared
@@ -707,6 +710,40 @@ async function recordWatch(request: Request, env: Env) {
     doubles: [0],
     indexes: ["watch"],
   });
+}
+
+/**
+ * How people get around the app (see Journey in the app): screens opened and left, buttons tapped, where
+ * the app was put away or crashed, a batch at a time in the X-Journey header of whatever request the app
+ * makes, as event "ux". Names only, no stops, lines or anything typed.
+ *
+ * Columns: blob1 "ux", blob2 kind (open | screen | tap | exit | crash | hang), blob3 name (a screen or
+ * button), blob4 detail, blob5 the screen it happened on or came from, blob6 install ID, blob7 app
+ * version, blob8 city, blob9 session; double1 favorites, double2 seconds (on the screen it came from, or
+ * the session), double3 when it happened (seconds since 1970; the timestamp is when it arrived),
+ * double4 its number on the install.
+ */
+function recordJourney(request: Request, env: Env) {
+  const header = request.headers.get("X-Journey");
+  if (!env.ANALYTICS_ENGINE || !header || header.length > 16_000) return;
+  let events: any[];
+  try { events = JSON.parse(header); } catch { return; }
+  if (!Array.isArray(events)) return;
+  const install = (request.headers.get("X-Install-ID") ?? "").toLowerCase();
+  if (!UUID.test(install)) return;
+  const version = (request.headers.get("X-App-Version") ?? "").slice(0, 16);
+  const favorites = Number(request.headers.get("X-Favorites"));
+  // Names as the app writes them: letters, numbers and a little punctuation, nothing else.
+  const word = (value: unknown, most = 40) => typeof value === "string" ? value.replace(/[^\w .·:,()#\-/]/g, "").slice(0, most) : "";
+  const number = (value: unknown) => Number.isFinite(value) ? Number(value) : 0;
+  for (const e of events.slice(0, 40)) {
+    if (!e || !["open", "screen", "tap", "exit", "crash", "hang"].includes(e.k) || !word(e.n)) continue;
+    env.ANALYTICS_ENGINE.writeDataPoint({
+      blobs: ["ux", e.k, word(e.n), word(e.d, 80), word(e.f), install, version, word(e.c, 16), word(e.s, 16)],
+      doubles: [Number.isFinite(favorites) ? favorites : 0, Math.max(0, Math.min(number(e.x), 86_400)), number(e.t), number(e.i)],
+      indexes: [install],
+    });
+  }
 }
 
 /** The cities an install picked, as it sent them ("sf,nyc"): known ones only, in a fixed order. */

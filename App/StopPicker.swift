@@ -8,6 +8,9 @@ struct LinePicker: View {
     @State private var lines: [Line] = []
     @State private var error: String?
     @State private var search = ""
+    /// Whether this time in the list, a search was started, and came up empty: for Journey.
+    @State private var searched = false
+    @State private var searchedEmpty = false
     // The map is the main way to pick; the toolbar button switches to the searchable list.
     @State private var showingMap = true
 
@@ -20,6 +23,7 @@ struct LinePicker: View {
         Group {
             if showingMap {
                 LineMapPicker(city: city, onPick: onPick)
+                    .journeyScreen("picker.map")
                     .safeAreaInset(edge: .top) {
                         cityPicker
                             .padding(.horizontal)
@@ -27,7 +31,7 @@ struct LinePicker: View {
                             .background(.bar)
                     }
             } else {
-                list
+                list.journeyScreen("picker.list")
             }
         }
         .navigationTitle("Pick your poison")
@@ -35,6 +39,7 @@ struct LinePicker: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    Journey.shared.tap("picker.toggle", showingMap ? "list" : "map")
                     withAnimation(.snappy(duration: 0.3)) { showingMap.toggle() }
                 } label: {
                     Label(showingMap ? "List" : "Map", systemImage: showingMap ? "list.bullet" : "map")
@@ -43,7 +48,16 @@ struct LinePicker: View {
         }
         .navigationDestination(for: Line.self) { line in
             StopPicker(line: line, city: city, onPick: onPick)
+                .journeyScreen("picker.stops")
+                .onAppear { Journey.shared.tap("picker.line", search.isEmpty ? "browsed" : "searched") }
         }
+        // What's searched stays on the phone: only that someone searched, and found nothing.
+        .onChange(of: search) {
+            if !search.isEmpty, !searched { searched = true; Journey.shared.tap("picker.search") }
+            if search.count >= 2, filtered.isEmpty, !lines.isEmpty, !searchedEmpty { searchedEmpty = true; Journey.shared.tap("picker.search.empty") }
+            if search.isEmpty { searched = false; searchedEmpty = false }
+        }
+        .onChange(of: city) { Journey.shared.tap("picker.city", city.rawValue) }
         .task(id: city) {
             lines = []
             error = nil
@@ -127,6 +141,7 @@ struct StopPicker: View {
                 ForEach(stops) { stop in
                     Button {
                         guard let direction else { return }
+                        Journey.shared.tap("picker.choose", "list")
                         onPick(Selection(
                             lineID: line.id, lineName: line.name, directionID: direction.id,
                             destination: direction.destination, stopCode: stop.code, stopName: stop.name,

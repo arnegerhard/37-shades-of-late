@@ -289,6 +289,7 @@ struct LineMapPicker: View {
             // Not for taps on the circle's list over the map, which the map hears too: those are the list's.
             .simultaneousGesture(SpatialTapGesture(coordinateSpace: .global).onEnded { tap in
                 guard !circleListFrame.contains(tap.location) else { return }
+                Journey.shared.tap("picker.map.tap", selectedID == nil ? nil : "with a line")
                 handleTap(at: CGPoint(x: tap.location.x - mapFrame.minX, y: tap.location.y - mapFrame.minY), proxy: proxy)
             })
         }
@@ -429,7 +430,7 @@ struct LineMapPicker: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(candidates) { line in
-                                Button { select(line, among: candidates) } label: {
+                                Button { Journey.shared.tap("picker.line.switch"); select(line, among: candidates) } label: {
                                     LineBadge(line: LineBadge.short(line.id, in: city), font: .system(.subheadline, design: .rounded).weight(.heavy),
                                               color: line.mapColor, textColor: line.badgeTextColor,
                                               round: LineBadge.isRound([line.id], in: city), spoken: line.id)
@@ -468,7 +469,7 @@ struct LineMapPicker: View {
                             Spacer(minLength: 0)
                             if !shownStops.isEmpty {
                                 // Back to the stops in the circle.
-                                Button { withAnimation(.snappy(duration: 0.25)) { deselect() } } label: {
+                                Button { Journey.shared.tap("picker.line.close"); withAnimation(.snappy(duration: 0.25)) { deselect() } } label: {
                                     Image(systemName: "xmark.circle.fill").font(.title2).foregroundStyle(.secondary)
                                 }
                                 .buttonStyle(.plain)
@@ -535,7 +536,7 @@ struct LineMapPicker: View {
         let departures = (cornerTimes[arrow.id] ?? []).filter { $0.time > .now.addingTimeInterval(-30) }
         let stops = arrow.direction.stops
         let next = stops.firstIndex { $0.code == arrow.stop.code }.flatMap { stops.indices.contains($0 + 1) ? stops[$0 + 1].name : nil }
-        return Button { withAnimation(.snappy(duration: 0.2)) { picked = arrow } } label: {
+        return Button { Journey.shared.tap("picker.direction"); withAnimation(.snappy(duration: 0.2)) { picked = arrow } } label: {
             HStack(spacing: 12) {
                 Image(systemName: "location.north.fill")
                     .font(.system(size: 20, weight: .bold))
@@ -907,6 +908,7 @@ struct LineMapPicker: View {
     /// Picks a line from the circle's list, at its stop there: going one way, that way too.
     private func pick(_ ways: [CircleWay]) {
         guard let first = ways.first else { return }
+        Journey.shared.tap("picker.circle.line", ways.count == 1 ? "one way" : "both ways")
         tapCoordinate = first.coordinate
         select(first.line, among: [first.line], way: ways.count == 1 ? (first.direction.id, first.stop) : nil)
     }
@@ -1031,6 +1033,7 @@ struct LineMapPicker: View {
         // Only lines still offered for this stop (the chips reset when the arrow changes).
         let also = otherLines.filter { alsoIDs.contains($0.id) }
             .map { Selection.OtherLine(lineID: $0.line, directionID: $0.direction, stopCode: $0.isNearby ? $0.stop : nil) }
+        Journey.shared.tap("picker.choose", also.isEmpty ? "map" : "map with \(also.count) more")
         onPick(Selection(
             lineID: selected.id, lineName: selected.name, directionID: arrow.direction.id,
             destination: arrow.direction.destination, stopCode: arrow.stop.code, stopName: arrow.stop.name,
@@ -1040,6 +1043,7 @@ struct LineMapPicker: View {
     /// Adding a line zooms out to show all of it and its stops; removing the last one goes back to
     /// exactly where the map was before.
     private func toggleAlso(_ other: StopLine) {
+        Journey.shared.tap("picker.also", alsoIDs.contains(other.id) ? "remove" : other.isNearby ? "add nearby" : "add")
         let wasEmpty = alsoIDs.isEmpty
         withAnimation(.snappy(duration: 0.2)) {
             if alsoIDs.contains(other.id) { alsoIDs.remove(other.id) } else { alsoIDs.insert(other.id) }

@@ -19,6 +19,9 @@
 		C66E7C0A1C0B4E37A1B2C3C2 /* DepartureFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = C66E7C0A1C0B4E37A1B2C3C1 /* DepartureFeed.swift */; };
 		D11E7C0A1C0B4E37A1B2C3D2 /* LineBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11E7C0A1C0B4E37A1B2C3D1 /* LineBadge.swift */; };
 		D11E7C0A1C0B4E37A1B2C3D3 /* LineBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11E7C0A1C0B4E37A1B2C3D1 /* LineBadge.swift */; };
+		F99E7C0A1C0B4E37A1B2C3F2 /* Journey.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99E7C0A1C0B4E37A1B2C3F1 /* Journey.swift */; };
+		F99E7C0A1C0B4E37A1B2C3F3 /* Journey.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99E7C0A1C0B4E37A1B2C3F1 /* Journey.swift */; };
+		F99E7C0A1C0B4E37A1B2C3F5 /* JourneyTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99E7C0A1C0B4E37A1B2C3F4 /* JourneyTracking.swift */; };
 		D11E7C0A1C0B4E37A1B2C3D5 /* StopPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */; };
 		D77E7C0A1C0B4E37A1B2C400 /* linemap-sf.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C300 /* linemap-sf.json */; };
 		D77E7C0A1C0B4E37A1B2C401 /* linemap-seattle.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C301 /* linemap-seattle.json */; };
@@ -83,6 +86,8 @@
 		C50260F10B288288F1E6B27E /* Bus37App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bus37App.swift; sourceTree = "<group>"; };
 		C66E7C0A1C0B4E37A1B2C3C1 /* DepartureFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepartureFeed.swift; sourceTree = "<group>"; };
 		D11E7C0A1C0B4E37A1B2C3D1 /* LineBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineBadge.swift; sourceTree = "<group>"; };
+		F99E7C0A1C0B4E37A1B2C3F1 /* Journey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Journey.swift; sourceTree = "<group>"; };
+		F99E7C0A1C0B4E37A1B2C3F4 /* JourneyTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyTracking.swift; sourceTree = "<group>"; };
 		D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopPicker.swift; sourceTree = "<group>"; };
 		D11E7C0A1C0B4E37A1B2C3D6 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		D11E7C0A1C0B4E37A1B2C3D7 /* Widget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widget.entitlements; sourceTree = "<group>"; };
@@ -118,6 +123,7 @@
 			children = (
 				A0D54B99A29C7D81D9A1E485 /* Departures.swift */,
 				D11E7C0A1C0B4E37A1B2C3D1 /* LineBadge.swift */,
+				F99E7C0A1C0B4E37A1B2C3F1 /* Journey.swift */,
 				F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */,
 				AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */,
 			);
@@ -191,6 +197,7 @@
 				D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */,
 				E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */,
 				E88E7C0A1C0B4E37A1B2C3E3 /* CityMap.swift */,
+				F99E7C0A1C0B4E37A1B2C3F4 /* JourneyTracking.swift */,
 				2694D610C8E5A9E74CE27B68 /* Info.plist */,
 			);
 			path = App;
@@ -319,6 +326,7 @@
 				690004075F5CB6AD64BFF0A5 /* Bus37App.swift in Sources */,
 				77D5A0F8ED4A2309B57DB5BA /* Departures.swift in Sources */,
 				D11E7C0A1C0B4E37A1B2C3D2 /* LineBadge.swift in Sources */,
+				F99E7C0A1C0B4E37A1B2C3F2 /* Journey.swift in Sources */,
 				C66E7C0A1C0B4E37A1B2C3C2 /* DepartureFeed.swift in Sources */,
 				B55E7C0A1C0B4E37A1B2C3B2 /* LineMapPicker.swift in Sources */,
 				A44E7C0A1C0B4E37A1B2C3A2 /* RouteMap.swift in Sources */,
@@ -326,6 +334,7 @@
 				D11E7C0A1C0B4E37A1B2C3D5 /* StopPicker.swift in Sources */,
 				E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */,
 				E88E7C0A1C0B4E37A1B2C3E4 /* CityMap.swift in Sources */,
+				F99E7C0A1C0B4E37A1B2C3F5 /* JourneyTracking.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C302 /* BusActivity.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C305 /* BusActivities.swift in Sources */,
@@ -340,6 +349,7 @@
 				898E3C84015A68E8D5BA1FC6 /* Bus37Widget.swift in Sources */,
 				7E8A3ED9E99110ABDDF35056 /* Departures.swift in Sources */,
 				D11E7C0A1C0B4E37A1B2C3D3 /* LineBadge.swift in Sources */,
+				F99E7C0A1C0B4E37A1B2C3F3 /* Journey.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F3 /* WidgetViews.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C303 /* BusActivity.swift in Sources */,
 			);

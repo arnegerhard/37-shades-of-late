@@ -8,8 +8,9 @@
   // /s/card.png draws its picture.
   "main": "src/worker.ts",
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/s", "/s/card.png", "/mapkit-token", "/stats", "/stats/*"] },
-  // The card's fonts, as bytes (src/card.ts); the stats page, as text (src/stats.ts).
-  "rules": [{ "type": "Data", "globs": ["**/*.ttf"] }, { "type": "Text", "globs": ["**/*.html"] }],
+  // The card's fonts and the stats page's pictures of the app, as bytes (src/card.ts, src/screens.ts); the
+  // stats page, as text (src/stats.ts).
+  "rules": [{ "type": "Data", "globs": ["**/*.ttf", "**/*.jpg"] }, { "type": "Text", "globs": ["**/*.html"] }],
   // Keep the original workers.dev address serving too; custom domains turn it off by default.
   "workers_dev": true,
   "preview_urls": false,

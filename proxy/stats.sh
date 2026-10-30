@@ -8,7 +8,7 @@ token_file="${0:A:h}/.analytics-token"
 account=5c16a3f67b5851cf42828b7c52ee53e6
 # Leaves out test events (app version "test") and builds from Xcode (app version "debug"; before they
 # said so, they look like the App Store's).
-where="timestamp > NOW() - INTERVAL '$days' DAY AND blob7 != 'test' AND blob7 != 'debug'"
+where="timestamp > NOW() - INTERVAL '$days' DAY AND blob7 != 'test' AND blob7 != 'debug' AND blob1 != 'ux'"
 
 query() {
   echo "\n== $1"

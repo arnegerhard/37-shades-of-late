@@ -213,6 +213,7 @@ struct RouteMap: View {
         let watching = BusActivities.shared.isWatching(selection)
         let island = Island.frame != nil
         return Button {
+            Journey.shared.tap("livemap.watch", watching ? "unwatch" : "watch")
             BusActivities.shared.toggle(selection, departures: departures, fetchedAt: refresh?.fetchedAt ?? .now)
         } label: {
             HStack(spacing: 12) {

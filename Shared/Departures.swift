@@ -781,11 +781,29 @@ enum TransitService {
         request.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
                          forHTTPHeaderField: "X-App-Version")
         #endif
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // How people get around the app, since the last request (see Journey).
+        let journey = Journey.shared.header()
+        if let journey { request.setValue(journey.value, forHTTPHeaderField: "X-Journey") }
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            if let journey { Journey.shared.delivered(journey.ids, ok: false) }
+            throw error
+        }
+        // Any answer means the proxy has them; it records them as the request comes in.
+        if let journey { Journey.shared.delivered(journey.ids, ok: true) }
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             throw TransitError.badResponse(http.statusCode)
         }
         return data
+    }
+
+    /// Sends what's waiting of the journey on its own, as the app goes away (when no request will carry it
+    /// for a while): to /v1/journey, which records it and answers nothing.
+    static func sendJourney() async {
+        guard Journey.shared.hasWaiting else { return }
+        _ = try? await fetch(baseURL.appending(path: "journey"), client: .app)
     }
 
     fileprivate static let decoder: JSONDecoder = {

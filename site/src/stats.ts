@@ -10,6 +10,7 @@
 
 import page from "./stats.html";
 import usMap from "../images/us-map.json";
+import { SCREENS } from "./screens";
 
 export interface StatsEnv {
   STATS_PASSWORD?: string;
@@ -37,12 +38,20 @@ export async function handleStats(request: Request, url: URL, env: StatsEnv): Pr
   if (!(await authorized(request, env.STATS_PASSWORD))) {
     return new Response("Members of the 37 only.", { status: 401, headers: { ...PRIVATE, "WWW-Authenticate": 'Basic realm="37 stats", charset="UTF-8"' } });
   }
+  // Pictures of the app's screens, for the journey (screens.ts).
+  const screen = url.pathname.match(/^\/stats\/screens\/([a-z.]+)\.jpg$/)?.[1];
+  if (screen) {
+    const picture = SCREENS[screen];
+    return picture ? new Response(picture, { headers: { ...PRIVATE, "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400" } }) : text("No such screen.", 404);
+  }
   if (url.pathname === "/stats/data") {
     const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
     // Installs to leave out (the maker's own): install IDs only, so nothing else gets into the query.
     const exclude = (url.searchParams.get("exclude") ?? "").split(",").filter((id) => INSTALL.test(id)).slice(0, 50);
+    // The maker's own builds from Xcode, which are left out unless asked for (to try the journey out).
+    const debug = url.searchParams.get("debug") === "1";
     try {
-      return new Response(JSON.stringify(await numbers(days, exclude, env.ANALYTICS_TOKEN)), { headers: { ...PRIVATE, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(await numbers(days, exclude, debug, env.ANALYTICS_TOKEN)), { headers: { ...PRIVATE, "Content-Type": "application/json" } });
     } catch (error) {
       return text(`Analytics Engine: ${(error as Error).message}`, 502);
     }
@@ -64,13 +73,14 @@ async function authorized(request: Request, password: string): Promise<boolean> 
   return a.reduce((diff, byte, i) => diff | (byte ^ b[i]), 0) === 0;
 }
 
-async function numbers(days: number, exclude: string[], token: string) {
+async function numbers(days: number, exclude: string[], debug: boolean, token: string) {
   // App use only: no test runs, nor the installs left out. (Watches carry no install, so they stay.)
   const others = exclude.length ? ` AND blob6 NOT IN (${exclude.map((id) => `'${id}'`).join(", ")})` : "";
-  // Not the maker's own builds from Xcode either ("debug"), nor test runs.
-  const app = "blob7 != 'test' AND blob7 != 'debug'";
+  // Not the maker's own builds from Xcode either ("debug"), unless asked for, nor test runs.
+  const app = debug ? "blob7 != 'test'" : "blob7 != 'test' AND blob7 != 'debug'";
   const where = `timestamp > NOW() - INTERVAL '${days}' DAY AND ${app}${others}`;
-  const requests = `${where} AND blob1 != 'watch'`;
+  // Requests to the proxy: not the watches it counts, nor the journey the app sends along with them.
+  const requests = `${where} AND blob1 NOT IN ('watch', 'ux')`;
   // Each install's use of each city, over `window`: the page counts it as using one when it came back to
   // it, asking on two days or more, or keeps a widget of it (trying a stop once, in the picker, doesn't).
   const uses = (window: string) => `SELECT blob6 AS install, ${CITY} AS city, min(toDate(timestamp)) AS first,
@@ -80,6 +90,11 @@ async function numbers(days: number, exclude: string[], token: string) {
     GROUP BY install, city`;
   const range = `timestamp > NOW() - INTERVAL '${days}' DAY`;
   const queries = {
+    // How people get around the app (see recordJourney in the proxy): every event, in order, for the page
+    // to follow each session through. When it happened is double3; the timestamp is when it arrived.
+    journey: `SELECT blob2 AS kind, blob3 AS name, blob4 AS detail, blob5 AS came, blob6 AS install, blob7 AS version,
+                     blob8 AS city, blob9 AS session, double2 AS seconds, double3 AS at, double4 AS seq
+               FROM ${DATASET} WHERE ${where} AND blob1 = 'ux' ORDER BY at, seq LIMIT 20000`,
     summary: `SELECT count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
               FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown'`,
     daily: `SELECT toDate(timestamp) AS day, count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
@@ -87,7 +102,7 @@ async function numbers(days: number, exclude: string[], token: string) {
     // When each install was first seen, over all Analytics Engine keeps (new installs per day), and when it
     // first used each city (the map's growth).
     seen: `SELECT blob6 AS install, min(toDate(timestamp)) AS first
-           FROM ${DATASET} WHERE timestamp > NOW() - INTERVAL '92' DAY AND ${app} AND blob1 != 'watch' AND blob6 != 'unknown'${others}
+           FROM ${DATASET} WHERE timestamp > NOW() - INTERVAL '92' DAY AND ${app} AND blob1 NOT IN ('watch', 'ux') AND blob6 != 'unknown'${others}
            GROUP BY install`,
     firsts: uses("timestamp > NOW() - INTERVAL '92' DAY"),
     uses: uses(range),

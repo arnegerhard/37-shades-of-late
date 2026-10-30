@@ -14,7 +14,7 @@ struct WidgetGuide: View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
-                Button("Skip", action: onDone)
+                Button("Skip") { Journey.shared.tap("guide.skip", "step \(page + 1)"); onDone() }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -41,8 +41,10 @@ struct WidgetGuide: View {
 
             Button {
                 if page < steps.count - 1 {
+                    Journey.shared.tap("guide.next", "step \(page + 1)")
                     withAnimation(.snappy) { page += 1 }
                 } else {
+                    Journey.shared.tap("guide.done")
                     onDone()
                 }
             } label: {
@@ -58,6 +60,9 @@ struct WidgetGuide: View {
         }
         .background(Color(.systemBackground))
         .preferredColorScheme(.dark)
+        .journeyScreen("guide")
+        // Swiping between steps, as well as the button.
+        .onChange(of: page) { Journey.shared.show("guide", detail: "step \(page + 1)") }
     }
 }
 
