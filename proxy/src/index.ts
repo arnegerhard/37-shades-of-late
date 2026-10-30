@@ -12,7 +12,7 @@ import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY
  * Caching proxy for live transit data: 511.org for SF Muni (below) and BART's own feed (bart.ts), OneBusAway for Seattle
  * (see seattle.ts, served under /v1/seattle/...), the MTA's subway feeds for New York (see
  * nyc.ts, under /v1/nyc/...), the MBTA's API for Boston (see boston.ts, under /v1/boston/...) and the
- * CTA's feeds for Chicago (see chicago.ts, under /v1/chicago/...).
+ * CTA's Train and Bus Trackers for Chicago (see chicago.ts, under /v1/chicago/...).
  *
  * Every request goes through a single Durable Object, so all users share one cache and
  * one rate budget for the 511 API key (60 requests/hour by default). Departures come from a
@@ -55,8 +55,9 @@ interface Env extends ActivityEnv {
   OBA_API_KEY?: string;
   /** The MBTA's V3 API key, for Boston (see boston.ts); 20 requests a minute without one. */
   MBTA_API_KEY?: string;
-  /** The CTA's GTFS-realtime key, for Chicago's live times (see chicago.ts); none without it. */
+  /** The CTA's Train Tracker key and its Bus Tracker one, for Chicago's live times (see chicago.ts). */
   CTA_API_KEY?: string;
+  CTA_BUS_KEY?: string;
   /** MTA Bus Time key, for New York's buses; without it New York is the subway and PATH. */
   MTA_BUSTIME_KEY?: string;
 }
@@ -219,7 +220,11 @@ export class TransitCache extends DurableObject<Env> {
       }
 
       if (parts[1] === "chicago") {
-        const result = await handleChicago(parts.slice(2), url, this.env.CTA_API_KEY);
+        const result = await handleChicago(parts.slice(2), url, {
+          cached: (key, ttl, load) => this.cached(key, ttl, load),
+          trainKey: this.env.CTA_API_KEY,
+          busKey: this.env.CTA_BUS_KEY,
+        });
         return json(result.body, result.status ?? 200, result.maxAge ?? 0);
       }
 
