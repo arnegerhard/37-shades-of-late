@@ -2,7 +2,7 @@ import Foundation
 
 /// A city the proxy has live data for.
 enum City: String, Codable, CaseIterable, Identifiable {
-    case sf, seattle, nyc, boston
+    case sf, seattle, nyc, boston, chicago
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .seattle: "Seattle"
         case .nyc: "New York"
         case .boston: "Boston"
+        case .chicago: "Chicago"
         }
     }
 
@@ -25,16 +26,21 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .seattle: "SEA"
         case .nyc: "NYC"
         case .boston: "BOS"
+        case .chicago: "CHI"
         }
     }
 
     /// The city's clock, for the sleeping Lock Screen widgets' time at home.
     var timeZone: TimeZone {
-        TimeZone(identifier: self == .nyc || self == .boston ? "America/New_York" : "America/Los_Angeles")!
+        switch self {
+        case .nyc, .boston: TimeZone(identifier: "America/New_York")!
+        case .chicago: TimeZone(identifier: "America/Chicago")!
+        case .sf, .seattle: TimeZone(identifier: "America/Los_Angeles")!
+        }
     }
 
     /// What mostly runs here, for the page's wording; a stop's own is `Selection.vehicle`.
-    var vehicle: String { self == .nyc || self == .boston ? "train" : "bus" }
+    var vehicle: String { [.nyc, .boston, .chicago].contains(self) ? "train" : "bus" }
     var vehicles: String { vehicle + (vehicle == "bus" ? "es" : "s") }
 
     /// Where this city's endpoints live on the proxy; SF predates the others and has no prefix.
@@ -44,6 +50,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .seattle: "seattle/"
         case .nyc: "nyc/"
         case .boston: "boston/"
+        case .chicago: "chicago/"
         }
     }
 
@@ -67,6 +74,10 @@ enum City: String, Codable, CaseIterable, Identifiable {
             // The Red Line toward Alewife at Park Street, under the Common.
             Selection(lineID: "Red", lineName: "Red Line", directionID: "1", destination: "Alewife",
                       stopCode: "70076", stopName: "Park Street", city: .boston)
+        case .chicago:
+            // The Red Line toward 95th/Dan Ryan at Fullerton, by DePaul.
+            Selection(lineID: "Red", lineName: "Red Line", directionID: "0", destination: "95th/Dan Ryan",
+                      stopCode: "30234", stopName: "Fullerton", city: .chicago)
         }
     }
 }
@@ -133,7 +144,7 @@ struct Selection: Codable, Hashable, Identifiable {
         switch city {
         case .nyc: return stopCode.hasPrefix("MTA_") ? "bus" : ["NYCF_", "SIF_", "NYW_"].contains(where: stopCode.hasPrefix) ? "ferry" : "train"
         case .sf: return stopCode.wholeMatch(of: /[A-Z]\d+-\d/) != nil ? "train" : "bus"
-        case .seattle, .boston: return "bus"
+        case .seattle, .boston, .chicago: return "bus"
         }
     }
     var vehicles: String {

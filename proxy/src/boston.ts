@@ -40,14 +40,14 @@ export interface BostonDeps {
   upstream: (status: number) => Error;
 }
 
-interface Stop {
+export interface Stop {
   code: string;
   name: string;
   lat: number;
   lon: number;
 }
 
-interface Direction {
+export interface Direction {
   id: string;
   name: string;
   destination: string;
@@ -55,7 +55,7 @@ interface Direction {
   shapes: Polyline[];
 }
 
-interface Line {
+export interface Line {
   id: string;
   name: string;
   mode: string;
@@ -65,7 +65,7 @@ interface Line {
   directions: Direction[];
 }
 
-interface Visit {
+export interface Visit {
   routeId: string;
   direction: string;
   destination: string;
@@ -78,7 +78,27 @@ const iso = (ms: number) => new Date(ms).toISOString();
 
 export async function handleBoston(parts: string[], url: URL, deps: BostonDeps): Promise<{ body: unknown; status?: number; maxAge?: number }> {
   const lines = await loadNetwork(deps);
+  const destinations = new Map(lines.map((l) => [l.routeId, l.directions.map((d) => d.destination)]));
+  const liveOnly = new Set(lines.filter((l) => l.mode === "subway" || l.mode === "metro").map((l) => l.routeId));
+  return serveNetwork(parts, url, lines, async (stopCodes) => {
+    const [live, ...timetables] = await Promise.all([
+      loadLive(),
+      ...stopCodes.map((s) => deps.cached(`bos-sched:${s}`, SCHEDULE_TTL_SECONDS, () => fetchSchedule(s, deps)).catch(() => undefined)),
+    ]);
+    return {
+      visits: stopCodes.map((s, i) => visitsAt(s, live, timetables[i]?.data ?? [], destinations, liveOnly)),
+      fetchedAt: live.fetchedAt,
+      ttl: FEED_TTL_MS,
+    };
+  });
+}
 
+/** A city's requests, served from its `lines` (see the top of this file), and departures from
+ *  `departures`: each of the stops' visits, and when they were fetched and how long they keep. Boston's
+ *  and Chicago's (see chicago.ts). */
+export async function serveNetwork(parts: string[], url: URL, lines: Line[],
+                                   departures: (stops: string[]) => Promise<{ visits: Visit[][]; fetchedAt: number; ttl: number }>)
+    : Promise<{ body: unknown; status?: number; maxAge?: number }> {
   if (parts[0] === "lines" && parts.length === 1) {
     return { body: { lines: lines.map(({ id, name, mode }) => ({ id, name, mode })), fetchedAt: iso(Date.now()) }, maxAge: 3600 };
   }
@@ -124,14 +144,9 @@ export async function handleBoston(parts: string[], url: URL, deps: BostonDeps):
     const wanted = linePairs(code, url.searchParams.get("direction"), stop)
       .map((w) => ({ ...w, routeId: lines.find((l) => l.id === w.line)?.routeId }));
     const stopCodes = [...new Set(wanted.map((w) => w.stop))];
-    const destinations = new Map(lines.map((l) => [l.routeId, l.directions.map((d) => d.destination)]));
-    const liveOnly = new Set(lines.filter((l) => l.mode === "subway" || l.mode === "metro").map((l) => l.routeId));
-    const [live, ...timetables] = await Promise.all([
-      loadLive(),
-      ...stopCodes.map((s) => deps.cached(`bos-sched:${s}`, SCHEDULE_TTL_SECONDS, () => fetchSchedule(s, deps)).catch(() => undefined)),
-    ]);
+    const found = await departures(stopCodes);
     const now = Date.now();
-    const departures = stopCodes.map((s, i) => visitsAt(s, live, timetables[i]?.data ?? [], destinations, liveOnly))
+    const list = found.visits
       .flatMap((visits, i) => visits.flatMap((v) => {
         const match = wanted.find((w) => w.stop === stopCodes[i] && w.routeId === v.routeId && (!w.direction || w.direction === v.direction));
         return match ? [{ line: match.line, time: v.time, live: v.live, destination: v.destination, vehicle: v.vehicle }] : [];
@@ -143,10 +158,10 @@ export async function handleBoston(parts: string[], url: URL, deps: BostonDeps):
       body: {
         stop: { code: stopCodes[0], name: stops.get(stopCodes[0])?.name ?? "" },
         line: code,
-        fetchedAt: iso(live.fetchedAt),
-        nextRefreshAt: iso(live.fetchedAt + FEED_TTL_MS + 2_000),
-        stale: now - live.fetchedAt > FEED_TTL_MS * 6,
-        departures,
+        fetchedAt: iso(found.fetchedAt),
+        nextRefreshAt: iso(found.fetchedAt + found.ttl + 2_000),
+        stale: now - found.fetchedAt > found.ttl * 6,
+        departures: list,
       },
     };
   }
@@ -191,7 +206,7 @@ function nearby(lines: Line[], here: Stop, direction: string | null): NearbyLine
 
 // MARK: - Departures
 
-interface LiveTrip {
+export interface LiveTrip {
   route: string;
   direction: string;
   /** Leaving each stop, in seconds since 1970; skipped stops left out. */
@@ -265,7 +280,7 @@ async function loadLive(): Promise<Live> {
 /** TripUpdate entities → each trip's route, direction and when it leaves each stop. FeedEntity 3:
  *  TripUpdate (1 trip: 1 trip_id, 4 schedule_relationship, 5 route_id, 6 direction_id; 2
  *  stop_time_update: 2 arrival / 3 departure (2 time), 4 stop_id, 5 schedule_relationship). */
-function decodeTrips(bytes: Uint8Array): Map<string, LiveTrip> {
+export function decodeTrips(bytes: Uint8Array): Map<string, LiveTrip> {
   const trips = new Map<string, LiveTrip>();
   for (const entity of new Reader(bytes).fields()) {
     if (entity.field !== 2 || !entity.sub) continue;

@@ -40,6 +40,7 @@ struct LineBadge: View {
             case .sf: ["E", "F", "J", "K", "L", "M", "N", "T"].contains(id) || bartInitials[id] != nil
             case .seattle: ["1 Line", "2 Line", "T Line", "N Line", "S Line"].contains(id)
             case .boston: bostonSubway[id] != nil
+            case .chicago: chicagoL[id] != nil
             }
         }
     }
@@ -59,6 +60,13 @@ struct LineBadge: View {
         }
     }
 
+    /// Chicago's 'L', in its colors, as initials (two letters where two lines share one: the Blue and
+    /// Brown, the Purple and Pink).
+    private static let chicagoL: [String: (short: String, hex: String)] = [
+        "Red": ("R", "#C60C30"), "Blue": ("B", "#00A1DE"), "Brown": ("BR", "#62361B"), "Green": ("G", "#009B3A"),
+        "Orange": ("O", "#F9461C"), "Purple": ("P", "#522398"), "Pink": ("PK", "#E27EA6"), "Yellow": ("Y", "#F9E300"),
+    ]
+
     /// Boston's subway: its lines as the MBTA's signs say them, in their colors (the Green Line's
     /// branches by their letters; the Mattapan trolley's is the Red Line's).
     private static let bostonSubway: [String: (short: String, hex: String)] = [
@@ -74,6 +82,7 @@ struct LineBadge: View {
         switch city {
         case .sf: return bartInitials[id] ?? id
         case .boston: return bostonSubway[id]?.short ?? id
+        case .chicago: return chicagoL[id]?.short ?? id
         case .seattle: return id.hasSuffix(" Line") ? String(id.dropLast(5)) : id
         case .nyc: return id
         }
@@ -147,6 +156,8 @@ extension LineBadge {
             }
         case .boston:
             bostonColor(of: id)
+        case .chicago:
+            chicagoL[id].map { ($0.hex, $0.hex == "#F9E300") }
         }
     }
 }

@@ -5,12 +5,14 @@ import { ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerrySto
 import { handleNYC } from "./nyc";
 import { handleSeattle } from "./seattle";
 import { handleBoston } from "./boston";
+import { handleChicago } from "./chicago";
 import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, parseCSV, readZipEntry, simplify, type NearbyLine, type Polyline } from "./geo";
 
 /**
  * Caching proxy for live transit data: 511.org for SF Muni (below) and BART's own feed (bart.ts), OneBusAway for Seattle
  * (see seattle.ts, served under /v1/seattle/...), the MTA's subway feeds for New York (see
- * nyc.ts, under /v1/nyc/...) and the MBTA's API for Boston (see boston.ts, under /v1/boston/...).
+ * nyc.ts, under /v1/nyc/...), the MBTA's API for Boston (see boston.ts, under /v1/boston/...) and the
+ * CTA's feeds for Chicago (see chicago.ts, under /v1/chicago/...).
  *
  * Every request goes through a single Durable Object, so all users share one cache and
  * one rate budget for the 511 API key (60 requests/hour by default). Departures come from a
@@ -37,7 +39,7 @@ import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY
  *                                          (from DataSF's Muni Simple Routes; no 511 calls)
  *   GET /v1/stops                          every Muni stop and BART platform (BART's with their lines), for
  *                                          the map's stop dots (/v1/seattle/stops and /v1/nyc/stops list lines too)
- *   GET /v1/city                           the supported city nearest the caller ("sf", "seattle", "nyc" or "boston"),
+ *   GET /v1/city                           the supported city nearest the caller ("sf", "seattle", "nyc", "boston" or "chicago"),
  *                                          from Cloudflare's rough IP location; nothing is stored
  *   POST /v1/activity, /v1/activity/end    push updates for the app's Live Activities (see activities.ts)
  */
@@ -53,6 +55,8 @@ interface Env extends ActivityEnv {
   OBA_API_KEY?: string;
   /** The MBTA's V3 API key, for Boston (see boston.ts); 20 requests a minute without one. */
   MBTA_API_KEY?: string;
+  /** The CTA's GTFS-realtime key, for Chicago's live times (see chicago.ts); none without it. */
+  CTA_API_KEY?: string;
   /** MTA Bus Time key, for New York's buses; without it New York is the subway and PATH. */
   MTA_BUSTIME_KEY?: string;
 }
@@ -84,7 +88,7 @@ export default {
     const city: FerryCity = parts[1] === "seattle" ? "seattle" : "sf";
     const rest = city === "seattle" ? parts.slice(2) : parts.slice(1);
     const firstStop = (url.searchParams.get("stop") ?? "").split(",")[0];
-    const ferryCity = parts[1] !== "nyc" && parts[1] !== "boston";
+    const ferryCity = !["nyc", "boston", "chicago"].includes(parts[1] ?? "");
     if (ferryCity && ((rest[0] === "lines" && rest.length === 2
           && (await ferryLineIds(city).catch(() => new Set<string>())).has(decodeURIComponent(rest[1])))
         || (["stop", "nearby", "departures"].includes(rest[0] ?? "") && isFerryStop(city, firstStop)))) {
@@ -99,8 +103,9 @@ export default {
     }
     // A fresh instance when its code must take over at once: a busy one (refreshing the Muni
     // snapshot) can keep serving the old code after a deploy. "-v4" for BART, "-v5" for Seattle's
-    // doubled buses. Bump the suffix again if ever needed; the new one starts with empty caches.
-    const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v5`));
+    // doubled buses, "-v6" for Chicago. Bump the suffix again if ever needed; the new one starts with
+    // empty caches.
+    const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v6`));
     const response = await stub.fetch(request);
     const list = ferryCity && rest.length === 1 ? rest[0] : undefined;
     if (response.ok && (list === "lines" || list === "map")) {
@@ -210,6 +215,11 @@ export class TransitCache extends DurableObject<Env> {
           rateLimited: () => new BudgetExhausted(),
           upstream: (status) => new UpstreamError(status),
         } : undefined);
+        return json(result.body, result.status ?? 200, result.maxAge ?? 0);
+      }
+
+      if (parts[1] === "chicago") {
+        const result = await handleChicago(parts.slice(2), url, this.env.CTA_API_KEY);
         return json(result.body, result.status ?? 200, result.maxAge ?? 0);
       }
 
@@ -625,7 +635,7 @@ const CLIENTS = new Set(["app", "widget", "map", "web"]);
  * counted per install; IP addresses and locations are never recorded.
  *
  * Columns: blob1 event (departures | lines | line), blob2 client (app | widget | map | web),
- * blob3 line, blob4 stop, blob5 direction, blob6 install ID, blob7 app version, blob8 city (sf | seattle | nyc | boston),
+ * blob3 line, blob4 stop, blob5 direction, blob6 install ID, blob7 app version, blob8 city (sf | seattle | nyc | boston | chicago),
  * double1 number of favorites; index1 install ID (keeps sampling per install).
  */
 function recordUsage(request: Request, env: Env) {
@@ -633,7 +643,7 @@ function recordUsage(request: Request, env: Env) {
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts[0] !== "v1") return;
-  const city = parts[1] === "seattle" || parts[1] === "nyc" || parts[1] === "boston" ? parts[1] : "sf";
+  const city = ["seattle", "nyc", "boston", "chicago"].includes(parts[1] ?? "") ? parts[1] : "sf";
   if (city !== "sf") parts.splice(1, 1);
   const event = parts[1] === "departures" ? "departures" : parts.length > 2 ? "line" : parts[1] ?? "";
   const header = (name: string) => (request.headers.get(name) ?? "").slice(0, 64);
@@ -662,7 +672,7 @@ function recordUsage(request: Request, env: Env) {
 // MARK: - Helpers
 
 
-const CITIES = { sf: [37.7749, -122.4194], seattle: [47.6062, -122.3321], nyc: [40.7128, -74.006], boston: [42.3601, -71.0589] } as const;
+const CITIES = { sf: [37.7749, -122.4194], seattle: [47.6062, -122.3321], nyc: [40.7128, -74.006], boston: [42.3601, -71.0589], chicago: [41.8781, -87.6298] } as const;
 
 /** The closest supported city to Cloudflare's IP-based guess (good to a few dozen km at best), and how
  * far from each one, for the widgets to sleep when they're far from all of them. Nothing is stored. */
