@@ -96,6 +96,12 @@
   h1 {
     margin: 0; font: 900 clamp(48px, 10vw, 128px)/.92 var(--round); letter-spacing: -.035em;
   }
+  /* The 37 as the app icon has it: white on the red, in a rounded box. */
+  h1 .logo {
+    display: inline-block; background: var(--red); color: #fff;
+    padding: .02em .14em .06em; margin-right: .06em; border-radius: .2em;
+    letter-spacing: -.02em; box-shadow: 0 10px 40px #bf1a2655;
+  }
   h1 .late {
     color: var(--red-glow);
     text-shadow: 0 0 40px #ff3b4a66;
@@ -408,7 +414,7 @@
   </svg>
 
   <div class="wrap hero-copy">
-    <h1>37 Shades<br>of <span class="late">Late</span></h1>
+    <h1 aria-label="37 Shades of Late"><span class="logo">37</span> Shades<br>of <span class="late">Late</span></h1>
     <p class="tagline">Minutes until your bus or train, right on your Lock Screen, in seven cities and counting. Emotional support included.</p>
     <div class="cta-row">
       <a class="cta app-store" href="{{APP_STORE_URL}}">
