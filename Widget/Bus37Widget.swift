@@ -35,11 +35,12 @@ struct Provider: TimelineProvider {
                                                  rows: [], error: nil, awayFrom: Selection.homeCity) }
         }
         let selections = Array(Selection.widgetSelections(near: place.isAway ? Selection.homeCity : place.city).prefix(4))
+        let client: Client = [.accessoryInline, .accessoryCircular, .accessoryRectangular].contains(family) ? .lockscreen : .widget
         let rows = await withTaskGroup(of: (Int, WidgetRow).self) { group in
             for (index, selection) in selections.enumerated() {
                 group.addTask {
                     do {
-                        let departures = try await TransitService.departures(for: selection, client: .widget)
+                        let departures = try await TransitService.departures(for: selection, client: client)
                         return (index, WidgetRow(selection: selection, departures: departures))
                     } catch {
                         // Show the times the app (or an earlier widget update) last saw, rather than a dash.

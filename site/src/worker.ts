@@ -1,12 +1,14 @@
 // The site is static files, except for /s, a shared stop: its link preview (what Messages, WhatsApp
 // and friends show for the link) names the line and stop rather than any old bus, looked up from the
 // proxy like the page itself does, with /s/card.png, the stop's card with its current wait and a map
-// of the buses on their way, as the picture. /mapkit-token signs the page's live map in.
+// of the buses on their way, as the picture. /mapkit-token signs the page's live map in. /stats is the
+// maker's own page of numbers, behind a password (src/stats.ts).
 
 import { MAP_WIDTH, renderCard, type BadgePart, type CardMap } from "./card";
 import { mapkitToken, project, snapshot, unproject, type MapKitEnv, type Point } from "./mapkit";
+import { handleStats, type StatsEnv } from "./stats";
 
-interface Env extends MapKitEnv {
+interface Env extends MapKitEnv, StatsEnv {
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
 
@@ -20,6 +22,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/s/card.png") return card(request, url, env, ctx);
+    if (url.pathname === "/stats" || url.pathname.startsWith("/stats/")) return handleStats(request, url, env);
     if (url.pathname === "/mapkit-token") {
       // For the page asking (its address, from the Referer), if it's one of the site's own; a token
       // only works on the address it names.

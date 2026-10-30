@@ -77,6 +77,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url);
     if (request.method === "POST" && (pathname === "/v1/activity" || pathname === "/v1/activity/end")) {
+      if (pathname === "/v1/activity") await recordWatch(request, env);
       return handleActivity(request, env, pathname);
     }
     if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
@@ -650,14 +651,14 @@ export class TransitCache extends DurableObject<Env> {
 // MARK: - Usage statistics
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CLIENTS = new Set(["app", "widget", "map", "web"]);
+const CLIENTS = new Set(["app", "widget", "lockscreen", "map", "web"]);
 
 /**
  * Logs one anonymous event per API request to Workers Analytics Engine. The app sends a random
  * install ID it generated itself (no account, Apple ID or device identifier) so usage can be
  * counted per install; IP addresses and locations are never recorded.
  *
- * Columns: blob1 event (departures | lines | line), blob2 client (app | widget | map | web),
+ * Columns: blob1 event (departures | lines | line | watch), blob2 client (app | widget | lockscreen | map | web),
  * blob3 line, blob4 stop, blob5 direction, blob6 install ID, blob7 app version, blob8 city (sf | seattle | nyc | boston | chicago | dc | la),
  * blob9 the cities the install has picked to show ("sf,nyc"; empty before it has, or from older versions),
  * double1 number of favorites; index1 install ID (keeps sampling per install).
@@ -691,6 +692,20 @@ function recordUsage(request: Request, env: Env) {
     ],
     doubles: [Number.isFinite(favorites) ? Math.max(0, Math.min(favorites, 1000)) : 0],
     indexes: [install],
+  });
+}
+
+/** A Live Activity watch starting, for how much the Dynamic Island gets used: its city, line and stop,
+ *  as event "watch" from the app. Not its push token, nor any install ID (the app sends none with it). */
+async function recordWatch(request: Request, env: Env) {
+  if (!env.ANALYTICS_ENGINE) return;
+  const body: any = await request.clone().json().catch(() => ({}));
+  const city = String(body.city ?? "").slice(0, 16);
+  env.ANALYTICS_ENGINE.writeDataPoint({
+    blobs: ["watch", "app", String(body.line ?? "").slice(0, 16), String(body.stop ?? "").slice(0, 16),
+            String(body.direction ?? "").slice(0, 8), "", (request.headers.get("X-App-Version") ?? "").slice(0, 16), city, ""],
+    doubles: [0],
+    indexes: ["watch"],
   });
 }
 

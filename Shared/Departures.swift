@@ -380,7 +380,8 @@ enum AppGroup {
 
 /// Which part of the app made a request, for the proxy's usage statistics.
 enum Client: String {
-    case app, widget, map
+    /// The Home Screen widgets are `widget`; the Lock Screen's, `lockscreen`.
+    case app, widget, lockscreen, map
 }
 
 extension Selection {

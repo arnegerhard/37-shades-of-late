@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>37 Stats</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23bf1a26'/%3E%3Ctext x='50' y='68' font-family='system-ui' font-weight='900' font-size='52' fill='white' text-anchor='middle'%3E37%3C/text%3E%3C/svg%3E">
+<style>
+  /* The site's night palette; data in one blue, as the reference palette's dark step. */
+  :root {
+    color-scheme: dark;
+    --red: #bf1a26; --red-glow: #ff3b4a; --night: #0b0d17; --surface: #12142a; --ink: #f4f1ea; --muted: #a8a6b3;
+    --faint: #6f6d7d; --line: rgba(255,255,255,.1); --data: #3987e5; --data-soft: #3987e540;
+    --round: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--night); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { width: min(1180px, 100% - 32px); margin-inline: auto; padding: 22px 0 60px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; justify-content: space-between; margin-bottom: 22px; }
+  h1 { margin: 0; font: 900 28px/1 var(--round); display: flex; align-items: center; gap: 10px; }
+  h1 b { background: var(--red); color: #fff; border-radius: 8px; padding: 4px 8px; font-size: 22px; }
+  .controls { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
+  .range { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+  .range button { appearance: none; border: 0; background: none; color: var(--muted); font: 700 13px var(--round); padding: 6px 12px; border-radius: 7px; cursor: pointer; }
+  .range button[aria-pressed="true"] { background: #262a4a; color: var(--ink); }
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+  .panel { grid-column: span 6; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; min-width: 0; }
+  .panel.wide { grid-column: span 12; }
+  .panel.third { grid-column: span 4; }
+  .panel h2 { margin: 0 0 2px; font: 800 16px/1.3 var(--round); }
+  .panel .sub { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+  @media (max-width: 860px) { .panel, .panel.third { grid-column: span 12; } }
+
+  /* Headline numbers. */
+  .tiles { grid-column: span 12; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; }
+  .tile .n { font: 900 32px/1.1 var(--round); font-variant-numeric: tabular-nums; }
+  .tile .k { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+  /* Columns over time: thin bars rounded at the top, a recessive baseline, a few dates under them. */
+  .cols { display: flex; align-items: flex-end; gap: 2px; height: 150px; border-bottom: 1px solid var(--line); }
+  .cols .c { flex: 1; height: 100%; display: flex; align-items: flex-end; position: relative; cursor: default; }
+  .cols .c i { display: block; width: 100%; background: var(--data); border-radius: 4px 4px 0 0; min-height: 1px; }
+  .cols .c:hover i, .cols .c:focus i { background: #6da7ec; }
+  .axis { display: flex; justify-content: space-between; color: var(--faint); font-size: 12px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .peak { color: var(--faint); font-size: 12px; text-align: right; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+
+  /* Ranked bars: a label, a bar, its number. */
+  .rows { display: grid; grid-template-columns: minmax(90px, max-content) 1fr auto; gap: 8px 12px; align-items: center; }
+  .rows .l { color: var(--ink); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  .rows .l small { color: var(--muted); }
+  .rows .b { height: 14px; position: relative; }
+  .rows .b i { position: absolute; inset: 0 auto 0 0; background: var(--data); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .rows .v { color: var(--ink); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rows .v small { color: var(--muted); }
+  .empty { color: var(--faint); font-size: 13px; padding: 18px 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 8px; border-bottom: 1px solid #ffffff0d; }
+  td.num, th.num { text-align: right; }
+  td code { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+  .inline-bar { display: inline-block; height: 8px; background: var(--data); border-radius: 0 3px 3px 0; vertical-align: middle; margin-right: 8px; }
+
+  /* The map: each city a bubble as big as the installs seen there by the slider's day. */
+  .map-panel { display: grid; grid-template-columns: 1fr 260px; gap: 18px; }
+  @media (max-width: 860px) { .map-panel { grid-template-columns: 1fr; } }
+  .map svg { display: block; width: 100%; height: auto; }
+  .map .land { fill: #1b1f3d; stroke: #2e3463; stroke-width: 1.5; }
+  .map .borders { fill: none; stroke: #2a2f55; stroke-width: .8; }
+  .map .bubble { fill: var(--data-soft); stroke: var(--data); stroke-width: 2.5; }
+  .map .dot { fill: var(--data); }
+  .map text { font: 800 30px var(--round); fill: var(--ink); paint-order: stroke; stroke: var(--night); stroke-width: 7px; stroke-linejoin: round; }
+  .map text tspan { fill: var(--muted); }
+  .map line { stroke: #ffffff40; stroke-width: 1.5; }
+  .slider { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+  .slider input { flex: 1; accent-color: var(--data); }
+  .slider button { appearance: none; border: 1px solid var(--line); background: #1b1f3d; color: var(--ink); border-radius: 999px; width: 36px; height: 36px; font-size: 14px; cursor: pointer; }
+  .slider output { font: 800 15px var(--round); min-width: 92px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  #tip { position: fixed; pointer-events: none; z-index: 10; background: #20244a; border: 1px solid #3a4078; color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 12px; line-height: 1.35; white-space: nowrap; opacity: 0; transition: opacity .1s; box-shadow: 0 8px 20px #0008; }
+  #tip b { font-variant-numeric: tabular-nums; }
+  .error { background: #3a1018; border: 1px solid #7a1f2c; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; display: none; }
+  .note { color: var(--faint); font-size: 12px; margin-top: 26px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><b>37</b> Stats</h1>
+    <div class="controls">
+      <span id="as-of"></span>
+      <div class="range" role="group" aria-label="Time range">
+        <button data-days="7">7 days</button><button data-days="30" aria-pressed="true">30 days</button><button data-days="90">90 days</button>
+      </div>
+    </div>
+  </header>
+  <div class="error" id="error"></div>
+
+  <div class="grid">
+    <div class="tiles" id="tiles"></div>
+
+    <section class="panel wide">
+      <h2>Where it's used</h2>
+      <p class="sub">Installs seen in each city by the day on the slider, over the last three months. A city is where the stops are, not where the phone is: the app sends no location.</p>
+      <div class="map-panel">
+        <div class="map" id="map"></div>
+        <div>
+          <div class="rows" id="map-rows"></div>
+        </div>
+      </div>
+      <div class="slider">
+        <button id="play" aria-label="Play">▶</button>
+        <input type="range" id="day" min="0" max="0" value="0" aria-label="Day">
+        <output id="day-label"></output>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Installs using it, per day</h2>
+      <p class="sub">Distinct installs that asked for anything that day.</p>
+      <div id="daily-installs"></div>
+    </section>
+    <section class="panel">
+      <h2>New installs, per day</h2>
+      <p class="sub">Installs seen for the first time.</p>
+      <div id="new-installs"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Features</h2>
+      <p class="sub">Requests (watches for the Dynamic Island) and how many installs use each.</p>
+      <div class="rows" id="features"></div>
+    </section>
+    <section class="panel">
+      <h2>Cities</h2>
+      <p class="sub">Installs that asked for anything in each city.</p>
+      <div class="rows" id="cities"></div>
+    </section>
+
+    <section class="panel third">
+      <h2>Cities per install</h2>
+      <p class="sub">How many cities each install asked for departures in.</p>
+      <div class="rows" id="cities-used"></div>
+    </section>
+    <section class="panel third">
+      <h2>Cities picked</h2>
+      <p class="sub">The sets installs picked on the map of cities.</p>
+      <div class="rows" id="picked"></div>
+    </section>
+    <section class="panel third">
+      <h2>Favorites per install</h2>
+      <p class="sub">The most each install had.</p>
+      <div class="rows" id="favorites"></div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Most active installs</h2>
+      <p class="sub">By requests. An install is a random ID the app made for itself; nothing ties it to a person.</p>
+      <div id="top"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Time of day</h2>
+      <p class="sub">Requests by hour, in your time zone.</p>
+      <div id="hours"></div>
+    </section>
+    <section class="panel">
+      <h2>Dynamic Island watches, per day</h2>
+      <p class="sub">Live Activities started.</p>
+      <div id="watches"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Top lines</h2>
+      <p class="sub">By installs asking for their departures.</p>
+      <div class="rows" id="lines"></div>
+    </section>
+    <section class="panel">
+      <h2>App versions</h2>
+      <p class="sub">Installs on each.</p>
+      <div class="rows" id="versions"></div>
+    </section>
+  </div>
+  <p class="note">From the proxy's usage events in Workers Analytics Engine, which keeps three months and samples busy days: counts are close, not exact. Lock Screen widgets and Dynamic Island watches are counted from the next app version on; before that, Lock Screen widgets count as Home Screen widgets, and watches aren't counted.</p>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+  const US = {{US_MAP}};
+  // Where each city's label goes from its spot (the Northeast's three apart), and which side it hangs on.
+  const LABELS = { seattle: [0, -40, "middle"], sf: [-10, 70, "start"], la: [20, 60, "start"], chicago: [0, -40, "middle"],
+                   boston: [20, -70, "middle"], nyc: [40, 20, "start"], dc: [-30, 70, "end"] };
+  const NAMES = Object.fromEntries(Object.entries(US.cities).map(([id, c]) => [id, c.name]));
+  const FEATURES = { app: "App", widget: "Home Screen widget", lockscreen: "Lock Screen widget", map: "Live map", web: "Website (shared links, the homepage's live 37)", watch: "Dynamic Island" };
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const dayLabel = (d, opts = { month: "short", day: "numeric" }) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", opts);
+  const isoDay = (date) => date.toISOString().slice(0, 10);
+  const addDays = (day, n) => isoDay(new Date(Date.parse(`${day}T00:00:00Z`) + n * 86400000));
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---- One tooltip for every mark: whatever carries data-tip, on hover or focus.
+  const tip = $("tip");
+  function showTip(el, x, y) {
+    tip.innerHTML = el.dataset.tip;
+    tip.style.opacity = 1;
+    const r = tip.getBoundingClientRect();
+    tip.style.left = `${Math.min(innerWidth - r.width - 8, Math.max(8, x - r.width / 2))}px`;
+    tip.style.top = `${Math.max(8, y - r.height - 12)}px`;
+  }
+  document.addEventListener("pointerover", (e) => { const el = e.target.closest("[data-tip]"); if (el) showTip(el, e.clientX, e.clientY); });
+  document.addEventListener("pointermove", (e) => { const el = e.target.closest("[data-tip]"); if (el) showTip(el, e.clientX, e.clientY); else tip.style.opacity = 0; });
+  document.addEventListener("focusin", (e) => { const el = e.target.closest("[data-tip]"); if (el) { const r = el.getBoundingClientRect(); showTip(el, r.left + r.width / 2, r.top); } });
+  document.addEventListener("focusout", () => { tip.style.opacity = 0; });
+
+  /** Columns over days: every day in the range, empty ones at zero. */
+  function columns(el, series, { label }) {
+    const peak = Math.max(1, ...series.map((s) => s.value));
+    el.innerHTML = `<div class="peak">${fmt(peak)} at most</div>
+      <div class="cols">${series.map((s) => `<span class="c" tabindex="0" data-tip="${esc(s.tipLabel ?? dayLabel(s.day, { weekday: "short", month: "short", day: "numeric" }))}: <b>${fmt(s.value)}</b> ${label}">
+        <i style="height:${(s.value / peak) * 100}%"></i></span>`).join("")}</div>
+      <div class="axis"><span>${esc(series[0]?.axis ?? dayLabel(series[0]?.day))}</span><span>${esc(series.at(-1)?.axis ?? dayLabel(series.at(-1)?.day))}</span></div>`;
+  }
+  function daysOf(range) {
+    const today = isoDay(new Date());
+    return Array.from({ length: range }, (_, i) => addDays(today, i - range + 1));
+  }
+  /** Ranked bars, longest first as given. */
+  function rows(el, items, value, label, extra = () => "") {
+    if (!items.length) { el.innerHTML = `<div class="empty" style="grid-column: 1 / -1">Nothing yet.</div>`; return; }
+    const peak = Math.max(1, ...items.map(value));
+    el.innerHTML = items.map((it) => `<span class="l" title="${esc(label(it))}">${label(it)}</span>
+      <span class="b" data-tip="${esc(label(it))}: <b>${fmt(value(it))}</b>${esc(extra(it).replace(/<[^>]+>/g, ""))}"><i style="width:${(value(it) / peak) * 100}%"></i></span>
+      <span class="v">${fmt(value(it))}${extra(it)}</span>`).join("");
+  }
+
+  // ---- The map: an outline, and a bubble per city as big (in area) as its installs by the day.
+  // Around the country itself, with room for the bubbles and labels at its edges.
+  $("map").innerHTML = `<svg viewBox="-20 110 1140 760" role="img" aria-label="Installs by city on a map of the US">
+    <path class="land" d="${US.land}"/><path class="borders" d="${US.borders}"/>
+    ${Object.entries(US.cities).map(([id, c]) => {
+      const [dx, dy, anchor] = LABELS[id] ?? [0, -40, "middle"];
+      const [x, y] = c.at;
+      return `<g data-city="${id}" tabindex="0">
+      <circle class="bubble" cx="${x}" cy="${y}" r="0"/><circle class="dot" cx="${x}" cy="${y}" r="6"/>
+      ${Math.hypot(dx, dy) > 45 ? `<line x1="${x}" y1="${y}" x2="${x + dx * .75}" y2="${y + dy * .75}"/>` : ""}
+      <text x="${x + dx}" y="${y + dy}" text-anchor="${anchor}">${esc(c.name.replace("Washington, D.C.", "DC"))} <tspan class="count"></tspan></text></g>`;
+    }).join("")}
+  </svg>`;
+  let mapDays = [], mapCounts = [], timer;
+  function showDay(i) {
+    const counts = mapCounts[i] ?? {};
+    const peak = Math.max(1, ...Object.values(mapCounts.at(-1) ?? {}));
+    for (const g of $("map").querySelectorAll("[data-city]")) {
+      const n = counts[g.dataset.city] ?? 0;
+      g.querySelector(".bubble").setAttribute("r", n ? 10 + Math.sqrt(n / peak) * 60 : 0);
+      g.querySelector(".count").textContent = n ? fmt(n) : "";
+      g.style.opacity = n ? 1 : .35;
+      g.dataset.tip = `${esc(NAMES[g.dataset.city])}: <b>${fmt(n)}</b> installs by ${dayLabel(mapDays[i] ?? isoDay(new Date()))}`;
+    }
+    $("day-label").textContent = mapDays[i] ? dayLabel(mapDays[i], { month: "short", day: "numeric", year: "numeric" }) : "";
+    rows($("map-rows"), Object.entries(counts).sort((a, b) => b[1] - a[1]), (e) => e[1], (e) => esc(NAMES[e[0]] ?? e[0]), (e) => ` <small>install${e[1] === 1 ? "" : "s"}</small>`);
+  }
+  $("day").addEventListener("input", (e) => { stop(); showDay(Number(e.target.value)); });
+  function stop() { clearInterval(timer); timer = undefined; $("play").textContent = "▶"; $("play").setAttribute("aria-label", "Play"); }
+  $("play").addEventListener("click", () => {
+    if (timer) return stop();
+    const slider = $("day");
+    if (Number(slider.value) >= mapDays.length - 1) slider.value = 0;
+    $("play").textContent = "❚❚"; $("play").setAttribute("aria-label", "Pause");
+    timer = setInterval(() => {
+      const next = Number(slider.value) + 1;
+      if (next >= mapDays.length) return stop();
+      slider.value = next; showDay(next);
+    }, reduced ? 0 : Math.max(60, 4000 / mapDays.length));
+  });
+
+  async function load(days) {
+    document.querySelectorAll(".range button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.days) === days)));
+    $("as-of").textContent = "Loading…";
+    let data;
+    try {
+      const response = await fetch(`/stats/data?days=${days}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(await response.text());
+      data = await response.json();
+      $("error").style.display = "none";
+    } catch (error) {
+      $("error").textContent = `The numbers didn't come: ${error.message}`;
+      $("error").style.display = "block";
+      $("as-of").textContent = "";
+      return;
+    }
+    $("as-of").textContent = `As of ${new Date(data.asOf).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+    const range = daysOf(days);
+    const n = (x) => Number(x) || 0;
+
+    // When each install was first seen at all, and in each city.
+    const firstSeen = new Map();
+    for (const f of data.firsts) if (!firstSeen.has(f.install) || f.first < firstSeen.get(f.install)) firstSeen.set(f.install, f.first);
+    const newPerDay = {};
+    for (const day of firstSeen.values()) newPerDay[day] = (newPerDay[day] ?? 0) + 1;
+
+    const byDay = Object.fromEntries(data.daily.map((d) => [d.day, d]));
+    const today = byDay[isoDay(new Date())];
+    const watches = data.watches.reduce((sum, w) => sum + n(w.watches), 0);
+    const shared = data.clients.find((c) => c.client === "web");
+    const newInRange = [...firstSeen.values()].filter((day) => day >= range[0]).length;
+    const tiles = [
+      [fmt(n(data.summary[0]?.installs)), `installs used it in ${days} days`],
+      [fmt(newInRange), `new installs in ${days} days`],
+      [fmt(n(today?.installs)), "installs today"],
+      [fmt(n(data.summary[0]?.requests)), "requests"],
+      [fmt(n(shared?.requests)), "website requests (shared links and more)"],
+      [fmt(watches), "Dynamic Island watches"],
+    ];
+    $("tiles").innerHTML = tiles.map(([value, key]) => `<div class="tile"><div class="n">${value}</div><div class="k">${key}</div></div>`).join("");
+
+    columns($("daily-installs"), range.map((day) => ({ day, value: n(byDay[day]?.installs) })), { label: "installs" });
+    columns($("new-installs"), range.map((day) => ({ day, value: newPerDay[day] ?? 0 })), { label: "new installs" });
+    const watchByDay = {};
+    for (const w of data.watches) watchByDay[w.day] = (watchByDay[w.day] ?? 0) + n(w.watches);
+    columns($("watches"), range.map((day) => ({ day, value: watchByDay[day] ?? 0 })), { label: "watches" });
+
+    // Hours, from UTC to the viewer's own.
+    const offset = -new Date().getTimezoneOffset() / 60;
+    const hours = Array.from({ length: 24 }, (_, h) => ({ h, value: 0 }));
+    for (const r of data.hours) hours[(((n(r.hour) + offset) % 24) + 24) % 24].value += n(r.requests);
+    const hourName = (h) => new Date(2026, 0, 1, h).toLocaleTimeString("en-US", { hour: "numeric" });
+    columns($("hours"), hours.map(({ h, value }) => ({ value, tipLabel: hourName(h), axis: hourName(h) })), { label: "requests" });
+
+    const features = [...data.clients.filter((c) => FEATURES[c.client]).map((c) => ({ name: FEATURES[c.client], uses: n(c.requests), installs: n(c.installs) })),
+                      { name: FEATURES.watch, uses: watches, installs: null }].sort((a, b) => b.uses - a.uses);
+    rows($("features"), features, (f) => f.uses, (f) => esc(f.name),
+         // The website sends no install ID, so it has no installs to count.
+         (f) => f.installs === null ? " <small>watches</small>" : f.name.startsWith("Website") ? " <small>requests</small>"
+           : ` <small>· ${fmt(f.installs)} install${f.installs === 1 ? "" : "s"}</small>`);
+    rows($("cities"), data.cities, (c) => n(c.installs), (c) => esc(NAMES[c.city] ?? c.city), (c) => ` <small>· ${fmt(c.requests)} req.</small>`);
+    rows($("cities-used"), data.citiesUsed, (c) => n(c.installs), (c) => `${c.used} ${c.used == 1 ? "city" : "cities"}`, (c) => ` <small>install${c.installs == 1 ? "" : "s"}</small>`);
+    rows($("picked"), data.picked, (p) => n(p.installs),
+         (p) => esc(p.cities.split(",").map((c) => (NAMES[c] ?? c).replace("Washington, D.C.", "DC")).join(", ")), () => "");
+    rows($("favorites"), data.favorites, (f) => n(f.installs), (f) => `${f.favorites} favorite${f.favorites == 1 ? "" : "s"}`, () => "");
+    rows($("lines"), data.lines, (l) => n(l.installs), (l) => `${esc(l.line)} <small>${esc(NAMES[l.city] ?? l.city)}</small>`, (l) => ` <small>· ${fmt(l.requests)} req.</small>`);
+    rows($("versions"), data.versions, (v) => n(v.installs), (v) => esc(v.version), () => "");
+
+    const topPeak = Math.max(1, ...data.top.map((t) => n(t.requests)));
+    $("top").innerHTML = data.top.length ? `<table><thead><tr><th>Install</th><th>Requests</th><th class="num">Days</th><th class="num">Cities</th>
+      <th class="num">Favorites</th><th>Version</th><th>Last seen</th></tr></thead><tbody>
+      ${data.top.map((t) => `<tr><td><code>${esc(t.install.slice(0, 8))}</code></td>
+        <td><span class="inline-bar" style="width:${(n(t.requests) / topPeak) * 160}px"></span>${fmt(t.requests)}</td>
+        <td class="num">${fmt(t.days)}</td><td class="num">${fmt(t.cities)}</td><td class="num">${fmt(t.favorites)}</td>
+        <td>${esc(t.version)}</td><td>${esc(new Date(`${String(t.last).replace(" ", "T")}Z`).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</td></tr>`).join("")}
+      </tbody></table>` : `<div class="empty">Nothing yet.</div>`;
+
+    // The map's days: from the first install on, each city's installs seen there by then.
+    const firsts = [...data.firsts].sort((a, b) => a.first.localeCompare(b.first));
+    const start = firsts[0]?.first ?? isoDay(new Date());
+    mapDays = [];
+    for (let day = start; day <= isoDay(new Date()); day = addDays(day, 1)) mapDays.push(day);
+    mapCounts = [];
+    const running = {};
+    let j = 0;
+    for (const day of mapDays) {
+      while (j < firsts.length && firsts[j].first <= day) { running[firsts[j].city] = (running[firsts[j].city] ?? 0) + 1; j++; }
+      mapCounts.push({ ...running });
+    }
+    stop();
+    $("day").max = Math.max(0, mapDays.length - 1);
+    $("day").value = $("day").max;
+    showDay(Number($("day").max));
+  }
+
+  document.querySelectorAll(".range button").forEach((b) => b.addEventListener("click", () => load(Number(b.dataset.days))));
+  load(30);
+</script>
+</body>
+</html>

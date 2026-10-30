@@ -146,4 +146,9 @@ ${cards}
 </svg>
 `;
 writeFileSync(join(here, "..", "images", "cities.svg"), svg);
+// The same country and where each city is, for the stats page's map (src/stats.html).
+writeFileSync(join(here, "..", "images", "us-map.json"), JSON.stringify({
+  width: W, height: H, land: path(nation), borders: path(borders),
+  cities: Object.fromEntries(CITIES.map((c) => [c.id, { name: c.name, at: projection(c.at).map(r1) }])),
+}));
 console.log(`images/cities.svg: ${Math.round(svg.length / 1024)} KB`);

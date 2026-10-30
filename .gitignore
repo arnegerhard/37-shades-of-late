@@ -14,3 +14,4 @@ site/.wrangler/
 site/node_modules/
 # Apple auth keys (APNs); they live in the Worker as secrets, never in the repo.
 *.p8
+site/.dev.vars
