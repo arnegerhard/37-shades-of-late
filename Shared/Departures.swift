@@ -94,6 +94,15 @@ struct Selection: Codable, Hashable, Identifiable {
 
     var isMultiLine: Bool { !also.isEmpty }
 
+    /// Whether any of its lines' vehicles show up on the map. Not BART's or PATH's trains: they give
+    /// live times but never where the trains are (their stations' arrival boards are all they publish).
+    var showsVehicles: Bool {
+        lineIDs.contains { id in
+            guard let line = Line.known(id, in: city), line.mode == "rail" else { return true }
+            return !(city == .sf || (city == .nyc && id != "SIR"))
+        }
+    }
+
     /// What comes to this stop, for the wording: "bus", "train", "streetcar", "cable car" or "ferry".
     /// From the line's mode where it's known (Link, Muni Metro and BART are trains; Seattle's Water
     /// Taxi is a ferry, though it's filed with the trains); otherwise from the stop: New York's bus

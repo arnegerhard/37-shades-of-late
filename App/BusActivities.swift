@@ -35,7 +35,7 @@ final class BusActivities {
         let attributes = BusActivity(selectionID: selection.id, line: selection.lineLabel, destination: selection.destination,
                                      stopName: selection.stopName, vehicle: selection.vehicle,
                                      link: selection.openURL, startedAt: now, round: selection.roundBadge,
-                                     badges: selection.badgeParts)
+                                     badges: selection.badgeParts, showsVehicles: selection.showsVehicles)
         if let activity = try? Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: state.ends),
                                                pushType: .token) {
             follow(activity)
@@ -213,7 +213,7 @@ final class IslandShowOff {
         else { return }
         attributes = BusActivity(selectionID: selection.id, line: selection.lineLabel, destination: selection.destination,
                                  stopName: selection.stopName, vehicle: selection.vehicle, link: selection.openURL, startedAt: now,
-                                 round: selection.roundBadge, badges: selection.badgeParts)
+                                 round: selection.roundBadge, badges: selection.badgeParts, showsVehicles: selection.showsVehicles)
         self.state = state
         phase = .closed
         // A turn later, so it's drawn closed (where the real island is) before it opens.

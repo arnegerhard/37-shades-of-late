@@ -39,6 +39,9 @@ struct BusActivity: ActivityAttributes {
     var round: Bool? = nil
     /// Its badges, in their colors (see `Selection.badgeParts`); without them, `line` in the app's red.
     var badges: [BadgePart]? = nil
+    /// False for lines whose vehicles are never on the map (see `Selection.showsVehicles`); unknown in
+    /// activities started before it was asked.
+    var showsVehicles: Bool? = nil
 
     var badgeParts: [BadgePart] { badges ?? [BadgePart(label: line)] }
 
@@ -166,7 +169,9 @@ struct BusActivityView: View {
         case 0: return "At your stop"
         case 1: return "1 stop away"
         case let stops?: return "\(stops) stops away"
-        case nil: return "Live, but hiding"
+        // Live, but not on the map. Where vehicles never are (BART, PATH), it's just coming; elsewhere
+        // the bus is keeping its whereabouts to itself.
+        case nil: return attributes.showsVehicles == false ? "On its way" : "Live, but hiding"
         }
     }
 
