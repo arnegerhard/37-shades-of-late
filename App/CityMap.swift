@@ -22,16 +22,33 @@ struct CityMap: View {
         .sf: (false, 0), .la: (false, 1), .dc: (false, 2), .nyc: (false, 3),
     ]
 
+    /// How many cards a row has, above the map or below it.
+    private static func columns(_ top: Bool) -> CGFloat { CGFloat(slots.values.filter { $0.top == top }.count) }
+
+    /// The cards' size on a map `width` across: as wide as the fullest row lets them be, each row spread
+    /// across. The name and who runs it take a quarter of the card, under its picture.
+    static func cards(across width: CGFloat) -> (width: CGFloat, height: CGFloat, textHeight: CGFloat) {
+        let most = max(columns(true), columns(false))
+        let cardWidth = min(124, (width - 10 - most * 10) / most)
+        let cardHeight = cardWidth * 1.05
+        return (cardWidth, cardHeight, (cardHeight - 2 * CityCard.inset) / 4)
+    }
+
+    /// The size of a card's picture on a map `width` across.
+    static func pictureSize(across width: CGFloat) -> CGSize {
+        let card = cards(across: width)
+        return CGSize(width: card.width - 2 * CityCard.inset, height: card.height - 2 * CityCard.inset - card.textHeight)
+    }
+
+    /// How wide the map is on a screen `width` across, as CityChooser lays it out.
+    static func width(onScreen width: CGFloat) -> CGFloat { width - 24 }
+
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            // As wide as the fullest row lets them be; each row spread across.
-            let columns = { (top: Bool) in CGFloat(Self.slots.values.filter { $0.top == top }.count) }
-            let cardWidth = min(124, (size.width - 10 - (max(columns(true), columns(false)) * 10)) / max(columns(true), columns(false)))
-            let cardHeight = cardWidth * 1.05
-            // The name and who runs it take a quarter of the card, under its map; the subtitles all at
-            // one size, which fits the longest ("Metro · Sound Transit") across.
-            let textHeight = (cardHeight - 2 * CityCard.inset) / 4
+            let columns = Self.columns
+            let (cardWidth, cardHeight, textHeight) = Self.cards(across: size.width)
+            // The subtitles all at one size, which fits the longest ("Metro · Sound Transit") across.
             let widest = City.allCases.map { ($0.agencies as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 10)]).width }.max() ?? 1
             let subtitleSize = min(textHeight * 0.4, 10 * (cardWidth - 2 * CityCard.inset) / widest * 0.9)
             let card = { (city: City) -> CGPoint in
@@ -106,13 +123,25 @@ private struct CityCard: View {
     let subtitleSize: CGFloat
     static let inset: CGFloat = 5
     let toggle: () -> Void
-    @State private var lines: [MapLine] = []
+    private var pictures = CityPictures.shared
 
     var body: some View {
         Button(action: toggle) {
             VStack(spacing: 0) {
-                NetworkMap(lines: lines)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                GeometryReader { geo in
+                    ZStack {
+                        Color(white: 0.12)
+                        if let picture = pictures.ready[city] {
+                            Image(uiImage: picture).resizable().scaledToFill()
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .transition(.opacity)
+                        }
+                    }
+                    // Should they not be on their way yet (a screen of another size).
+                    .task { pictures.prepare(size: geo.size) }
+                }
+                .accessibilityHidden(true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 9))
                     .saturation(isChosen ? 1 : 0)
                     .opacity(isChosen ? 1 : 0.5)
@@ -148,38 +177,53 @@ private struct CityCard: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(city.name), \(city.agencies)")
         .accessibilityAddTraits(isChosen ? .isSelected : [])
-        .task {
-            // The big cities' maps take a moment to read; off the main thread.
-            let city = city
-            lines = await Task.detached { TransitService.cachedLineMap(in: city).filter { $0.isNetwork(in: city) } }.value
-        }
     }
 }
 
-/// A city's trains on its map, in the app's map style: a still picture of the map with the lines drawn
-/// on it where they run. (A live map this small wouldn't zoom out far enough, and each would carry
-/// its own Legal link; the map of the US behind the cards has it.)
-private struct NetworkMap: View {
-    let lines: [MapLine]
-    @State private var picture: UIImage?
+/// Each city's trains on its map, in the app's map style: a still picture of the map with the lines drawn
+/// on it where they run, for the cards. (A live map this small wouldn't zoom out far enough, and each
+/// would carry its own Legal link; the map of the US behind the cards has it.) Reading the line maps and
+/// asking Maps for the pictures takes a few seconds, so they're made when the app starts, in the
+/// background, and kept for as long as it runs: the map of cities opens with them in place. In memory
+/// only: Maps' pictures aren't for storing.
+@MainActor @Observable
+final class CityPictures {
+    static let shared = CityPictures()
 
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Color(white: 0.12)
-                if let picture { Image(uiImage: picture).resizable() }
-            }
-            .task(id: "\(geo.size.width)x\(geo.size.height) \(lines.count)") {
-                picture = await Self.picture(of: lines, size: geo.size)
+    private(set) var ready: [City: UIImage] = [:]
+    @ObservationIgnored private var size: CGSize?
+    @ObservationIgnored private var work: Task<Void, Never>?
+
+    /// Makes every city's picture at `size`, unless they're made or on their way at that size already.
+    func prepare(size: CGSize) {
+        let size = CGSize(width: size.width.rounded(), height: size.height.rounded())
+        guard size.width > 0, size.height > 0, size != self.size else { return }
+        self.size = size
+        work?.cancel()
+        // The cities picked first: their cards are the ones lit up.
+        let order = City.chosen + City.allCases.filter { !City.chosen.contains($0) }
+        work = Task(priority: .utility) {
+            await withTaskGroup(of: (City, UIImage?).self) { group in
+                for city in order {
+                    group.addTask { (city, await Self.picture(of: city, size: size)) }
+                }
+                for await (city, picture) in group where !Task.isCancelled {
+                    if let picture { withAnimation(.easeOut(duration: 0.2)) { ready[city] = picture } }
+                }
             }
         }
-        .accessibilityHidden(true)
     }
 
-    private static func picture(of lines: [MapLine], size: CGSize) async -> UIImage? {
+    /// Ahead of the map of cities, at the size its cards will have on a screen `width` across.
+    func prepare(forScreen width: CGFloat) {
+        prepare(size: CityMap.pictureSize(across: CityMap.width(onScreen: width)))
+    }
+
+    private nonisolated static func picture(of city: City, size: CGSize) async -> UIImage? {
+        // The big cities' line maps take a moment to read; off the main thread, as this is.
+        let lines = TransitService.cachedLineMap(in: city).filter { $0.isNetwork(in: city) }
         let points = lines.flatMap { $0.shapes.joined() }
-        guard size.width > 0, size.height > 0,
-              let minLat = points.map({ $0[0] }).min(), let maxLat = points.map({ $0[0] }).max(),
+        guard let minLat = points.map({ $0[0] }).min(), let maxLat = points.map({ $0[0] }).max(),
               let minLon = points.map({ $0[1] }).min(), let maxLon = points.map({ $0[1] }).max() else { return nil }
         let options = MKMapSnapshotter.Options()
         // Around every line, with a little room; the picture widens it to its own shape.
@@ -195,14 +239,15 @@ private struct NetworkMap: View {
         options.preferredConfiguration = configuration
         options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
         guard let snapshot = try? await MKMapSnapshotter(options: options).start() else { return nil }
+        let colors = lines.map { UIColor((Color(hex: $0.color) ?? LineBadge.red).legible(on: .dark)).cgColor }
         return UIGraphicsImageRenderer(size: size).image { renderer in
             snapshot.image.draw(in: CGRect(origin: .zero, size: size))
             let context = renderer.cgContext
             context.setLineWidth(1.5)
             context.setLineCap(.round)
             context.setLineJoin(.round)
-            for line in lines {
-                context.setStrokeColor(UIColor((Color(hex: line.color) ?? LineBadge.red).legible(on: .dark)).cgColor)
+            for (line, color) in zip(lines, colors) {
+                context.setStrokeColor(color)
                 for shape in line.shapes where shape.count > 1 {
                     let at = shape.map { p -> CGPoint in
                         let at = snapshot.point(for: CLLocationCoordinate2D(latitude: p[0], longitude: p[1]))

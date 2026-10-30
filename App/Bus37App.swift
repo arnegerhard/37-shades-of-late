@@ -22,16 +22,20 @@ struct Bus37App: App {
         try? Tips.configure()
     }
 
-    @ViewBuilder private var home: some View {
-        if welcoming {
-            Welcome {
-                WidgetGuide.hasBeenShown = true
-                withAnimation { welcoming = false }
+    private var home: some View {
+        Group {
+            if welcoming {
+                Welcome {
+                    WidgetGuide.hasBeenShown = true
+                    withAnimation { welcoming = false }
+                }
+            } else {
+                // Over everything, where the island is: it opens out there when handed a watch.
+                ContentView().overlay { IslandShowOffView() }
             }
-        } else {
-            // Over everything, where the island is: it opens out there when handed a watch.
-            ContentView().overlay { IslandShowOffView() }
         }
+        // The map of cities' pictures, made in the background from the start, so it opens with them.
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { CityPictures.shared.prepare(forScreen: $0) }
     }
 
     var body: some Scene {
