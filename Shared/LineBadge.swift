@@ -210,7 +210,8 @@ extension Selection {
 }
 
 /// A choice's badges side by side (see `Selection.badgeParts`), or with `columns`, in rows of that
-/// many, for where there's height to spare and not width (three or four BART lines at a stop).
+/// many, for where there's height to spare and not width (three or four BART lines at a stop, or
+/// four buses, each its own badge then).
 struct LineBadges: View {
     let parts: [BadgePart]
     var font: Font = .system(.caption, design: .rounded).weight(.heavy)
@@ -218,6 +219,11 @@ struct LineBadges: View {
     var columns: Int? = nil
 
     var body: some View {
+        // In rows, a rectangle for several lines ("2·120·121·124") is a badge per line, so it stacks too.
+        let parts = columns == nil ? parts : parts.flatMap { part in
+            let ids = part.label.split(separator: "·").map(String.init)
+            return ids.count > 1 ? ids.map { BadgePart(label: $0, color: part.color, darkText: part.darkText, round: part.round) } : [part]
+        }
         if let columns, parts.count > columns {
             Grid(alignment: .leading, horizontalSpacing: 3, verticalSpacing: 3) {
                 ForEach(Array(stride(from: 0, to: parts.count, by: columns)), id: \.self) { start in
