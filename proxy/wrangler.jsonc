@@ -16,6 +16,9 @@
   ],
   // Anonymous usage events (see recordUsage in src/index.ts); query with the Analytics Engine SQL API.
   "analytics_engine_datasets": [{ "binding": "ANALYTICS_ENGINE", "dataset": "37ShadesOfLate" }],
+  // How people get around the app (recordJourney in src/index.ts): every event, exactly, as Analytics
+  // Engine samples bursts. The site's stats page reads it too. Tables in migrations/.
+  "d1_databases": [{ "binding": "JOURNEYS", "database_name": "bus37-journeys", "database_id": "4c9f7b02-981d-4722-bb4d-1b980ff44b00", "migrations_dir": "migrations" }],
   "vars": {
     // 511.org's default token limit is 60 requests/hour; keep a little headroom.
     "HOURLY_BUDGET": "55",

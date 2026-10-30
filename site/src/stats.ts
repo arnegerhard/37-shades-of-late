@@ -15,6 +15,8 @@ import { SCREENS } from "./screens";
 export interface StatsEnv {
   STATS_PASSWORD?: string;
   ANALYTICS_TOKEN?: string;
+  /** The app's journeys, as the proxy stores them (proxy/migrations). */
+  JOURNEYS?: D1Database;
 }
 
 const ACCOUNT = "5c16a3f67b5851cf42828b7c52ee53e6";
@@ -51,7 +53,7 @@ export async function handleStats(request: Request, url: URL, env: StatsEnv): Pr
     // The maker's own builds from Xcode, which are left out unless asked for (to try the journey out).
     const debug = url.searchParams.get("debug") === "1";
     try {
-      return new Response(JSON.stringify(await numbers(days, exclude, debug, env.ANALYTICS_TOKEN)), { headers: { ...PRIVATE, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(await numbers(days, exclude, debug, env.ANALYTICS_TOKEN, env.JOURNEYS)), { headers: { ...PRIVATE, "Content-Type": "application/json" } });
     } catch (error) {
       return text(`Analytics Engine: ${(error as Error).message}`, 502);
     }
@@ -73,7 +75,7 @@ async function authorized(request: Request, password: string): Promise<boolean> 
   return a.reduce((diff, byte, i) => diff | (byte ^ b[i]), 0) === 0;
 }
 
-async function numbers(days: number, exclude: string[], debug: boolean, token: string) {
+async function numbers(days: number, exclude: string[], debug: boolean, token: string, journeys?: D1Database) {
   // App use only: no test runs, nor the installs left out. (Watches carry no install, so they stay.)
   const others = exclude.length ? ` AND blob6 NOT IN (${exclude.map((id) => `'${id}'`).join(", ")})` : "";
   // Not the maker's own builds from Xcode either ("debug"), unless asked for, nor test runs.
@@ -90,11 +92,6 @@ async function numbers(days: number, exclude: string[], debug: boolean, token: s
     GROUP BY install, city`;
   const range = `timestamp > NOW() - INTERVAL '${days}' DAY`;
   const queries = {
-    // How people get around the app (see recordJourney in the proxy): every event, in order, for the page
-    // to follow each session through. When it happened is double3; the timestamp is when it arrived.
-    journey: `SELECT blob2 AS kind, blob3 AS name, blob4 AS detail, blob5 AS came, blob6 AS install, blob7 AS version,
-                     blob8 AS city, blob9 AS session, double2 AS seconds, double3 AS at, double4 AS seq
-               FROM ${DATASET} WHERE ${where} AND blob1 = 'ux' ORDER BY at, seq LIMIT 20000`,
     summary: `SELECT count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
               FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown'`,
     daily: `SELECT toDate(timestamp) AS day, count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
@@ -126,8 +123,23 @@ async function numbers(days: number, exclude: string[], debug: boolean, token: s
                   SELECT blob6, max(double1) AS favorites FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown' GROUP BY blob6)
                 GROUP BY favorites ORDER BY favorites`,
   };
-  const entries = await Promise.all(Object.entries(queries).map(async ([name, sql]) => [name, await query(sql, token)] as const));
-  return { days, excluded: exclude.length, asOf: new Date().toISOString(), ...Object.fromEntries(entries) };
+  const [entries, journey] = await Promise.all([
+    Promise.all(Object.entries(queries).map(async ([name, sql]) => [name, await query(sql, token)] as const)),
+    journeyOf(days, exclude, debug, journeys),
+  ]);
+  return { days, excluded: exclude.length, asOf: new Date().toISOString(), journey, ...Object.fromEntries(entries) };
+}
+
+/** How people get around the app (see recordJourney in the proxy): every event over `days`, in order, for
+ *  the page to follow each session through. From D1, which keeps them all (Analytics Engine samples). */
+async function journeyOf(days: number, exclude: string[], debug: boolean, journeys?: D1Database) {
+  if (!journeys) return [];
+  const since = Math.floor(Date.now() / 1000) - days * 86_400;
+  const conditions = ["at > ?", "version != 'test'", ...(debug ? [] : ["version != 'debug'"]),
+                      ...(exclude.length ? [`install NOT IN (${exclude.map(() => "?").join(", ")})`] : [])];
+  const { results } = await journeys.prepare(`SELECT kind, name, detail, came, install, version, city, session, seconds, at, seq
+      FROM events WHERE ${conditions.join(" AND ")} ORDER BY at, seq LIMIT 100000`).bind(since, ...exclude).all();
+  return results;
 }
 
 async function query(sql: string, token: string): Promise<Record<string, unknown>[]> {

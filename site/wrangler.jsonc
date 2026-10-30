@@ -11,6 +11,8 @@
   // The card's fonts and the stats page's pictures of the app, as bytes (src/card.ts, src/screens.ts); the
   // stats page, as text (src/stats.ts).
   "rules": [{ "type": "Data", "globs": ["**/*.ttf", "**/*.jpg"] }, { "type": "Text", "globs": ["**/*.html"] }],
+  // The app's journeys, which the proxy stores (its migrations/ has the table), for the stats page.
+  "d1_databases": [{ "binding": "JOURNEYS", "database_name": "bus37-journeys", "database_id": "4c9f7b02-981d-4722-bb4d-1b980ff44b00" }],
   // Keep the original workers.dev address serving too; custom domains turn it off by default.
   "workers_dev": true,
   "preview_urls": false,

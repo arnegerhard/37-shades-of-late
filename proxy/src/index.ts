@@ -66,6 +66,8 @@ interface Env extends ActivityEnv {
   WMATA_API_KEY?: string;
   /** Swiftly's key for LA Metro's live times (see la.ts). */
   SWIFTLY_API_KEY?: string;
+  /** Where the app's journeys are kept (see recordJourney, and migrations/). */
+  JOURNEYS?: D1Database;
   /** MTA Bus Time key, for New York's buses; without it New York is the subway and PATH. */
   MTA_BUSTIME_KEY?: string;
 }
@@ -74,7 +76,8 @@ const AGENCY = "SF";
 const SITE = "https://37shadesoflate.com";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  // `ctx` is missing for the proxy's own calls to itself (activities.ts), which carry no journey.
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url);
     if (request.method === "POST" && (pathname === "/v1/activity" || pathname === "/v1/activity/end")) {
       if (pathname === "/v1/activity") await recordWatch(request, env);
@@ -86,7 +89,9 @@ export default {
     const page = pathname.replace(/\/+$/, "").replace(/\.html$/, "");
     if (page === "/privacy" || page === "/support") return Response.redirect(`${SITE}${page}`, 301);
     if (page === "") return Response.redirect(SITE, 301);
-    recordJourney(request, env);
+    // Stored after the answer, so nobody waits on it.
+    const journey = recordJourney(request, env);
+    ctx?.waitUntil(journey);
     // The app sending what's waiting of its journey on its own, as it goes away: nothing else to it.
     if (pathname === "/v1/journey") return json({}, 200, 0);
     recordUsage(request, env);
@@ -715,35 +720,33 @@ async function recordWatch(request: Request, env: Env) {
 /**
  * How people get around the app (see Journey in the app): screens opened and left, buttons tapped, where
  * the app was put away or crashed, a batch at a time in the X-Journey header of whatever request the app
- * makes, as event "ux". Names only, no stops, lines or anything typed.
- *
- * Columns: blob1 "ux", blob2 kind (open | screen | tap | exit | crash | hang), blob3 name (a screen or
- * button), blob4 detail, blob5 the screen it happened on or came from, blob6 install ID, blob7 app
- * version, blob8 city, blob9 session; double1 favorites, double2 seconds (on the screen it came from, or
- * the session), double3 when it happened (seconds since 1970; the timestamp is when it arrived),
- * double4 its number on the install.
+ * makes. Names only, no stops, lines or anything typed. Kept in D1 (JOURNEYS, table events in
+ * migrations/), every one: Analytics Engine samples a burst from one install, and a journey needs every
+ * step. An event is kept once, by install and number, should the app send it again.
  */
-function recordJourney(request: Request, env: Env) {
+async function recordJourney(request: Request, env: Env) {
   const header = request.headers.get("X-Journey");
-  if (!env.ANALYTICS_ENGINE || !header || header.length > 16_000) return;
+  if (!env.JOURNEYS || !header || header.length > 16_000) return;
   let events: any[];
   try { events = JSON.parse(header); } catch { return; }
   if (!Array.isArray(events)) return;
   const install = (request.headers.get("X-Install-ID") ?? "").toLowerCase();
   if (!UUID.test(install)) return;
   const version = (request.headers.get("X-App-Version") ?? "").slice(0, 16);
-  const favorites = Number(request.headers.get("X-Favorites"));
+  const favorites = Math.max(0, Math.min(1000, Number(request.headers.get("X-Favorites")) || 0));
   // Names as the app writes them: letters, numbers and a little punctuation, nothing else.
   const word = (value: unknown, most = 40) => typeof value === "string" ? value.replace(/[^\w .·:,()#\-/]/g, "").slice(0, most) : "";
-  const number = (value: unknown) => Number.isFinite(value) ? Number(value) : 0;
-  for (const e of events.slice(0, 40)) {
-    if (!e || !["open", "screen", "tap", "exit", "crash", "hang"].includes(e.k) || !word(e.n)) continue;
-    env.ANALYTICS_ENGINE.writeDataPoint({
-      blobs: ["ux", e.k, word(e.n), word(e.d, 80), word(e.f), install, version, word(e.c, 16), word(e.s, 16)],
-      doubles: [Number.isFinite(favorites) ? favorites : 0, Math.max(0, Math.min(number(e.x), 86_400)), number(e.t), number(e.i)],
-      indexes: [install],
-    });
-  }
+  const whole = (value: unknown) => Number.isFinite(value) ? Math.round(Number(value)) : 0;
+  const arrived = Math.floor(Date.now() / 1000);
+  const insert = env.JOURNEYS.prepare(`INSERT OR IGNORE INTO events
+    (install, seq, at, arrived, kind, name, detail, came, session, city, version, favorites, seconds)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const rows = events.slice(0, 40)
+    .filter((e) => e && ["open", "screen", "tap", "exit", "crash", "hang"].includes(e.k) && word(e.n) && whole(e.i) > 0)
+    // When it happened, as the phone says; not later than now, nor before the app could have sent it.
+    .map((e) => insert.bind(install, whole(e.i), Math.min(arrived, Math.max(0, whole(e.t))), arrived, e.k, word(e.n), word(e.d, 80),
+                            word(e.f), word(e.s, 16) || "unknown", word(e.c, 16), version, favorites, Math.max(0, Math.min(whole(e.x), 86_400))));
+  if (rows.length) await env.JOURNEYS.batch(rows).catch(() => undefined);
 }
 
 /** The cities an install picked, as it sent them ("sf,nyc"): known ones only, in a fixed order. */

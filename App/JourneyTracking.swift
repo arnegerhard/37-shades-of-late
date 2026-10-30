@@ -31,7 +31,8 @@ private struct JourneySessions: ViewModifier {
                     try? await Task.sleep(for: .seconds(3))
                     await TransitService.sendJourney()
                 }
-            case .background:
+            // Only once it's been in front: launching, the app can pass through the background first.
+            case .background where launched:
                 Journey.shared.closed()
                 let task = UIApplication.shared.beginBackgroundTask()
                 Task {
