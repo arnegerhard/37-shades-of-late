@@ -20,7 +20,8 @@
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; justify-content: space-between; margin-bottom: 22px; }
   h1 { margin: 0; font: 900 28px/1 var(--round); display: flex; align-items: center; gap: 10px; }
   h1 b { background: var(--red); color: #fff; border-radius: 8px; padding: 4px 8px; font-size: 22px; }
-  .controls { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; color: var(--muted); font-size: 13px; }
+  .controls label { white-space: nowrap; }
   .range { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
   .range button { appearance: none; border: 0; background: none; color: var(--muted); font: 700 13px var(--round); padding: 6px 12px; border-radius: 7px; cursor: pointer; }
   .range button[aria-pressed="true"] { background: #262a4a; color: var(--ink); }
@@ -114,7 +115,7 @@
 
     <section class="panel wide">
       <h2>Where it's used</h2>
-      <p class="sub">Installs seen in each city by the day on the slider, over the last three months. A city is where the stops are, not where the phone is: the app sends no location.</p>
+      <p class="sub">Installs using each city by the day on the slider, over the last three months. Using a city: asking for one of its stops on two days or more (not the one the app opens on), or a widget showing one. A city is where the stops are, not where the phone is: the app sends no location.</p>
       <div class="map-panel">
         <div class="map" id="map"></div>
         <div>
@@ -146,13 +147,13 @@
     </section>
     <section class="panel">
       <h2>Cities</h2>
-      <p class="sub">Installs that asked for anything in each city.</p>
+      <p class="sub">Installs using each city (as on the map). The fainter number tried one of its stops once and didn't come back.</p>
       <div class="rows" id="cities"></div>
     </section>
 
     <section class="panel third">
       <h2>Cities per install</h2>
-      <p class="sub">How many cities each install asked for departures in.</p>
+      <p class="sub">How many cities each install uses.</p>
       <div class="rows" id="cities-used"></div>
     </section>
     <section class="panel third">
@@ -186,7 +187,7 @@
 
     <section class="panel">
       <h2>Top lines</h2>
-      <p class="sub">By installs asking for their departures.</p>
+      <p class="sub">By installs asking for their departures, the stop each city opens on included.</p>
       <div class="rows" id="lines"></div>
     </section>
     <section class="panel">
@@ -303,7 +304,7 @@
   function showMine() {
     $("exclude-mine").checked = excludeMine;
     $("exclude-label").textContent = `Leave out my installs${mine.size ? ` (${mine.size})` : ""}`;
-    $("exclude-mine").disabled = !mine.size;
+
     $("mine-list").innerHTML = mine.size ? `Yours: ${[...mine].map((id) => `<code>${esc(id.slice(0, 8))}<button data-unmine="${esc(id)}" aria-label="Not mine">✕</button></code>`).join("")}` : "";
   }
   document.addEventListener("click", (e) => {
@@ -326,6 +327,7 @@
     $("as-of").textContent = "Loading…";
     let data;
     try {
+      if (excludeMine && !mine.size) $("mine-list").textContent = "Star your installs in the table to leave them out.";
       const exclude = excludeMine && mine.size ? `&exclude=${[...mine].join(",")}` : "";
       const response = await fetch(`/stats/data?days=${days}${exclude}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await response.text());
@@ -343,7 +345,7 @@
 
     // When each install was first seen at all, and in each city.
     const firstSeen = new Map();
-    for (const f of data.firsts) if (!firstSeen.has(f.install) || f.first < firstSeen.get(f.install)) firstSeen.set(f.install, f.first);
+    for (const f of data.seen) firstSeen.set(f.install, f.first);
     const newPerDay = {};
     for (const day of firstSeen.values()) newPerDay[day] = (newPerDay[day] ?? 0) + 1;
 
@@ -381,8 +383,21 @@
          // The website sends no install ID, so it has no installs to count.
          (f) => f.installs === null ? " <small>watches</small>" : f.name === FEATURES.web ? " <small>requests</small>"
            : ` <small>· ${fmt(f.installs)} install${f.installs === 1 ? "" : "s"}</small>`);
-    rows($("cities"), data.cities, (c) => n(c.installs), (c) => esc(NAMES[c.city] ?? c.city), (c) => ` <small>· ${fmt(c.requests)} req.</small>`);
-    rows($("cities-used"), data.citiesUsed, (c) => n(c.installs), (c) => `${c.used} ${c.used == 1 ? "city" : "cities"}`, (c) => ` <small>install${c.installs == 1 ? "" : "s"}</small>`);
+    // Using a city: back to it on another day, or a widget of it; the rest only tried it.
+    const using = (u) => n(u.days) >= 2 || n(u.widgets) > 0;
+    const perCity = {};
+    for (const u of data.uses) {
+      const c = (perCity[u.city] ??= { city: u.city, using: 0, tried: 0 });
+      if (using(u)) c.using++; else c.tried++;
+    }
+    const cities = Object.values(perCity).sort((a, b) => b.using - a.using || b.tried - a.tried);
+    rows($("cities"), cities, (c) => c.using, (c) => esc(NAMES[c.city] ?? c.city), (c) => ` <small>· ${fmt(c.tried)} tried</small>`);
+    const perInstall = {};
+    for (const u of data.uses) if (using(u)) perInstall[u.install] = (perInstall[u.install] ?? 0) + 1;
+    const citiesUsed = {};
+    for (const count of Object.values(perInstall)) citiesUsed[count] = (citiesUsed[count] ?? 0) + 1;
+    const citiesUsedRows = Object.entries(citiesUsed).map(([used, installs]) => ({ used: Number(used), installs })).sort((a, b) => a.used - b.used);
+    rows($("cities-used"), citiesUsedRows, (c) => n(c.installs), (c) => `${c.used} ${c.used == 1 ? "city" : "cities"}`, (c) => ` <small>install${c.installs == 1 ? "" : "s"}</small>`);
     rows($("picked"), data.picked, (p) => n(p.installs),
          (p) => esc(p.cities.split(",").map((c) => (NAMES[c] ?? c).replace("Washington, D.C.", "DC")).join(", ")), () => "");
     rows($("favorites"), data.favorites, (f) => n(f.installs), (f) => `${f.favorites} favorite${f.favorites == 1 ? "" : "s"}`, () => "");
@@ -399,7 +414,7 @@
       </tbody></table></div>` : `<div class="empty">Nothing yet.</div>`;
 
     // The map's days: from the first install on, each city's installs seen there by then.
-    const firsts = [...data.firsts].sort((a, b) => a.first.localeCompare(b.first));
+    const firsts = data.firsts.filter(using).sort((a, b) => a.first.localeCompare(b.first));
     const start = firsts[0]?.first ?? isoDay(new Date());
     mapDays = [];
     for (let day = start; day <= isoDay(new Date()); day = addDays(day, 1)) mapDays.push(day);

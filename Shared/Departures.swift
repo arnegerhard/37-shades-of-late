@@ -773,8 +773,14 @@ enum TransitService {
         request.setValue(String(Selection.favorites.count), forHTTPHeaderField: "X-Favorites")
         // Which cities this install has picked to show, once it has, to see how many ride in more than one.
         if let picked = City.picked { request.setValue(picked.map(\.rawValue).joined(separator: ","), forHTTPHeaderField: "X-Cities") }
+        #if DEBUG
+        // Builds from Xcode (the simulator, a phone on the cable) aren't users: the stats leave "debug" out.
+        // Each reinstall there makes a new install ID, so without this they'd pass for new installs.
+        request.setValue("debug", forHTTPHeaderField: "X-App-Version")
+        #else
         request.setValue(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
                          forHTTPHeaderField: "X-App-Version")
+        #endif
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             throw TransitError.badResponse(http.statusCode)

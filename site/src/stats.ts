@@ -22,6 +22,15 @@ const DATASET = '"37ShadesOfLate"';
 const INSTALL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** San Francisco's events from before there were cities have none. */
 const CITY = "if(blob8 = '', 'sf', blob8)";
+/** Each city's default stop (City.defaultSelection in the app): the one its page shows before there's a
+ *  favorite there, so its departures come from anyone swiping past, not from riders. */
+const DEFAULT_STOPS: Record<string, string> = {
+  sf: "13254", seattle: "1_2260", nyc: "G29S", boston: "70076", chicago: "30234", dc: "PF_A03_2", la: "80203",
+};
+/** An install asking about a city: for the departures of a stop there other than its default, or a
+ *  widget showing one (widgets show only favorites). Not loading its lines or map, which swiping past does. */
+const USES_CITY = `blob1 = 'departures' AND (blob2 IN ('widget', 'lockscreen') OR NOT (${
+  Object.entries(DEFAULT_STOPS).map(([city, stop]) => `(${CITY} = '${city}' AND blob4 = '${stop}')`).join(" OR ")}))`;
 
 export async function handleStats(request: Request, url: URL, env: StatsEnv): Promise<Response> {
   if (!env.STATS_PASSWORD || !env.ANALYTICS_TOKEN) return text("Stats aren't set up: STATS_PASSWORD and ANALYTICS_TOKEN.", 503);
@@ -58,22 +67,30 @@ async function authorized(request: Request, password: string): Promise<boolean> 
 async function numbers(days: number, exclude: string[], token: string) {
   // App use only: no test runs, nor the installs left out. (Watches carry no install, so they stay.)
   const others = exclude.length ? ` AND blob6 NOT IN (${exclude.map((id) => `'${id}'`).join(", ")})` : "";
-  const where = `timestamp > NOW() - INTERVAL '${days}' DAY AND blob7 != 'test'${others}`;
+  // Not the maker's own builds from Xcode either ("debug"), nor test runs.
+  const app = "blob7 != 'test' AND blob7 != 'debug'";
+  const where = `timestamp > NOW() - INTERVAL '${days}' DAY AND ${app}${others}`;
   const requests = `${where} AND blob1 != 'watch'`;
+  // Each install's use of each city, over `window`: the page counts it as using one when it came back to
+  // it, asking on two days or more, or keeps a widget of it (trying a stop once, in the picker, doesn't).
+  const uses = (window: string) => `SELECT blob6 AS install, ${CITY} AS city, min(toDate(timestamp)) AS first,
+      count(DISTINCT toDate(timestamp)) AS days, sum(if(blob2 IN ('widget', 'lockscreen'), 1, 0)) AS widgets,
+      SUM(_sample_interval) AS requests
+    FROM ${DATASET} WHERE ${window} AND ${app} AND blob6 != 'unknown' AND ${USES_CITY}${others}
+    GROUP BY install, city`;
+  const range = `timestamp > NOW() - INTERVAL '${days}' DAY`;
   const queries = {
     summary: `SELECT count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
               FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown'`,
     daily: `SELECT toDate(timestamp) AS day, count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
             FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown' GROUP BY day ORDER BY day`,
-    // When each install was first seen in each city, over all Analytics Engine keeps: the map's growth,
-    // and new installs per day.
-    firsts: `SELECT blob6 AS install, ${CITY} AS city, min(toDate(timestamp)) AS first
-             FROM ${DATASET} WHERE timestamp > NOW() - INTERVAL '92' DAY AND blob7 != 'test' AND blob1 != 'watch' AND blob6 != 'unknown'${others}
-             GROUP BY install, city`,
-    cityDaily: `SELECT toDate(timestamp) AS day, ${CITY} AS city, count(DISTINCT blob6) AS installs
-                FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown' GROUP BY day, city`,
-    cities: `SELECT ${CITY} AS city, count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
-             FROM ${DATASET} WHERE ${requests} GROUP BY city ORDER BY installs DESC`,
+    // When each install was first seen, over all Analytics Engine keeps (new installs per day), and when it
+    // first used each city (the map's growth).
+    seen: `SELECT blob6 AS install, min(toDate(timestamp)) AS first
+           FROM ${DATASET} WHERE timestamp > NOW() - INTERVAL '92' DAY AND ${app} AND blob1 != 'watch' AND blob6 != 'unknown'${others}
+           GROUP BY install`,
+    firsts: uses("timestamp > NOW() - INTERVAL '92' DAY"),
+    uses: uses(range),
     clients: `SELECT blob2 AS client, count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
               FROM ${DATASET} WHERE ${requests} GROUP BY client ORDER BY requests DESC`,
     watches: `SELECT toDate(timestamp) AS day, blob8 AS city, SUM(_sample_interval) AS watches
@@ -81,10 +98,6 @@ async function numbers(days: number, exclude: string[], token: string) {
     top: `SELECT blob6 AS install, SUM(_sample_interval) AS requests, count(DISTINCT toDate(timestamp)) AS days,
                  count(DISTINCT ${CITY}) AS cities, max(double1) AS favorites, argMax(blob7, timestamp) AS version, max(timestamp) AS last
           FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown' GROUP BY install ORDER BY requests DESC LIMIT 15`,
-    citiesUsed: `SELECT used, count() AS installs FROM (
-                   SELECT blob6, count(DISTINCT ${CITY}) AS used FROM ${DATASET}
-                   WHERE ${requests} AND blob1 = 'departures' AND blob6 != 'unknown' GROUP BY blob6)
-                 GROUP BY used ORDER BY used`,
     picked: `SELECT blob9 AS cities, count(DISTINCT blob6) AS installs
              FROM ${DATASET} WHERE ${requests} AND blob9 != '' GROUP BY cities ORDER BY installs DESC LIMIT 12`,
     versions: `SELECT blob7 AS version, count(DISTINCT blob6) AS installs
