@@ -18,6 +18,8 @@ export interface StatsEnv {
 
 const ACCOUNT = "5c16a3f67b5851cf42828b7c52ee53e6";
 const DATASET = '"37ShadesOfLate"';
+/** An install ID, as the app makes them (a lowercase UUID). */
+const INSTALL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** San Francisco's events from before there were cities have none. */
 const CITY = "if(blob8 = '', 'sf', blob8)";
 
@@ -28,8 +30,10 @@ export async function handleStats(request: Request, url: URL, env: StatsEnv): Pr
   }
   if (url.pathname === "/stats/data") {
     const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
+    // Installs to leave out (the maker's own): install IDs only, so nothing else gets into the query.
+    const exclude = (url.searchParams.get("exclude") ?? "").split(",").filter((id) => INSTALL.test(id)).slice(0, 50);
     try {
-      return new Response(JSON.stringify(await numbers(days, env.ANALYTICS_TOKEN)), { headers: { ...PRIVATE, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(await numbers(days, exclude, env.ANALYTICS_TOKEN)), { headers: { ...PRIVATE, "Content-Type": "application/json" } });
     } catch (error) {
       return text(`Analytics Engine: ${(error as Error).message}`, 502);
     }
@@ -51,9 +55,10 @@ async function authorized(request: Request, password: string): Promise<boolean> 
   return a.reduce((diff, byte, i) => diff | (byte ^ b[i]), 0) === 0;
 }
 
-async function numbers(days: number, token: string) {
-  // App use only: no test runs, and not the server's own requests.
-  const where = `timestamp > NOW() - INTERVAL '${days}' DAY AND blob7 != 'test'`;
+async function numbers(days: number, exclude: string[], token: string) {
+  // App use only: no test runs, nor the installs left out. (Watches carry no install, so they stay.)
+  const others = exclude.length ? ` AND blob6 NOT IN (${exclude.map((id) => `'${id}'`).join(", ")})` : "";
+  const where = `timestamp > NOW() - INTERVAL '${days}' DAY AND blob7 != 'test'${others}`;
   const requests = `${where} AND blob1 != 'watch'`;
   const queries = {
     summary: `SELECT count(DISTINCT blob6) AS installs, SUM(_sample_interval) AS requests
@@ -63,7 +68,7 @@ async function numbers(days: number, token: string) {
     // When each install was first seen in each city, over all Analytics Engine keeps: the map's growth,
     // and new installs per day.
     firsts: `SELECT blob6 AS install, ${CITY} AS city, min(toDate(timestamp)) AS first
-             FROM ${DATASET} WHERE timestamp > NOW() - INTERVAL '92' DAY AND blob7 != 'test' AND blob1 != 'watch' AND blob6 != 'unknown'
+             FROM ${DATASET} WHERE timestamp > NOW() - INTERVAL '92' DAY AND blob7 != 'test' AND blob1 != 'watch' AND blob6 != 'unknown'${others}
              GROUP BY install, city`,
     cityDaily: `SELECT toDate(timestamp) AS day, ${CITY} AS city, count(DISTINCT blob6) AS installs
                 FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown' GROUP BY day, city`,
@@ -94,7 +99,7 @@ async function numbers(days: number, token: string) {
                 GROUP BY favorites ORDER BY favorites`,
   };
   const entries = await Promise.all(Object.entries(queries).map(async ([name, sql]) => [name, await query(sql, token)] as const));
-  return { days, asOf: new Date().toISOString(), ...Object.fromEntries(entries) };
+  return { days, excluded: exclude.length, asOf: new Date().toISOString(), ...Object.fromEntries(entries) };
 }
 
 async function query(sql: string, token: string): Promise<Record<string, unknown>[]> {

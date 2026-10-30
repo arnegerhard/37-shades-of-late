@@ -24,6 +24,13 @@
   .range { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
   .range button { appearance: none; border: 0; background: none; color: var(--muted); font: 700 13px var(--round); padding: 6px 12px; border-radius: 7px; cursor: pointer; }
   .range button[aria-pressed="true"] { background: #262a4a; color: var(--ink); }
+  .mine-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--ink); }
+  .mine-toggle input { accent-color: var(--data); width: 16px; height: 16px; }
+  .star { appearance: none; border: 0; background: none; cursor: pointer; font-size: 18px; color: var(--faint); padding: 4px 6px; touch-action: manipulation; }
+  .star[aria-pressed="true"] { color: #ffc72c; }
+  .mine-list { margin-top: 12px; color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .mine-list code { font: 12px ui-monospace, Menlo, monospace; background: #1b1f3d; border-radius: 6px; padding: 2px 4px 2px 7px; }
+  .mine-list button { appearance: none; border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 12px; }
   .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
   .panel { grid-column: span 6; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; min-width: 0; }
   .panel.wide { grid-column: span 12; }
@@ -58,7 +65,9 @@
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
   th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-  td { padding: 7px 8px; border-bottom: 1px solid #ffffff0d; }
+  td { padding: 7px 8px; border-bottom: 1px solid #ffffff0d; white-space: nowrap; }
+  /* Wider than a phone: it scrolls sideways, the page doesn't. */
+  .table-scroll { overflow-x: auto; margin: 0 -6px; }
   td.num, th.num { text-align: right; }
   td code { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
   .inline-bar { display: inline-block; height: 8px; background: var(--data); border-radius: 0 3px 3px 0; vertical-align: middle; margin-right: 8px; }
@@ -82,6 +91,7 @@
   #tip { position: fixed; pointer-events: none; z-index: 10; background: #20244a; border: 1px solid #3a4078; color: var(--ink); border-radius: 8px; padding: 6px 9px; font-size: 12px; line-height: 1.35; white-space: nowrap; opacity: 0; transition: opacity .1s; box-shadow: 0 8px 20px #0008; }
   #tip b { font-variant-numeric: tabular-nums; }
   .error { background: #3a1018; border: 1px solid #7a1f2c; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; display: none; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .note { color: var(--faint); font-size: 12px; margin-top: 26px; }
 </style>
 </head>
@@ -91,6 +101,7 @@
     <h1><b>37</b> Stats</h1>
     <div class="controls">
       <span id="as-of"></span>
+      <label class="mine-toggle"><input type="checkbox" id="exclude-mine"> <span id="exclude-label">Leave out my installs</span></label>
       <div class="range" role="group" aria-label="Time range">
         <button data-days="7">7 days</button><button data-days="30" aria-pressed="true">30 days</button><button data-days="90">90 days</button>
       </div>
@@ -130,7 +141,7 @@
 
     <section class="panel">
       <h2>Features</h2>
-      <p class="sub">Requests (watches for the Dynamic Island) and how many installs use each.</p>
+      <p class="sub">Requests (watches for the Dynamic Island) and how many installs use each. The website is shared links and the homepage's live 37, with no installs to count.</p>
       <div class="rows" id="features"></div>
     </section>
     <section class="panel">
@@ -157,8 +168,9 @@
 
     <section class="panel wide">
       <h2>Most active installs</h2>
-      <p class="sub">By requests. An install is a random ID the app made for itself; nothing ties it to a person.</p>
+      <p class="sub">By requests. An install is a random ID the app made for itself; nothing ties it to a person. Star yours to leave them out with the checkbox at the top.</p>
       <div id="top"></div>
+      <div class="mine-list" id="mine-list"></div>
     </section>
 
     <section class="panel">
@@ -193,7 +205,7 @@
   const LABELS = { seattle: [0, -40, "middle"], sf: [-10, 70, "start"], la: [20, 60, "start"], chicago: [0, -40, "middle"],
                    boston: [20, -70, "middle"], nyc: [40, 20, "start"], dc: [-30, 70, "end"] };
   const NAMES = Object.fromEntries(Object.entries(US.cities).map(([id, c]) => [id, c.name]));
-  const FEATURES = { app: "App", widget: "Home Screen widget", lockscreen: "Lock Screen widget", map: "Live map", web: "Website (shared links, the homepage's live 37)", watch: "Dynamic Island" };
+  const FEATURES = { app: "App", widget: "Home Screen widget", lockscreen: "Lock Screen widget", map: "Live map", web: "Website", watch: "Dynamic Island" };
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -201,6 +213,16 @@
   const isoDay = (date) => date.toISOString().slice(0, 10);
   const addDays = (day, n) => isoDay(new Date(Date.parse(`${day}T00:00:00Z`) + n * 86400000));
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---- Your own installs, starred in the table, and whether to leave them out. Kept in this browser.
+  const store = {
+    get(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } },
+    set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
+  };
+  let mine = new Set(store.get("mine", []));
+  let excludeMine = store.get("excludeMine", false);
+  let days = 30;
+  function saveMine() { store.set("mine", [...mine]); }
 
   // ---- One tooltip for every mark: whatever carries data-tip, on hover or focus.
   const tip = $("tip");
@@ -278,12 +300,34 @@
     }, reduced ? 0 : Math.max(60, 4000 / mapDays.length));
   });
 
-  async function load(days) {
+  function showMine() {
+    $("exclude-mine").checked = excludeMine;
+    $("exclude-label").textContent = `Leave out my installs${mine.size ? ` (${mine.size})` : ""}`;
+    $("exclude-mine").disabled = !mine.size;
+    $("mine-list").innerHTML = mine.size ? `Yours: ${[...mine].map((id) => `<code>${esc(id.slice(0, 8))}<button data-unmine="${esc(id)}" aria-label="Not mine">✕</button></code>`).join("")}` : "";
+  }
+  document.addEventListener("click", (e) => {
+    const star = e.target.closest("[data-mine]"), unmine = e.target.closest("[data-unmine]");
+    const id = star?.dataset.mine ?? unmine?.dataset.unmine;
+    if (!id) return;
+    if (mine.has(id)) mine.delete(id); else mine.add(id);
+    saveMine();
+    showMine();
+    if (star) star.setAttribute("aria-pressed", String(mine.has(id)));
+    // Left out already: the numbers change with it.
+    if (excludeMine) load(days);
+  });
+  $("exclude-mine").addEventListener("change", (e) => { excludeMine = e.target.checked; store.set("excludeMine", excludeMine); load(days); });
+
+  async function load(asked) {
+    days = asked;
     document.querySelectorAll(".range button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.days) === days)));
+    showMine();
     $("as-of").textContent = "Loading…";
     let data;
     try {
-      const response = await fetch(`/stats/data?days=${days}`, { cache: "no-store" });
+      const exclude = excludeMine && mine.size ? `&exclude=${[...mine].join(",")}` : "";
+      const response = await fetch(`/stats/data?days=${days}${exclude}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await response.text());
       data = await response.json();
       $("error").style.display = "none";
@@ -293,7 +337,7 @@
       $("as-of").textContent = "";
       return;
     }
-    $("as-of").textContent = `As of ${new Date(data.asOf).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+    $("as-of").textContent = `As of ${new Date(data.asOf).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}${data.excluded ? `, without ${data.excluded} of yours` : ""}`;
     const range = daysOf(days);
     const n = (x) => Number(x) || 0;
 
@@ -335,7 +379,7 @@
                       { name: FEATURES.watch, uses: watches, installs: null }].sort((a, b) => b.uses - a.uses);
     rows($("features"), features, (f) => f.uses, (f) => esc(f.name),
          // The website sends no install ID, so it has no installs to count.
-         (f) => f.installs === null ? " <small>watches</small>" : f.name.startsWith("Website") ? " <small>requests</small>"
+         (f) => f.installs === null ? " <small>watches</small>" : f.name === FEATURES.web ? " <small>requests</small>"
            : ` <small>· ${fmt(f.installs)} install${f.installs === 1 ? "" : "s"}</small>`);
     rows($("cities"), data.cities, (c) => n(c.installs), (c) => esc(NAMES[c.city] ?? c.city), (c) => ` <small>· ${fmt(c.requests)} req.</small>`);
     rows($("cities-used"), data.citiesUsed, (c) => n(c.installs), (c) => `${c.used} ${c.used == 1 ? "city" : "cities"}`, (c) => ` <small>install${c.installs == 1 ? "" : "s"}</small>`);
@@ -346,13 +390,13 @@
     rows($("versions"), data.versions, (v) => n(v.installs), (v) => esc(v.version), () => "");
 
     const topPeak = Math.max(1, ...data.top.map((t) => n(t.requests)));
-    $("top").innerHTML = data.top.length ? `<table><thead><tr><th>Install</th><th>Requests</th><th class="num">Days</th><th class="num">Cities</th>
+    $("top").innerHTML = data.top.length ? `<div class="table-scroll"><table><thead><tr><th><span class="sr-only">Yours</span></th><th>Install</th><th>Requests</th><th class="num">Days</th><th class="num">Cities</th>
       <th class="num">Favorites</th><th>Version</th><th>Last seen</th></tr></thead><tbody>
-      ${data.top.map((t) => `<tr><td><code>${esc(t.install.slice(0, 8))}</code></td>
-        <td><span class="inline-bar" style="width:${(n(t.requests) / topPeak) * 160}px"></span>${fmt(t.requests)}</td>
+      ${data.top.map((t) => `<tr><td><button class="star" data-mine="${esc(t.install)}" aria-pressed="${mine.has(t.install)}" aria-label="Mine">★</button></td><td><code>${esc(t.install.slice(0, 8))}</code></td>
+        <td><span class="inline-bar" style="width:${(n(t.requests) / topPeak) * 90}px"></span>${fmt(t.requests)}</td>
         <td class="num">${fmt(t.days)}</td><td class="num">${fmt(t.cities)}</td><td class="num">${fmt(t.favorites)}</td>
         <td>${esc(t.version)}</td><td>${esc(new Date(`${String(t.last).replace(" ", "T")}Z`).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</td></tr>`).join("")}
-      </tbody></table>` : `<div class="empty">Nothing yet.</div>`;
+      </tbody></table></div>` : `<div class="empty">Nothing yet.</div>`;
 
     // The map's days: from the first install on, each city's installs seen there by then.
     const firsts = [...data.firsts].sort((a, b) => a.first.localeCompare(b.first));
@@ -373,7 +417,7 @@
   }
 
   document.querySelectorAll(".range button").forEach((b) => b.addEventListener("click", () => load(Number(b.dataset.days))));
-  load(30);
+  load(days);
 </script>
 </body>
 </html>
