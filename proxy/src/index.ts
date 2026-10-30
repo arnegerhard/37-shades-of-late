@@ -112,9 +112,9 @@ export default {
     }
     // A fresh instance when its code must take over at once: a busy one (refreshing the Muni
     // snapshot) can keep serving the old code after a deploy. "-v4" for BART, "-v5" for Seattle's
-    // doubled buses, "-v6" for Chicago, "-v7" for Washington. Bump the suffix again if ever needed; the new one starts with
+    // doubled buses, "-v6" for Chicago, "-v7" for Washington, "-v8" for Los Angeles. Bump the suffix again if ever needed; the new one starts with
     // empty caches.
-    const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v7`));
+    const stub = env.CACHE.get(env.CACHE.idFromName(`${AGENCY}-v8`));
     const response = await stub.fetch(request);
     const list = ferryCity && rest.length === 1 ? rest[0] : undefined;
     if (response.ok && (list === "lines" || list === "map")) {
