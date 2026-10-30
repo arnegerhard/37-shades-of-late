@@ -86,30 +86,37 @@
   const spoken = combined ? ids.slice(0, -1).join(", ") + " or " + ids[ids.length - 1] : line;
   const base = API + (city === "sf" ? "" : city + "/");
   const $ = (id) => document.getElementById(id);
-  // Round, as the app's (LineBadge.isRound): New York's subway (one letter or number, and the S
-  // shuttles; its buses all have more) and Muni's J, K, L, M, N, T, E and F; in their colors, those
-  // sharing one in one badge (a blue "ACE"), as the app's (Selection.badgeParts).
+  // As the app's (Selection.badgeParts): lines with badges of their own come in their colors, those
+  // sharing one in one badge (a blue "ACE"). Round for New York's subway (one letter or number, and
+  // the S shuttles; its buses all have more), Muni's J, K, L, M, N, T, E and F, and Sound Transit's
+  // 1, 2, T, N and S Lines (a "1" in its circle); a rectangle for Seattle's RapidRide, in its dark
+  // red. Any others with them share a red rectangle.
   const COLORS = {
     nyc: { 1: "#D82233", 2: "#D82233", 3: "#D82233", 4: "#009952", 5: "#009952", 6: "#009952", 7: "#9A38A1",
            A: "#0062CF", C: "#0062CF", E: "#0062CF", B: "#EB6800", D: "#EB6800", F: "#EB6800", M: "#EB6800",
            G: "#799534", J: "#8E5C33", Z: "#8E5C33", L: "#7C858C", N: "#F6BC26", Q: "#F6BC26", R: "#F6BC26", W: "#F6BC26" },
     sf: { J: "#A96614", K: "#437C93", L: "#942D83", M: "#008547", N: "#005B95", T: "#BF2B45", F: "#B49A36", E: "#666666" },
+    seattle: { "1 Line": "#28813F", "2 Line": "#007CAD", "T Line": "#F38B00", "N Line": "#9AB6D3", "S Line": "#9AB6D3",
+               ...Object.fromEntries("ABCDEFGH".split("").map((l) => [`${l} Line`, "#9C182F"])) },
   };
-  // Lines without a round badge among them (the F with the K, L and M) share a red rectangle.
-  const roundLine = (id) => city === "nyc" ? id.length === 1 || id.startsWith("S ") : city === "sf" && /^[EFJKLMNT]$/.test(id);
+  const DARK_TEXT = ["#F6BC26", "#B49A36", "#F38B00", "#9AB6D3"];
+  const roundLine = (id) => city === "nyc" ? id.length === 1 || id.startsWith("S ")
+    : city === "sf" ? /^[EFJKLMNT]$/.test(id) : city === "seattle" && /^[12TNS] Line$/.test(id);
+  const colorOf = (id) => (COLORS[city] || {})[id] || (city === "nyc" && id.startsWith("S ") ? "#7C858C" : undefined);
   const groups = [];
-  for (const id of ids.some(roundLine) ? ids : []) {
-    const color = roundLine(id) ? (COLORS[city] || {})[id] || (id.startsWith("S ") ? "#7C858C" : undefined) : undefined;
-    const group = groups.find((g) => g.color === color);
-    if (group) group.ids.push(id); else groups.push({ color, ids: [id] });
+  for (const id of ids.some(colorOf) ? ids : []) {
+    const color = colorOf(id), round = roundLine(id);
+    const group = groups.find((g) => g.color === color && g.round === round);
+    if (group) group.ids.push(id); else groups.push({ color, round, ids: [id] });
   }
   $("badges").replaceChildren(...(groups.length ? groups : [{ ids }]).map((group) => {
     const span = document.createElement("span");
-    span.className = group.color ? "badge round" : "badge";
-    span.textContent = group.ids.join(group.ids.every((id) => id.length === 1) ? "" : "·");
+    span.className = group.round ? "badge round" : "badge";
+    const labels = group.round ? group.ids.map((id) => id.replace(/ Line$/, "")) : group.ids;
+    span.textContent = labels.join(labels.every((id) => id.length === 1) ? "" : "·");
     if (group.color) {
       span.style.background = group.color;
-      if (group.color === "#F6BC26" || group.color === "#B49A36") span.style.color = "#000";
+      if (DARK_TEXT.includes(group.color)) span.style.color = "#000";
     }
     return span;
   }));

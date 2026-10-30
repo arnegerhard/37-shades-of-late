@@ -141,15 +141,21 @@ interface Ride {
 }
 
 /** Whether `ids` all have famously round badges, as the app's (LineBadge.isRound): New York's subway
- * (one letter or number, and the S shuttles; its buses all have more) Muni Metro's J, K, L, M, N, T,
- * and its historic streetcars, the E and F. */
+ * (one letter or number, and the S shuttles; its buses all have more), Muni Metro's J, K, L, M, N, T
+ * and its historic streetcars, the E and F, and Sound Transit's 1, 2, T, N and S Lines. */
 function isRound(ids: string[], city: string): boolean {
-  return ids.every((id) => city === "nyc" ? id.length === 1 || id.startsWith("S ") : city === "sf" && /^[EFJKLMNT]$/.test(id));
+  return ids.every((id) => city === "nyc" ? id.length === 1 || id.startsWith("S ")
+    : city === "sf" ? /^[EFJKLMNT]$/.test(id)
+    : city === "seattle" && /^[12TNS] Line$/.test(id));
 }
 
-/** The colors of the lines with round badges, as the app's (LineBadge.roundColor): "#RRGGBB", and
- * whether the letters on it are black (New York's yellow lines). */
-const ROUND_COLORS: Record<string, Record<string, [string, boolean]>> = {
+/** What a round badge says: Sound Transit's "1 Line" is a "1" in its circle. */
+const short = (id: string) => id.endsWith(" Line") ? id.slice(0, -5) : id;
+
+/** The colors of the lines with badges of their own, as the app's (LineBadge.color): "#RRGGBB", and
+ * whether the letters on it are black (New York's yellow lines). The round ones, and Seattle's
+ * RapidRide in its dark red. */
+const COLORS: Record<string, Record<string, [string, boolean]>> = {
   nyc: { "1": ["#D82233", false], "2": ["#D82233", false], "3": ["#D82233", false],
          "4": ["#009952", false], "5": ["#009952", false], "6": ["#009952", false], "7": ["#9A38A1", false],
          A: ["#0062CF", false], C: ["#0062CF", false], E: ["#0062CF", false],
@@ -158,28 +164,36 @@ const ROUND_COLORS: Record<string, Record<string, [string, boolean]>> = {
          N: ["#F6BC26", true], Q: ["#F6BC26", true], R: ["#F6BC26", true], W: ["#F6BC26", true] },
   sf: { J: ["#A96614", false], K: ["#437C93", false], L: ["#942D83", false], M: ["#008547", false],
         N: ["#005B95", false], T: ["#BF2B45", false], F: ["#B49A36", true], E: ["#666666", false] },
+  seattle: { "1 Line": ["#28813F", false], "2 Line": ["#007CAD", false], "T Line": ["#F38B00", true],
+             "N Line": ["#9AB6D3", true], "S Line": ["#9AB6D3", true],
+             ...Object.fromEntries("ABCDEFGH".split("").map((l) => [`${l} Line`, ["#9C182F", false] as [string, boolean]])) },
 };
 
-/** A link's badges, as the app's (Selection.badgeParts): one in the app's red, except for subway and
- * Muni Metro lines, which come round and in their colors, those sharing one together (a blue "ACE");
- * any others with them share a red rectangle (the K, L and M in their circles, then an "F"). */
-function badgeParts(ids: string[], city: string): BadgePart[] {
-  const join = (group: string[]) => group.join(group.every((id) => id.length === 1) ? "" : "·");
-  if (!ids.some((id) => isRound([id], city))) return [{ label: join(ids) }];
-  const groups: { color?: [string, boolean]; ids: string[] }[] = [];
-  for (const id of ids) {
-    const color = !isRound([id], city) ? undefined
-      : ROUND_COLORS[city]?.[id] ?? (id.startsWith("S ") ? ["#7C858C", false] as [string, boolean] : undefined);
-    const group = groups.find((g) => g.color?.[0] === color?.[0]);
-    if (group) group.ids.push(id); else groups.push({ color, ids: [id] });
-  }
-  return groups.map((g) => ({ label: join(g.ids), color: g.color?.[0], dark: g.color?.[1], round: g.color !== undefined }));
+function colorOf(id: string, city: string): [string, boolean] | undefined {
+  return COLORS[city]?.[id] ?? (city === "nyc" && id.startsWith("S ") ? ["#7C858C", false] : undefined);
 }
 
-/** One line's badge, as on the line map: round and in its color where it has one, else in red. */
+/** A link's badges, as the app's (Selection.badgeParts): one in the app's red, except for lines with
+ * badges of their own: subway, Muni Metro and Sound Transit lines come round and in their colors,
+ * those sharing one together (a blue "ACE"), and RapidRide in its dark red. Any others with them share
+ * a red rectangle (the K, L and M in their circles, then a 24). */
+function badgeParts(ids: string[], city: string): BadgePart[] {
+  const join = (group: string[]) => group.join(group.every((id) => id.length === 1) ? "" : "·");
+  if (!ids.some((id) => colorOf(id, city))) return [{ label: join(ids) }];
+  const groups: { color?: [string, boolean]; round: boolean; ids: string[] }[] = [];
+  for (const id of ids) {
+    const color = colorOf(id, city), round = isRound([id], city);
+    const group = groups.find((g) => g.color?.[0] === color?.[0] && g.round === round);
+    if (group) group.ids.push(id); else groups.push({ color, round, ids: [id] });
+  }
+  return groups.map((g) => ({ label: join(g.round ? g.ids.map(short) : g.ids), color: g.color?.[0], dark: g.color?.[1], round: g.round }));
+}
+
+/** One line's badge, as on the line map: round and in its color where it has one, else a rectangle
+ * in its color or red. */
 function lineBadge(id: string, city: string): BadgePart & { round: boolean } {
-  const color = ROUND_COLORS[city]?.[id] ?? (city === "nyc" && id.startsWith("S ") ? ["#7C858C", false] as [string, boolean] : undefined);
-  return { label: id, color: color?.[0], dark: color?.[1], round: isRound([id], city) };
+  const color = colorOf(id, city), round = isRound([id], city);
+  return { label: round ? short(id) : id, color: color?.[0], dark: color?.[1], round };
 }
 
 /** The line, stop and destination a shared link points to: /s?c=sf&l=37&s=13254&d=IB. Combined lines
