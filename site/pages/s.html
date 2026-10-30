@@ -86,9 +86,12 @@
   // Chicago's 'L', as the app's (LineBadge.chicagoL): what its circles say, in its colors.
   const CHICAGO = { Red: ["R", "#C60C30"], Blue: ["B", "#00A1DE"], Brown: ["BR", "#62361B"], Green: ["G", "#009B3A"],
                     Orange: ["O", "#F9461C"], Purple: ["P", "#522398"], Pink: ["PK", "#E27EA6"], Yellow: ["Y", "#F9E300"] };
+  // Washington's Metrorail, as the app's (LineBadge.dcMetro): what its circles say, in its colors.
+  const DC = { Red: ["RD", "#BF0D3E"], Orange: ["OR", "#ED8B00"], Blue: ["BL", "#009CDE"],
+               Silver: ["SV", "#919D9D"], Green: ["GR", "#00B140"], Yellow: ["YL", "#FFD100"] };
   // Boston's subway by its full name, as the MBTA says it ("the Red Line", "the Green Line B"), as the
   // server's (src/worker.ts said).
-  const said = (id) => city === "chicago" ? (id in CHICAGO ? `${id} Line` : id) : city !== "boston" ? id : /^[BCDE]$/.test(id) ? `Green Line ${id}`
+  const said = (id) => city === "chicago" ? (id in CHICAGO ? `${id} Line` : id) : city === "dc" ? (id in DC ? `${id} Line` : id) : city !== "boston" ? id : /^[BCDE]$/.test(id) ? `Green Line ${id}`
     : ["Red", "Orange", "Blue", "Mattapan"].includes(id) ? `${id} Line` : id;
   const names = ids.map(said);
   const spoken = combined ? names.slice(0, -1).join(", ") + " or " + names[names.length - 1] : names[0];
@@ -113,11 +116,11 @@
   // Boston's subway, as the app's (LineBadge.bostonSubway): what its circles say, in its colors.
   const BOSTON = { Red: ["RL", "#DA291C"], Orange: ["OL", "#ED8B00"], Blue: ["BL", "#003DA5"], Mattapan: ["M", "#DA291C"],
                    B: ["B", "#00843D"], C: ["C", "#00843D"], D: ["D", "#00843D"], E: ["E", "#00843D"] };
-  const DARK_TEXT = ["#F9E300", "#F6BC26", "#B49A36", "#F38B00", "#9AB6D3", "#FF9933", "#FFFF33", "#B0BEC7", "#FFC72C"];
+  const DARK_TEXT = ["#F9E300", "#F6BC26", "#B49A36", "#F38B00", "#9AB6D3", "#FF9933", "#FFFF33", "#B0BEC7", "#FFC72C", "#919D9D", "#FFD100"];
   const roundLine = (id) => city === "nyc" ? id.length === 1 || id.startsWith("S ")
     : city === "sf" ? /^[EFJKLMNT]$/.test(id) || id in BART : city === "seattle" ? /^[12TNS] Line$/.test(id)
-    : city === "boston" ? id in BOSTON : city === "chicago" && id in CHICAGO;
-  const colorOf = (id) => city === "chicago" ? (CHICAGO[id] || [])[1] : city === "boston"
+    : city === "boston" ? id in BOSTON : city === "chicago" ? id in CHICAGO : city === "dc" && id in DC;
+  const colorOf = (id) => city === "chicago" ? (CHICAGO[id] || [])[1] : city === "dc" ? (DC[id] || [])[1] : city === "boston"
     ? (BOSTON[id] || [])[1] || (id.startsWith("SL") ? "#7C878E" : /^(\d|CT)/.test(id) ? "#FFC72C" : undefined)
     : (COLORS[city] || {})[id] || (city === "nyc" && id.startsWith("S ") ? "#7C858C" : undefined);
   const groups = [];
@@ -134,6 +137,7 @@
     // As the app's (LineBadge.short): Red, Orange and Blue are lines in both San Francisco and Boston.
     const labels = group.round ? group.ids.map((id) => city === "sf" ? BART[id] || id
       : city === "boston" ? (BOSTON[id] || [])[0] || id : city === "chicago" ? (CHICAGO[id] || [])[0] || id
+      : city === "dc" ? (DC[id] || [])[0] || id
       : id.replace(/ Line$/, "")) : group.ids;
     span.textContent = labels.join(labels.every((id) => id.length === 1) ? "" : "·");
     if (group.color) {

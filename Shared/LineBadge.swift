@@ -41,6 +41,7 @@ struct LineBadge: View {
             case .seattle: ["1 Line", "2 Line", "T Line", "N Line", "S Line"].contains(id)
             case .boston: bostonSubway[id] != nil
             case .chicago: chicagoL[id] != nil
+            case .dc: dcMetro[id] != nil
             }
         }
     }
@@ -67,6 +68,12 @@ struct LineBadge: View {
         "Orange": ("O", "#F9461C"), "Purple": ("P", "#522398"), "Pink": ("PK", "#E27EA6"), "Yellow": ("Y", "#F9E300"),
     ]
 
+    /// Washington's Metrorail, as its signs say its lines (two letters each), in their colors.
+    private static let dcMetro: [String: (short: String, hex: String, darkText: Bool)] = [
+        "Red": ("RD", "#BF0D3E", false), "Orange": ("OR", "#ED8B00", false), "Blue": ("BL", "#009CDE", false),
+        "Silver": ("SV", "#919D9D", true), "Green": ("GR", "#00B140", false), "Yellow": ("YL", "#FFD100", true),
+    ]
+
     /// Boston's subway: its lines as the MBTA's signs say them, in their colors (the Green Line's
     /// branches by their letters; the Mattapan trolley's is the Red Line's).
     private static let bostonSubway: [String: (short: String, hex: String)] = [
@@ -75,14 +82,15 @@ struct LineBadge: View {
     ]
 
     /// `id` as its badge says it in `city`: BART's Yellow a "Y", Sound Transit's "1 Line" a "1",
-    /// Boston's Red Line an "RL"; as it is otherwise. (Red, Orange and Blue are lines in both San
-    /// Francisco and Boston, so it takes the city.)
+    /// Boston's Red Line an "RL"; as it is otherwise. (Red, Orange and Blue are lines in San
+    /// Francisco, Boston, Chicago and Washington, so it takes the city.)
     static func short(_ id: String, in city: City) -> String {
         guard isRound([id], in: city) else { return id }
         switch city {
         case .sf: return bartInitials[id] ?? id
         case .boston: return bostonSubway[id]?.short ?? id
         case .chicago: return chicagoL[id]?.short ?? id
+        case .dc: return dcMetro[id]?.short ?? id
         case .seattle: return id.hasSuffix(" Line") ? String(id.dropLast(5)) : id
         case .nyc: return id
         }
@@ -158,6 +166,8 @@ extension LineBadge {
             bostonColor(of: id)
         case .chicago:
             chicagoL[id].map { ($0.hex, $0.hex == "#F9E300") }
+        case .dc:
+            dcMetro[id].map { ($0.hex, $0.darkText) }
         }
     }
 }

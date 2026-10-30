@@ -2,7 +2,7 @@ import Foundation
 
 /// A city the proxy has live data for.
 enum City: String, Codable, CaseIterable, Identifiable {
-    case sf, seattle, nyc, boston, chicago
+    case sf, seattle, nyc, boston, chicago, dc
 
     var id: String { rawValue }
 
@@ -13,11 +13,22 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .nyc: "New York"
         case .boston: "Boston"
         case .chicago: "Chicago"
+        case .dc: "Washington, D.C."
         }
     }
 
-    /// For the city switcher, where four don't fit with "San Francisco" spelled out.
-    var shortName: String { self == .sf ? "SF" : name }
+    /// The name ending a sentence: "Washington, D.C." has its period already.
+    var endingSentence: String { name.hasSuffix(".") ? name : name + "." }
+
+    /// For the city switcher, where six don't fit with "San Francisco" and "New York" spelled out.
+    var shortName: String {
+        switch self {
+        case .sf: "SF"
+        case .nyc: "NYC"
+        case .dc: "DC"
+        default: name
+        }
+    }
 
     /// Short tag for tight spaces like widgets, where lines from two cities sit side by side.
     var code: String {
@@ -27,20 +38,21 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .nyc: "NYC"
         case .boston: "BOS"
         case .chicago: "CHI"
+        case .dc: "DC"
         }
     }
 
     /// The city's clock, for the sleeping Lock Screen widgets' time at home.
     var timeZone: TimeZone {
         switch self {
-        case .nyc, .boston: TimeZone(identifier: "America/New_York")!
+        case .nyc, .boston, .dc: TimeZone(identifier: "America/New_York")!
         case .chicago: TimeZone(identifier: "America/Chicago")!
         case .sf, .seattle: TimeZone(identifier: "America/Los_Angeles")!
         }
     }
 
     /// What mostly runs here, for the page's wording; a stop's own is `Selection.vehicle`.
-    var vehicle: String { [.nyc, .boston, .chicago].contains(self) ? "train" : "bus" }
+    var vehicle: String { [.nyc, .boston, .chicago, .dc].contains(self) ? "train" : "bus" }
     var vehicles: String { vehicle + (vehicle == "bus" ? "es" : "s") }
 
     /// Where this city's endpoints live on the proxy; SF predates the others and has no prefix.
@@ -51,6 +63,7 @@ enum City: String, Codable, CaseIterable, Identifiable {
         case .nyc: "nyc/"
         case .boston: "boston/"
         case .chicago: "chicago/"
+        case .dc: "dc/"
         }
     }
 
@@ -78,6 +91,10 @@ enum City: String, Codable, CaseIterable, Identifiable {
             // The Red Line toward 95th/Dan Ryan at Fullerton, by DePaul.
             Selection(lineID: "Red", lineName: "Red Line", directionID: "0", destination: "95th/Dan Ryan",
                       stopCode: "30234", stopName: "Fullerton", city: .chicago)
+        case .dc:
+            // The Red Line toward Shady Grove at Dupont Circle, under the circle.
+            Selection(lineID: "Red", lineName: "Red Line", directionID: "1", destination: "Shady Grove",
+                      stopCode: "PF_A03_2", stopName: "Dupont Circle", city: .dc)
         }
     }
 }
@@ -144,7 +161,7 @@ struct Selection: Codable, Hashable, Identifiable {
         switch city {
         case .nyc: return stopCode.hasPrefix("MTA_") ? "bus" : ["NYCF_", "SIF_", "NYW_"].contains(where: stopCode.hasPrefix) ? "ferry" : "train"
         case .sf: return stopCode.wholeMatch(of: /[A-Z]\d+-\d/) != nil ? "train" : "bus"
-        case .seattle, .boston, .chicago: return "bus"
+        case .seattle, .boston, .chicago, .dc: return "bus"
         }
     }
     var vehicles: String {

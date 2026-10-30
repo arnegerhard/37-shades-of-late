@@ -208,6 +208,7 @@ function nearby(lines: Line[], here: Stop, direction: string | null): NearbyLine
 
 export interface LiveTrip {
   route: string;
+  /** "" where the feed doesn't say (WMATA's buses). */
   direction: string;
   /** Leaving each stop, in seconds since 1970; skipped stops left out. */
   stops: Map<string, number>;
@@ -238,8 +239,8 @@ function visitsAt(stop: string, live: Live, timetable: Scheduled[], destinations
     if (time === undefined) continue;
     visits.push({
       routeId: trip.route,
-      direction: trip.direction,
-      destination: destinations.get(trip.route)?.[Number(trip.direction)] ?? "",
+      direction: trip.direction || "0",
+      destination: destinations.get(trip.route)?.[Number(trip.direction || "0")] ?? "",
       time: new Date(time * 1000).toISOString(),
       live: true,
       vehicle: live.positions.get(id),
@@ -279,15 +280,18 @@ async function loadLive(): Promise<Live> {
 
 /** TripUpdate entities → each trip's route, direction and when it leaves each stop. FeedEntity 3:
  *  TripUpdate (1 trip: 1 trip_id, 4 schedule_relationship, 5 route_id, 6 direction_id; 2
- *  stop_time_update: 2 arrival / 3 departure (2 time), 4 stop_id, 5 schedule_relationship). */
-export function decodeTrips(bytes: Uint8Array): Map<string, LiveTrip> {
+ *  stop_time_update: 2 arrival / 3 departure (2 time), 4 stop_id, 5 schedule_relationship).
+ *  `arrivals`: a feed that gives only when trips arrive (WMATA's, but where they start) leaves then,
+ *  but at the last stop it has. */
+export function decodeTrips(bytes: Uint8Array, arrivals = false): Map<string, LiveTrip> {
   const trips = new Map<string, LiveTrip>();
   for (const entity of new Reader(bytes).fields()) {
     if (entity.field !== 2 || !entity.sub) continue;
     for (const part of entity.sub.fields()) {
       if (part.field !== 3 || !part.sub) continue;
-      let id = "", route = "", direction = "0", canceled = false;
+      let id = "", route = "", direction = "", canceled = false;
       const stops = new Map<string, number>();
+      let last = "";
       for (const f of part.sub.fields()) {
         if (f.field === 1 && f.sub) {
           for (const t of f.sub.fields()) {
@@ -307,9 +311,13 @@ export function decodeTrips(bytes: Uint8Array): Map<string, LiveTrip> {
             }
           }
           // Only where it leaves from: an arrival alone is the end of the line, nobody gets on.
-          if (stop && departure && !skipped) stops.set(stop, departure);
+          if (stop && (departure || (arrivals && arrival)) && !skipped) {
+            stops.set(stop, departure || arrival);
+            last = departure ? "" : stop;
+          }
         }
       }
+      if (last) stops.delete(last);
       if (id && route && !canceled && stops.size) trips.set(id, { route, direction, stops });
     }
   }

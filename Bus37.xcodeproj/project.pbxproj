@@ -30,6 +30,8 @@
 		D77E7C0A1C0B4E37A1B2C408 /* lines-boston.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C308 /* lines-boston.json */; };
 		D77E7C0A1C0B4E37A1B2C409 /* linemap-chicago.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C309 /* linemap-chicago.json */; };
 		D77E7C0A1C0B4E37A1B2C40A /* lines-chicago.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C30A /* lines-chicago.json */; };
+		D77E7C0A1C0B4E37A1B2C40B /* linemap-dc.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C30B /* linemap-dc.json */; };
+		D77E7C0A1C0B4E37A1B2C40C /* lines-dc.json in Resources */ = {isa = PBXBuildFile; fileRef = D77E7C0A1C0B4E37A1B2C30C /* lines-dc.json */; };
 		E22E7C0A1C0B4E37A1B2C3E2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E22E7C0A1C0B4E37A1B2C3E1 /* PrivacyInfo.xcprivacy */; };
 		E22E7C0A1C0B4E37A1B2C3E4 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E22E7C0A1C0B4E37A1B2C3E3 /* PrivacyInfo.xcprivacy */; };
 		E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */; };
@@ -91,6 +93,8 @@
 		D77E7C0A1C0B4E37A1B2C308 /* lines-boston.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "lines-boston.json"; sourceTree = "<group>"; };
 		D77E7C0A1C0B4E37A1B2C309 /* linemap-chicago.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "linemap-chicago.json"; sourceTree = "<group>"; };
 		D77E7C0A1C0B4E37A1B2C30A /* lines-chicago.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "lines-chicago.json"; sourceTree = "<group>"; };
+		D77E7C0A1C0B4E37A1B2C30B /* linemap-dc.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "linemap-dc.json"; sourceTree = "<group>"; };
+		D77E7C0A1C0B4E37A1B2C30C /* lines-dc.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "lines-dc.json"; sourceTree = "<group>"; };
 		E22E7C0A1C0B4E37A1B2C3E1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E22E7C0A1C0B4E37A1B2C3E3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGuide.swift; sourceTree = "<group>"; };
@@ -156,6 +160,8 @@
 				D77E7C0A1C0B4E37A1B2C308 /* lines-boston.json */,
 				D77E7C0A1C0B4E37A1B2C309 /* linemap-chicago.json */,
 				D77E7C0A1C0B4E37A1B2C30A /* lines-chicago.json */,
+				D77E7C0A1C0B4E37A1B2C30B /* linemap-dc.json */,
+				D77E7C0A1C0B4E37A1B2C30C /* lines-dc.json */,
 			);
 			path = Snapshots;
 			sourceTree = "<group>";
@@ -278,6 +284,8 @@
 				D77E7C0A1C0B4E37A1B2C408 /* lines-boston.json in Resources */,
 				D77E7C0A1C0B4E37A1B2C409 /* linemap-chicago.json in Resources */,
 				D77E7C0A1C0B4E37A1B2C40A /* lines-chicago.json in Resources */,
+				D77E7C0A1C0B4E37A1B2C40B /* linemap-dc.json in Resources */,
+				D77E7C0A1C0B4E37A1B2C40C /* lines-dc.json in Resources */,
 				E22E7C0A1C0B4E37A1B2C3E2 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

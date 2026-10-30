@@ -148,7 +148,7 @@ struct ContentView: View {
                 }
                 Button("Not now", role: .cancel) {}
             } message: {
-                if let incoming { Text("To \(incoming.destination), in \(incoming.city.name). It joins your favorites there.") }
+                if let incoming { Text("To \(incoming.destination), in \(incoming.city.endingSentence) It joins your favorites there.") }
             }
             .onChange(of: favorites) {
                 Selection.favorites = favorites
@@ -229,7 +229,7 @@ struct ContentView: View {
                     if cityFavorites.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Where do you wait?").font(.headline)
-                            Text("Tap Add favorite, then your line where you get on, to start curating your suffering in \(city.name). Your stops land here and on your widgets. Tap one to put it on the map, then the map to watch the \(city.vehicles) not come, live.")
+                            Text("Tap Add favorite, then your line where you get on, to start curating your suffering in \(city.endingSentence) Your stops land here and on your widgets. Tap one to put it on the map, then the map to watch the \(city.vehicles) not come, live.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
