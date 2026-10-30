@@ -58,6 +58,8 @@ struct ContentView: View {
     @State private var headerHeight: CGFloat = 0
     /// The height of a city's page, for the map's two thirds of it.
     @State private var pageHeight: CGFloat = 0
+    /// Each city's list, which takes the touches on the map above it (see `MapTouches`).
+    @State private var lists: [City: ListScrollView] = [:]
     /// How much each city's map has shrunk, once its list is at rest.
     @State private var restingShrink: [City: CGFloat] = [:]
     /// The home map's pill hopping toward the island, the first time it's there: it goes up there.
@@ -286,6 +288,8 @@ struct ContentView: View {
                         }
                     }
                     .textCase(nil)
+                    // Finds the list it's in, for the map above to scroll (see `scrollList`).
+                    .background(ListScrollView.Finder { lists[city] = $0 })
                     // Under the tall map, until scrolled away.
                     .padding(.top, tallMap - Self.shortMap)
                 } footer: {
@@ -352,8 +356,12 @@ struct ContentView: View {
                         try? await Task.sleep(for: .milliseconds(250))
                         if !Task.isCancelled { restingShrink[city] = shrunk }
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture { if openIsFavorite { openLiveMap() } }
+                    // The map's touches go to the list it sits over, so dragging it scrolls the favorites
+                    // just as the list does (bounce and all), and sideways still turns the page; a tap
+                    // opens the live map.
+                    .overlay {
+                        MapTouches(list: lists[city]) { if openIsFavorite { openLiveMap() } }
+                    }
                     .accessibilityAddTraits(openIsFavorite ? .isButton : [])
                     .accessibilityLabel(openIsFavorite ? "Live map, \(open.lineLabel) to \(open.destination)" : "\(city.name)'s main lines")
                     .overlay(alignment: .topLeading) {
@@ -731,5 +739,86 @@ private struct ScrollOffset: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// A list's scroll view, found from a view in the list (`Finder`), held weakly.
+struct ListScrollView {
+    weak var view: UIScrollView?
+
+    struct Finder: UIViewRepresentable {
+        let found: (ListScrollView) -> Void
+
+        func makeUIView(context: Context) -> FinderView {
+            let view = FinderView()
+            view.found = found
+            return view
+        }
+
+        func updateUIView(_ view: FinderView, context: Context) { view.found = found }
+    }
+
+    final class FinderView: UIView {
+        var found: ((ListScrollView) -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            var view = superview
+            while let next = view, !(next is UIScrollView) { view = next.superview }
+            guard let scrollView = view as? UIScrollView else { return }
+            // Not during the update that put this here.
+            DispatchQueue.main.async { [found] in found?(ListScrollView(view: scrollView)) }
+        }
+    }
+}
+
+/// The home map's touches, handed to the list under it: whatever its scroll view (and the pages
+/// around it) make of them, as if the map were the top of the list. A tap that's only a tap, `onTap`.
+private struct MapTouches: UIViewRepresentable {
+    let list: ListScrollView?
+    let onTap: () -> Void
+
+    func makeUIView(context: Context) -> Forwarder { Forwarder() }
+
+    func updateUIView(_ view: Forwarder, context: Context) {
+        view.onTap = onTap
+        view.list = list?.view
+    }
+
+    final class Forwarder: UIView, UIGestureRecognizerDelegate {
+        var onTap: (() -> Void)?
+        weak var list: UIScrollView? {
+            didSet {
+                guard list !== oldValue else { return }
+                oldValue?.removeGestureRecognizer(tap)
+                list?.addGestureRecognizer(tap)
+            }
+        }
+        /// On the list, as that's where the touches go; it only answers those that started here.
+        private lazy var tap: UITapGestureRecognizer = {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+            tap.cancelsTouchesInView = false
+            tap.delaysTouchesEnded = false
+            tap.delegate = self
+            return tap
+        }()
+
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard self.point(inside: point, with: event) else { return nil }
+            return list ?? self
+        }
+
+        // Not even shown the list's own touches, so its rows' buttons have them to themselves.
+        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            bounds.contains(touch.location(in: self))
+        }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        @objc private func tapped() { onTap?() }
+
+        deinit { list?.removeGestureRecognizer(tap) }
     }
 }
