@@ -111,6 +111,37 @@
   .chip small { color: var(--muted); }
   .screen-taps { margin-top: 8px; font-size: 12px; color: var(--muted); }
   .paths .l { white-space: normal; max-width: none; font-size: 13px; }
+  .flow-controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .flow-controls select { background: #1b1f3d; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font: inherit; }
+  .flow-controls input[type=range] { accent-color: var(--data); width: 110px; vertical-align: middle; }
+  .flow-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .flow-legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  .flow-legend i.c-good { background: #34c759; } .flow-legend i.c-warn { background: #ffb020; } .flow-legend i.c-bad { background: #ff3b4a; }
+  .flow-legend i.c-plain { background: #3987e5; } .flow-legend i.c-muted { background: #6f6d7d; }
+  .flow { overflow-x: auto; }
+  .flow svg { display: block; width: 100%; min-width: 640px; height: auto; }
+  .flow .node rect { fill: #1b1f3d; stroke: #3a4078; stroke-width: 1.5; }
+  .flow .node.end rect { fill: #12142a; stroke-dasharray: 4 3; }
+  .flow .node text { fill: var(--ink); font: 700 13px var(--round); }
+  .flow .node text.n { fill: var(--muted); font: 600 11px system-ui, sans-serif; }
+  .flow .node { cursor: pointer; transition: opacity .2s; }
+  .flow .edge { transition: opacity .2s; cursor: default; }
+  .flow .edge .hit { stroke: transparent; fill: none; }
+  .flow .edge .line { fill: none; stroke-linecap: round; opacity: .85; }
+  .flow .edge:hover .line { opacity: 1; }
+  .flow .edge text { font: 700 11px system-ui, sans-serif; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; text-anchor: middle; pointer-events: none; }
+  .flow .dim { opacity: .12; }
+  .c-good { stroke: #34c759; fill: #34c759; } .c-warn { stroke: #ffb020; fill: #ffb020; } .c-bad { stroke: #ff3b4a; fill: #ff3b4a; }
+  .c-plain { stroke: #3987e5; fill: #3987e5; } .c-muted { stroke: #6f6d7d; fill: #6f6d7d; }
+  .flow-detail { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+  .flow-detail b { color: var(--ink); }
+  .findings { display: grid; gap: 8px; }
+  .finding { display: grid; grid-template-columns: 12px 1fr auto; gap: 10px; align-items: start; background: #0f1124; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; font-size: 14px; }
+  .finding:hover, .finding.on { border-color: #3a4078; background: #151938; }
+  .finding .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; }
+  .finding .dot.bad { background: var(--red-glow); } .finding .dot.warn { background: #ffb020; } .finding .dot.info { background: #3987e5; }
+  .finding small { display: block; color: var(--muted); margin-top: 2px; }
+  .finding .count { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .note { color: var(--faint); font-size: 12px; margin-top: 26px; }
 </style>
@@ -138,16 +169,43 @@
     <p class="empty wide" id="journey-empty" hidden>No journeys yet. The app sends them from its next build on: every screen opened, button tapped, and where it was put away or crashed, a batch with each request to the proxy. Tick "With my Xcode builds" to see your own from the simulator.</p>
 
     <section class="panel wide">
+      <h2>How people move through the app</h2>
+      <p class="sub">Each screen, and arrows for people going from one to the next, as wide as how often. Colored by what happens after: whether the session went on to get somewhere (added a favorite, watched from the island, shared, opened another favorite, set up its cities, or stayed on the live map 10 seconds or more), or whether people came right back. Hover an arrow or a screen for the numbers; tap a screen, or a finding below, to see just its arrows.</p>
+      <div class="flow-controls">
+        <label>Color by <select id="flow-color">
+          <option value="outcome">Getting somewhere</option><option value="back">Coming right back</option><option value="traffic">Traffic only</option>
+        </select></label>
+        <label><input type="checkbox" id="flow-first"> First sessions only</label>
+        <label>Hide arrows under <input type="range" id="flow-min" min="0" max="10" step="0.5" value="1"> <output id="flow-min-label">1%</output></label>
+      </div>
+      <div class="flow-legend" id="flow-legend"></div>
+      <div class="flow" id="flow"></div>
+      <div class="flow-detail" id="flow-detail"></div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Where people may be confused</h2>
+      <p class="sub">Found in the journeys, the most sessions affected first. Tap one to see it on the map.</p>
+      <div class="findings" id="findings"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Paths that get somewhere</h2>
+      <p class="sub">How sessions got to their first goal, and how long that typically took.</p>
+      <div class="rows paths" id="paths-good"></div>
+    </section>
+    <section class="panel">
+      <h2>Paths that go nowhere</h2>
+      <p class="sub">Sessions that went past Home but reached no goal (not counting a glance at Home alone, which is the app working).</p>
+      <div class="rows paths" id="paths-nowhere"></div>
+    </section>
+
+    <section class="panel wide">
       <h2>Screens</h2>
       <p class="sub">Each screen people get to, as it looks, and how it goes there: visits and installs, the typical stay, how often a visit is over within 3 seconds (opened by mistake, or not what they wanted), how often the session ends there, crashes, where people come from and go next, and what they tap. Amber marks what stands out.</p>
       <div class="screens" id="screens"></div>
     </section>
 
-    <section class="panel">
-      <h2>Ways through the app</h2>
-      <p class="sub">The screens of each session in order (the first five), most common first.</p>
-      <div class="rows paths" id="paths"></div>
-    </section>
     <section class="panel">
       <h2>Session lengths</h2>
       <p class="sub">From opening the app to putting it away.</p>
@@ -550,6 +608,270 @@
   const tally = (items) => { const m = new Map(); for (const it of items) m.set(it, (m.get(it) ?? 0) + 1); return [...m].sort((a, b) => b[1] - a[1]); };
   const chips = (pairs, total) => pairs.map(([name, count]) => `<span class="chip">${esc(name)} <small>${pct(count, total)}</small></span>`).join("");
 
+  // ---- The flow: the screens as a map, sessions going from one to the next as arrows, colored by what
+  // happened after. Where on the map each one goes: the welcome along the top, the picker along the
+  // bottom, the live map and sharing to the right, where the app is put away.
+  const FLOW_NODES = {
+    open: { x: 90, y: 330, label: "App opens", end: true },
+    guide: { x: 250, y: 95 }, cities: { x: 470, y: 95 }, home: { x: 470, y: 330 },
+    livemap: { x: 730, y: 215 }, share: { x: 905, y: 95 },
+    "picker.map": { x: 250, y: 565 }, "picker.list": { x: 490, y: 565 }, "picker.stops": { x: 730, y: 565 },
+    away: { x: 905, y: 375, label: "Puts it away", end: true }, crash: { x: 905, y: 565, label: "Crash", end: true },
+  };
+  /** What a session coming to something looks like: the app doing its job for someone. */
+  const GOALS = [
+    ["added a favorite", (e) => e.kind === "tap" && e.name === "picker.choose"],
+    ["watched from the island", (e) => e.kind === "tap" && (e.name === "pill" || e.name === "livemap.watch") && e.detail === "watch"],
+    ["shared a stop", (e) => e.kind === "tap" && e.name === "share.send"],
+    ["opened another favorite", (e) => e.kind === "tap" && e.name === "favorite.open" && e.detail !== "already"],
+    ["set up their cities", (e) => e.kind === "tap" && e.name === "cities.done"],
+  ];
+  /** Names short enough for the map's boxes. */
+  const BOX_NAMES = { "picker.map": "Picker map", "picker.list": "Line list", "picker.stops": "Stops", guide: "Guide" };
+  let flow = null, focus = null;
+
+  /** The flow's numbers, for every session or only each install's first. */
+  function flowFacts(firstOnly) {
+    const { visits, sessions, allSessions } = flow;
+    const first = new Map();
+    for (const s of allSessions) if (!first.has(s.install) || s.start < first.get(s.install).start) first.set(s.install, s);
+    const kept = allSessions.filter((s) => !firstOnly || first.get(s.install) === s);
+    const bySession = new Map(kept.map((s) => [s.id, []]));
+    for (const v of visits) bySession.get(v.session)?.push(v);
+
+    const edges = new Map(), nodes = new Map(), outcomes = new Map(), goalsOf = new Map();
+    const edge = (from, to) => {
+      const key = `${from}→${to}`;
+      if (!edges.has(key)) edges.set(key, { from, to, count: 0, installs: new Set(), led: 0, back: 0, stays: [] });
+      return edges.get(key);
+    };
+    for (const session of kept) {
+      const vs = bySession.get(session.id);
+      // Its goals, in order: what it did, and staying on the live map 10 seconds or more.
+      const goals = [];
+      for (const e of sessions.get(session.id) ?? []) for (const [name, test] of GOALS) if (test(e)) goals.push({ at: e.at, name });
+      for (const v of vs) if (v.screen === "livemap" && (v.dwell ?? 0) >= 10) goals.push({ at: v.at + 10, name: "watched the live map" });
+      goals.sort((a, b) => a.at - b.at);
+      goalsOf.set(session.id, goals);
+      vs.forEach((v, i) => {
+        const node = nodes.get(v.screen) ?? { visits: 0, installs: new Set(), stays: [] };
+        node.visits++; node.installs.add(v.install); if (v.dwell != null) node.stays.push(v.dwell);
+        nodes.set(v.screen, node);
+        const from = i ? vs[i - 1].screen : "open";
+        if (from === v.screen) return;
+        const e = edge(from, v.screen);
+        e.count++; e.installs.add(v.install);
+        if (goals.some((g) => g.at >= v.at)) e.led++;
+        if (v.dwell != null) e.stays.push(v.dwell);
+        // Straight back where they came from, within 4 seconds.
+        if (i && vs[i + 1]?.screen === from && v.dwell != null && v.dwell < 4) e.back++;
+      });
+      const last = vs.at(-1);
+      if (last && (last.ended || last.crashed)) {
+        const e = edge(last.screen, last.crashed ? "crash" : "away");
+        e.count++; e.installs.add(last.install); if (goals.length) e.led++;
+      }
+      outcomes.set(session.id, session.crashed ? "crash" : goals.length ? "somewhere" : vs.every((v) => v.screen === "home") ? "glance" : "nowhere");
+    }
+    return { kept, bySession, edges, nodes, outcomes, goalsOf };
+  }
+
+  /** What stands out as confusing, from the flow's numbers: the most sessions affected first. */
+  function findings(facts) {
+    const { kept, bySession, edges, nodes, outcomes, goalsOf } = facts;
+    const found = [], n = kept.length;
+    const add = (level, count, text, why, focus) => found.push({ level, count, text, why, focus });
+    for (const e of edges.values()) {
+      if (e.from === "open" || FLOW_NODES[e.to]?.end || e.count < 3) continue;
+      const rate = e.back / e.count;
+      if (rate >= 0.25) add(rate >= 0.5 ? "bad" : "warn", e.back, `${screenName(e.from)} → ${screenName(e.to)} → straight back`,
+        `${pct(e.back, e.count)} of the times people go there, they come back within 4 seconds. Opened by mistake, or not what they expected?`, [e.from, e.to]);
+    }
+    // Back and forth between the same two screens, twice or more in a session that got nowhere (adding
+    // three favorites is three trips to the picker, and fine).
+    const loops = new Map();
+    for (const [id, vs] of bySession) {
+      if (goalsOf.get(id).length) continue;
+      const pairs = new Map();
+      for (let i = 1; i < vs.length; i++) {
+        const key = [vs[i - 1].screen, vs[i].screen].sort().join("|");
+        pairs.set(key, (pairs.get(key) ?? 0) + 1);
+      }
+      for (const [key, count] of pairs) if (count >= 4) loops.set(key, (loops.get(key) ?? 0) + 1);
+    }
+    for (const [key, count] of loops) if (count >= 2) {
+      const [a, b] = key.split("|");
+      add("warn", count, `${screenName(a)} ⇄ ${screenName(b)}, over and over`,
+        `${fmt(count)} sessions go back and forth between them twice or more, and get nowhere. Looking for something they don't find?`, [a, b]);
+    }
+    // Where sessions end without getting anywhere (Home alone is a glance, the app doing its job).
+    const deadEnds = new Map();
+    for (const s of kept) {
+      const last = bySession.get(s.id).at(-1);
+      if (last?.ended && !goalsOf.get(s.id).length && outcomes.get(s.id) === "nowhere") deadEnds.set(last.screen, (deadEnds.get(last.screen) ?? 0) + 1);
+    }
+    for (const [screen, count] of deadEnds) if (count >= 3 && screen !== "home") add("warn", count, `Sessions give up on ${screenName(screen)}`,
+      `${fmt(count)} sessions are put away there without having got anywhere (${pct(count, nodes.get(screen)?.visits ?? count)} of its visits).`, [screen, "away"]);
+    // A long stay, then back where they came from, and nothing after.
+    const longBack = new Map();
+    for (const s of kept) {
+      const vs = bySession.get(s.id), goals = goalsOf.get(s.id);
+      vs.forEach((v, i) => {
+        if (i && (v.dwell ?? 0) >= 45 && vs[i + 1]?.screen === vs[i - 1].screen && !goals.some((g) => g.at >= v.at)) longBack.set(v.screen, (longBack.get(v.screen) ?? 0) + 1);
+      });
+    }
+    for (const [screen, count] of longBack) if (count >= 3) add("warn", count, `Long stays on ${screenName(screen)} that come to nothing`,
+      `${fmt(count)} times people spent 45 seconds or more there, then went back without getting anywhere. Hard to find what they came for?`, [screen]);
+    // The same button three times or more within 3 seconds.
+    const rage = new Map();
+    for (const s of kept) {
+      const taps = (flow.sessions.get(s.id) ?? []).filter((e) => e.kind === "tap");
+      const hit = new Set();
+      taps.forEach((t, i) => { if (taps.filter((u, j) => j > i && u.name === t.name && u.at - t.at <= 3).length >= 2) hit.add(t.name); });
+      for (const name of hit) rage.set(name, (rage.get(name) ?? 0) + 1);
+    }
+    for (const [name, count] of rage) if (count >= 2 && name !== "guide.next" && name !== "picker.map.tap") add("warn", count, `${tapName(name)}, tapped again and again`,
+      `In ${fmt(count)} sessions it was tapped three times or more within 3 seconds. Does it look like nothing happened?`, []);
+    const empty = kept.reduce((sum, s) => sum + (flow.sessions.get(s.id) ?? []).filter((e) => e.name === "picker.search.empty").length, 0);
+    if (empty >= 3) add("warn", empty, "Searches that find nothing", `${fmt(empty)} times a search for a line in the picker came up empty. Lines people expect that aren't there, or named differently?`, ["picker.list"]);
+    for (const [id, node] of nodes) {
+      const crashes = edges.get(`${id}→crash`)?.count ?? 0;
+      if (crashes) add("bad", crashes * 3, `Crashes on ${screenName(id)}`, `${fmt(crashes)} sessions crashed there. The crash list below has the last taps before.`, [id, "crash"]);
+    }
+    // Screens few sessions reach: hard to find, or not needed.
+    if (n >= 10) for (const id of ["livemap", "share", "picker.list"]) {
+      const reached = kept.filter((s) => bySession.get(s.id).some((v) => v.screen === id)).length;
+      if (reached / n < 0.1) add("info", reached, `Few get to ${screenName(id)}`, `Only ${pct(reached, n)} of sessions do. Hard to find, or not needed?`, [id]);
+    }
+    const order = { bad: 0, warn: 1, info: 2 };
+    return found.sort((a, b) => order[a.level] - order[b.level] || b.count - a.count);
+  }
+
+  function renderFlow() {
+    if (!flow) return;
+    const facts = flowFacts($("flow-first").checked);
+    const mode = $("flow-color").value, least = Number($("flow-min").value);
+    $("flow-min-label").textContent = `${least}%`;
+    const all = [...facts.edges.values()].filter((e) => FLOW_NODES[e.from] && FLOW_NODES[e.to]);
+    const total = all.reduce((sum, e) => sum + e.count, 0);
+    const shown = all.filter((e) => (e.count / Math.max(1, total)) * 100 >= least);
+    const peak = Math.max(1, ...shown.map((e) => e.count));
+    const tone = (e) => {
+      if (e.to === "crash") return "bad";
+      if (mode === "traffic") return "plain";
+      if (mode === "back") { const r = e.back / e.count; return r >= 0.3 ? "bad" : r >= 0.15 ? "warn" : "plain"; }
+      if (e.to === "away") return "muted";
+      const r = e.led / e.count; return r >= 0.5 ? "good" : r >= 0.25 ? "warn" : "bad";
+    };
+    $("flow-legend").innerHTML = (mode === "outcome"
+      ? [["good", "half or more go on to get somewhere"], ["warn", "a quarter to half"], ["bad", "fewer"], ["muted", "puts the app away"]]
+      : mode === "back" ? [["bad", "30%+ come right back"], ["warn", "15–30%"], ["plain", "fewer"]] : [["plain", "how often"]])
+      .map(([c, text]) => `<span><i class="c-${c}"></i>${text}</span>`).join("");
+    const size = (id) => FLOW_NODES[id].end ? [62, 24] : [72, 50];
+    // Where a line from a box's middle toward (tx, ty) leaves the box, with room for the arrowhead.
+    const edgeOf = (id, tx, ty, room) => {
+      const { x, y } = FLOW_NODES[id], [w, h] = size(id), dx = tx - x, dy = ty - y;
+      const t = Math.min((w + room) / Math.abs(dx || 1e-9), (h + room) / Math.abs(dy || 1e-9));
+      return [x + dx * t, y + dy * t];
+    };
+    const lines = shown.sort((a, b) => b.count - a.count).map((e, i) => {
+      const a = FLOW_NODES[e.from], b = FLOW_NODES[e.to];
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+      const bend = facts.edges.has(`${e.to}→${e.from}`) ? 28 : 10;
+      const cx = (a.x + b.x) / 2 - (dy / len) * bend, cy = (a.y + b.y) / 2 + (dx / len) * bend;
+      const [sx, sy] = edgeOf(e.from, cx, cy, 2), [ex, ey] = edgeOf(e.to, cx, cy, 9);
+      const mx = 0.25 * sx + 0.5 * cx + 0.25 * ex, my = 0.25 * sy + 0.5 * cy + 0.25 * ey;
+      const width = 1.5 + Math.sqrt(e.count / peak) * 12, c = tone(e);
+      const tip = `<b>${esc(screenName(e.from === "open" ? "App opens" : e.from))} → ${esc(e.to === "away" ? "puts it away" : e.to === "crash" ? "crash" : screenName(e.to))}</b><br>`
+        + `${fmt(e.count)} times, ${fmt(e.installs.size)} install${e.installs.size === 1 ? "" : "s"}`
+        + `<br>${pct(e.led, e.count)} of these sessions went on to get somewhere`
+        + (FLOW_NODES[e.to].end ? "" : `<br>${pct(e.back, e.count)} came right back · typical stay ${duration(median(e.stays))}`);
+      const d = `M${sx.toFixed(1)},${sy.toFixed(1)} Q${cx.toFixed(1)},${cy.toFixed(1)} ${ex.toFixed(1)},${ey.toFixed(1)}`;
+      return `<g class="edge" data-from="${e.from}" data-to="${e.to}" data-tip="${esc(tip)}">
+        <path class="hit" d="${d}" stroke-width="${Math.max(14, width + 8)}"/>
+        <path class="line c-${c}" d="${d}" stroke-width="${width.toFixed(1)}" marker-end="url(#arrow-${c})"/>
+        ${i < 14 ? `<text x="${mx.toFixed(1)}" y="${(my + 4).toFixed(1)}">${fmt(e.count)}</text>` : ""}</g>`;
+    }).join("");
+    const boxes = Object.entries(FLOW_NODES).map(([id, p]) => {
+      const [w, h] = size(id), facts2 = facts.nodes.get(id);
+      const inCount = all.filter((e) => e.to === id).reduce((sum, e) => sum + e.count, 0);
+      const outCount = all.filter((e) => e.from === id).reduce((sum, e) => sum + e.count, 0);
+      if (p.end) {
+        const count = id === "open" ? outCount : inCount;
+        return `<g class="node end" data-node="${id}" data-tip="${esc(`<b>${p.label}</b><br>${fmt(count)} sessions`)}">
+          <rect x="${p.x - w}" y="${p.y - h}" width="${2 * w}" height="${2 * h}" rx="${h}"/>
+          <text x="${p.x}" y="${p.y - 2}" text-anchor="middle">${p.label}</text>
+          <text class="n" x="${p.x}" y="${p.y + 13}" text-anchor="middle">${fmt(count)}</text></g>`;
+      }
+      const visits = facts2?.visits ?? 0, stays = facts2?.stays ?? [];
+      const quick = stays.filter((x) => x < 3).length;
+      const tip = `<b>${esc(screenName(id))}</b><br>${fmt(visits)} visits, ${fmt(facts2?.installs.size ?? 0)} installs<br>typical stay ${duration(median(stays))} · ${pct(quick, stays.length)} over in 3s`;
+      return `<g class="node${visits ? "" : " unseen"}" data-node="${id}" data-tip="${esc(tip)}" style="opacity:${visits ? 1 : 0.45}">
+        <rect x="${p.x - w}" y="${p.y - h}" width="${2 * w}" height="${2 * h}" rx="12"/>
+        <image href="/stats/screens/${id}.jpg" x="${p.x - w + 7}" y="${p.y - h + 7}" width="40" height="${2 * h - 14}" preserveAspectRatio="xMidYMid slice"/>
+        <text x="${p.x - w + 54}" y="${p.y - 16}">${esc(BOX_NAMES[id] ?? screenName(id))}</text>
+        <text class="n" x="${p.x - w + 54}" y="${p.y + 4}">${fmt(visits)} visits</text>
+        <text class="n" x="${p.x - w + 54}" y="${p.y + 20}">${duration(median(stays))} stay</text></g>`;
+    }).join("");
+    const markers = ["good", "warn", "bad", "plain", "muted"].map((c) => `<marker id="arrow-${c}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path class="c-${c}" d="M0,0 L10,5 L0,10 z"/></marker>`).join("");
+    $("flow").innerHTML = `<svg viewBox="0 0 1000 650" role="img" aria-label="Screens of the app and how people move between them"><defs>${markers}</defs>${lines}${boxes}</svg>`;
+
+    // The findings, and the paths.
+    const list = findings(facts);
+    $("findings").innerHTML = list.length ? list.map((f, i) => `<div class="finding" data-finding="${i}">
+        <span class="dot ${f.level}"></span><span>${esc(f.text)}<small>${esc(f.why)}</small></span><span class="count">${fmt(f.count)}</span></div>`).join("")
+      : `<div class="empty">Nothing stands out yet${facts.kept.length < 20 ? ": too few sessions to tell" : ""}.</div>`;
+    $("findings").onclick = (event) => {
+      const el = event.target.closest("[data-finding]");
+      if (!el) return;
+      const f = list[Number(el.dataset.finding)];
+      document.querySelectorAll(".finding").forEach((x) => x.classList.toggle("on", x === el));
+      setFocus(f.focus.length ? new Set(f.focus) : null, f.text);
+      $("flow").scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+    };
+    const good = [], nowhere = [];
+    for (const s of facts.kept) {
+      const vs = facts.bySession.get(s.id), goals = facts.goalsOf.get(s.id), outcome = facts.outcomes.get(s.id);
+      if (goals.length) {
+        // The screens before it: one arriving the same second came after it (Home, after choosing a stop).
+        const until = vs.filter((v, i) => i === 0 || v.at < goals[0].at).map((v) => screenName(v.screen));
+        good.push({ path: `${until.join(" → ")} ✓ ${goals[0].name}`, time: goals[0].at - s.start });
+      } else if (outcome === "nowhere") nowhere.push(vs.slice(0, 6).map((v) => screenName(v.screen)).join(" → ") + (vs.length > 6 ? " → …" : ""));
+    }
+    const goodRows = tally(good.map((g) => g.path)).slice(0, 8).map(([path, count]) => ({ path, count, time: median(good.filter((g) => g.path === path).map((g) => g.time)) }));
+    rows($("paths-good"), goodRows, (g) => g.count, (g) => esc(g.path), (g) => ` <small>${pct(g.count, facts.kept.length)} · ${duration(g.time)}</small>`);
+    rows($("paths-nowhere"), tally(nowhere).slice(0, 8), (p) => p[1], (p) => esc(p[0]), (p) => ` <small>${pct(p[1], facts.kept.length)}</small>`);
+    setFocus(focus?.ids ?? null, focus?.label);
+  }
+
+  /** Shows only these screens' arrows (and says what they are), or everything again. */
+  function setFocus(ids, label) {
+    focus = ids ? { ids, label } : null;
+    document.querySelectorAll("#flow .edge").forEach((el) => {
+      const on = !ids || (ids.has(el.dataset.from) && (ids.size === 1 || ids.has(el.dataset.to))) || (ids.size === 1 && ids.has(el.dataset.to));
+      el.classList.toggle("dim", !on);
+    });
+    document.querySelectorAll("#flow .node").forEach((el) => el.classList.toggle("dim", !!ids && !ids.has(el.dataset.node)
+      && ![...document.querySelectorAll(`#flow .edge:not(.dim)`)].some((e) => e.dataset.from === el.dataset.node || e.dataset.to === el.dataset.node)));
+    if (!ids) { $("flow-detail").textContent = "Tap a screen to see where its people come from and go."; document.querySelectorAll(".finding").forEach((x) => x.classList.remove("on")); return; }
+    if (ids.size === 1) {
+      const [id] = ids, facts = flowFacts($("flow-first").checked);
+      const ins = [...facts.edges.values()].filter((e) => e.to === id).sort((a, b) => b.count - a.count);
+      const outs = [...facts.edges.values()].filter((e) => e.from === id).sort((a, b) => b.count - a.count);
+      const name = (x) => x === "open" ? "app opens" : x === "away" ? "puts it away" : x === "crash" ? "crash" : screenName(x);
+      const inTotal = ins.reduce((s, e) => s + e.count, 0), outTotal = outs.reduce((s, e) => s + e.count, 0);
+      $("flow-detail").innerHTML = `<b>${esc(screenName(id))}</b> · from ${ins.slice(0, 4).map((e) => `${esc(name(e.from))} ${pct(e.count, inTotal)}`).join(", ") || "–"}`
+        + ` · then ${outs.slice(0, 5).map((e) => `${esc(name(e.to))} ${pct(e.count, outTotal)}`).join(", ") || "–"}. Tap it again for everything.`;
+    } else $("flow-detail").innerHTML = `<b>${esc(label ?? "")}</b>. Tap the map's background for everything.`;
+  }
+  // On the map itself: iOS Safari doesn't hand taps on shapes to a listener on the whole page.
+  $("flow").addEventListener("click", (event) => {
+    const node = event.target.closest(".node");
+    if (node) return setFocus(focus?.ids?.size === 1 && focus.ids.has(node.dataset.node) ? null : new Set([node.dataset.node]));
+    if (!event.target.closest(".edge")) setFocus(null);
+  });
+  ["flow-color", "flow-first", "flow-min"].forEach((id) => $(id).addEventListener("input", renderFlow));
+
   function showJourney(journey) {
     const num = (x) => Number(x) || 0;
     const events = journey.map((r) => ({ ...r, at: num(r.at), seq: num(r.seq), seconds: num(r.seconds) }));
@@ -637,9 +959,11 @@
       </div></article>`;
     }).join("");
 
-    // ---- Ways through, and how long sessions last.
-    const paths = tally(allSessions.filter((s) => s.screens.length).map((s) => s.screens.slice(0, 5).map(screenName).join(" → ") + (s.screens.length > 5 ? " → …" : ""))).slice(0, 10);
-    rows($("paths"), paths, (p) => p[1], (p) => esc(p[0]), (p) => ` <small>${pct(p[1], allSessions.length)}</small>`);
+    // ---- The map of the app, what's confusing on it, and the paths that get somewhere or don't.
+    flow = { visits, sessions, allSessions };
+    renderFlow();
+
+    // ---- How long sessions last.
     const buckets = [["< 10s", 10], ["10–30s", 30], ["30s–1m", 60], ["1–3m", 180], ["3–10m", 600], ["10m+", Infinity]];
     columns($("session-lengths"), buckets.map(([label, below], i) => ({
       value: lengths.filter((x) => x < below && x >= (i ? buckets[i - 1][1] : 0)).length, tipLabel: label, axis: label,
