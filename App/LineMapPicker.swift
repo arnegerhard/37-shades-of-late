@@ -365,14 +365,10 @@ struct LineMapPicker: View {
             if found == nil { found = try? await TransitService.linesAtStop(picked.stop.code, in: city) }
             let others = await goingTheSameWay((found ?? []).filter { $0.line != selected.id }, as: picked)
             guard !Task.isCancelled else { return }
-            // First the lines here that end up where the picked one does (the 132 for the 131), then the
-            // rest here, then those a walk away, each by line number.
-            let rank = { (line: StopLine) in
-                line.isNearby ? 2 : Self.sameEnd(line.destination, picked.direction.destination) ? 0 : 1
-            }
+            // The lines here by number, then those a walk away (another stop, with its distance) by number.
             withAnimation(.snappy(duration: 0.25)) {
                 otherLines = others.sorted {
-                    rank($0) != rank($1) ? rank($0) < rank($1) : $0.line.localizedStandardCompare($1.line) == .orderedAscending
+                    $0.isNearby != $1.isNearby ? !$0.isNearby : $0.line.localizedStandardCompare($1.line) == .orderedAscending
                 }
             }
         }
@@ -640,16 +636,6 @@ struct LineMapPicker: View {
         if i + 1 < stops.count, let next = stops[i + 1].coordinate { return bearingBetween(here, next, ifSame: nil) }
         if i > 0, let previous = stops[i - 1].coordinate { return bearingBetween(previous, here, ifSame: nil) }
         return nil
-    }
-
-    /// Whether two destinations are the same place, which Seattle's say along with the way there:
-    /// "Burien Transit Center Highland Park" and "Burien Transit Center South Park" are. The first two
-    /// words have to match (or all of a one-word one).
-    static func sameEnd(_ a: String, _ b: String) -> Bool {
-        let words = { (name: String) in name.lowercased().split(separator: " ") }
-        let x = words(a), y = words(b)
-        let needed = min(2, x.count, y.count)
-        return needed > 0 && x.prefix(needed) == y.prefix(needed)
     }
 
     /// "80 m", to the nearest 10 m.
