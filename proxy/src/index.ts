@@ -742,8 +742,13 @@ async function recordJourney(request: Request, env: Env) {
   const insert = env.JOURNEYS.prepare(`INSERT OR IGNORE INTO events
     (install, seq, at, arrived, kind, name, detail, came, session, city, version, favorites, seconds)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  // App versions up to 1.1 took coming back from a moment away (a notification, the app switcher, being
+  // put away) for opening again, and the session still open for a crash: a "crash" with a "resume" in
+  // the same second. After a real one the app launches anew, so it opens with "launch".
+  const resumed = new Set(events.filter((e) => e?.k === "open" && e.n === "resume").map((e) => whole(e.t)));
+  const falseCrash = (e: any) => e.k === "crash" && e.n !== "report" && resumed.has(whole(e.t));
   const rows = events.slice(0, 40)
-    .filter((e) => e && ["open", "screen", "tap", "exit", "crash", "hang"].includes(e.k) && word(e.n) && whole(e.i) > 0)
+    .filter((e) => e && ["open", "screen", "tap", "exit", "crash", "hang"].includes(e.k) && word(e.n) && whole(e.i) > 0 && !falseCrash(e))
     // When it happened, as the phone says; not later than now, nor before the app could have sent it.
     .map((e) => insert.bind(install, whole(e.i), Math.min(arrived, Math.max(0, whole(e.t))), arrived, e.k, word(e.n), word(e.d, 80),
                             word(e.f), word(e.s, 16) || "unknown", word(e.c, 16), version, favorites, Math.max(0, Math.min(whole(e.x), 86_400))));

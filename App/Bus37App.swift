@@ -217,6 +217,7 @@ struct ContentView: View {
                     Task { try? await Task.sleep(for: .seconds(1.5)); sharing = selection }
                 case .lines: choosing = true
                 case .map: showingMap = true
+                case .cities: choosingCities = true
                 case .stops:
                     choosing = true
                     // After the sheet is up: pushed in the same moment, the title draws twice.

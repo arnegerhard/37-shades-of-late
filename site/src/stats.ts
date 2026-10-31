@@ -67,7 +67,7 @@ export async function handleStats(request: Request, url: URL, env: StatsEnv): Pr
       return text(`Analytics Engine: ${(error as Error).message}`, 502);
     }
   }
-  return new Response((page as string).replace("{{US_MAP}}", JSON.stringify(usMap)), { headers: { ...PRIVATE, "Content-Type": "text/html; charset=utf-8" } });
+  return new Response((page as string).replace("{{US_MAP}}", JSON.stringify(usMap)).replace("{{SCREENS_VERSION}}", screensVersion()), { headers: { ...PRIVATE, "Content-Type": "text/html; charset=utf-8" } });
 }
 
 const PRIVATE = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Frame-Options": "DENY" };
@@ -138,6 +138,17 @@ async function numbers(days: number, exclude: string[], debug: boolean, token: s
     spreadersOf(days, exclude, debug, journeys),
   ]);
   return { days, excluded: exclude.length, asOf: new Date().toISOString(), journey, spreaders, ...Object.fromEntries(entries) };
+}
+
+/** A short hash of the screens' pictures (FNV-1a), so the page's addresses for them change when they do. */
+let screensHash: string | undefined;
+function screensVersion(): string {
+  if (screensHash) return screensHash;
+  let hash = 0x811c9dc5;
+  for (const id of Object.keys(SCREENS).sort()) {
+    for (const byte of new Uint8Array(SCREENS[id])) hash = Math.imul(hash ^ byte, 0x01000193);
+  }
+  return (screensHash = (hash >>> 0).toString(36));
 }
 
 /** An install is live while its app is in front: asking within this many seconds, and not put away since. */

@@ -37,6 +37,10 @@ private struct JourneySessions: ViewModifier {
             default: break
             }
         }
+        // Switched off (or ended) with the app open: going away all the same, not a crash.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
+            Journey.shared.closed()
+        }
     }
 }
 

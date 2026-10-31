@@ -405,6 +405,8 @@
 
 <script>
   const US = {{US_MAP}};
+  /** A screen's picture, by a version of the pictures: browsers keep them a day, so a new one gets a new address. */
+  const screenURL = (id) => `/stats/screens/${id}.jpg?v={{SCREENS_VERSION}}`;
   // Where each city's label goes from its spot (the Northeast's three apart), and which side it hangs on.
   const LABELS = { seattle: [0, -40, "middle"], sf: [-10, 70, "start"], la: [20, 60, "start"], chicago: [0, -40, "middle"],
                    boston: [20, -70, "middle"], nyc: [40, 20, "start"], dc: [-30, 70, "end"] };
@@ -877,7 +879,7 @@
     const gone = !isLive || last?.kind === "exit" || last?.kind === "crash";
     const img = $("watch-img"), cover = $("watch-cover");
     const screen = lastScreen?.name;
-    if (screen && SCREENS[screen] && img.dataset.screen !== screen) { img.style.opacity = 0; img.onload = () => { img.style.opacity = 1; }; img.src = `/stats/screens/${screen}.jpg`; img.dataset.screen = screen; }
+    if (screen && SCREENS[screen] && img.dataset.screen !== screen) { img.style.opacity = 0; img.onload = () => { img.style.opacity = 1; }; img.src = screenURL(screen); img.dataset.screen = screen; }
     cover.hidden = !gone && !!screen && !!SCREENS[screen];
     cover.textContent = !events.length ? "No screens from this install yet: its app version may not send them."
       : gone ? (last?.kind === "crash" ? "Crashed." : `Put away${presence.away ? ` ${ago(now - presence.away)}` : ""}. Last on ${screenName(screen ?? "home")}.`)
@@ -1121,7 +1123,7 @@
       const tip = `<b>${esc(screenName(id))}</b><br>${fmt(visits)} visits, ${fmt(facts2?.installs.size ?? 0)} installs<br>typical stay ${duration(median(stays))} · ${pct(quick, stays.length)} over in 3s`;
       return `<g class="node${visits ? "" : " unseen"}" data-node="${id}" data-tip="${esc(tip)}" style="opacity:${visits ? 1 : 0.45}">
         <rect x="${p.x - w}" y="${p.y - h}" width="${2 * w}" height="${2 * h}" rx="12"/>
-        <image href="/stats/screens/${id}.jpg" x="${p.x - w + 7}" y="${p.y - h + 7}" width="40" height="${2 * h - 14}" preserveAspectRatio="xMidYMid slice"/>
+        <image href="${screenURL(id)}" x="${p.x - w + 7}" y="${p.y - h + 7}" width="40" height="${2 * h - 14}" preserveAspectRatio="xMidYMid slice"/>
         <text x="${p.x - w + 54}" y="${p.y - 16}">${esc(BOX_NAMES[id] ?? screenName(id))}</text>
         <text class="n" x="${p.x - w + 54}" y="${p.y + 4}">${fmt(visits)} visits</text>
         <text class="n" x="${p.x - w + 54}" y="${p.y + 20}">${duration(median(stays))} stay</text></g>`;
@@ -1256,7 +1258,7 @@
       const to = tally(here.map((v) => v.next ? screenName(v.next) : v.ended ? "puts it away" : v.crashed ? "crash" : "…")).slice(0, 3);
       const tapsHere = tally(taps.filter((t) => t.came === id).map((t) => tapName(t.name))).slice(0, 5);
       const quickRate = dwells.length ? quick / dwells.length : 0, endRate = here.length ? ended / here.length : 0;
-      const picture = SCREENS[id] ? `<img src="/stats/screens/${id}.jpg" alt="${esc(screenName(id))}" loading="lazy">` : `<div></div>`;
+      const picture = SCREENS[id] ? `<img src="${screenURL(id)}" alt="${esc(screenName(id))}" loading="lazy">` : `<div></div>`;
       return `<article class="screen-card${here.length ? "" : " unseen"}">${picture}<div>
         <h3>${esc(screenName(id))}</h3>
         ${here.length ? `<div class="facts">

@@ -43,6 +43,9 @@ final class Journey: @unchecked Sendable {
     /// Whether a session has begun since launch: the first keeps the ID the screens shown as the app
     /// launched (a moment before it says it's in front) were recorded under.
     private var begun = false
+    /// Whether the app is in front, as far as this launch knows: coming back from a moment away (a
+    /// notification pulled down, the app switcher, being put away) isn't opening it again.
+    private var isOpen = false
     /// The screens open, the one in front last, and since when it's been in front.
     private var screens: [String] = []
     private var shownAt = Date.now
@@ -64,11 +67,14 @@ final class Journey: @unchecked Sendable {
 
     // MARK: - What happened
 
-    /// The app came to the front: `how` it was opened ("launch", "resume", "widget", "link"…). If it
-    /// was on screen when it last stopped, without going away first, that was a crash.
+    /// The app came to the front: `how` it was opened ("launch", "resume", "widget", "link"…). If the
+    /// last launch was on screen when it stopped, without going away first, that was a crash: only on
+    /// the first opening of a launch, as later ones were this launch's own.
     func opened(_ how: String) {
         lock.withLock {
-            if defaults.bool(forKey: "journeyOnScreen") {
+            guard !isOpen else { return }
+            isOpen = true
+            if !begun, defaults.bool(forKey: "journeyOnScreen") {
                 add("crash", defaults.string(forKey: "journeyScreen") ?? "unknown", detail: defaults.string(forKey: "journeyTap"),
                     session: defaults.string(forKey: "journeySession") ?? session)
             }
@@ -83,9 +89,11 @@ final class Journey: @unchecked Sendable {
         }
     }
 
-    /// The app went away: where from, and after how long.
+    /// The app went away: where from, and after how long. Also as the phone shuts down with it open.
     func closed() {
         lock.withLock {
+            guard isOpen else { return }
+            isOpen = false
             add("exit", screens.last ?? "unknown", seconds: Date.now.timeIntervalSince(sessionStart))
             remember(onScreen: false)
         }
