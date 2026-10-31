@@ -67,7 +67,7 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 > • Widgets show the favorites of the city you're in, no location permission needed
 > • Minutes, not clock times: "4 min" beats "10:52" when you're deciding whether to run
 > • Live predictions in green, scheduled times in grey
-> • Live map with the route and where your bus is right now
+> • A map of the route and where your bus is right now
 > • "Also fine with": add the other lines at your stop, or one a short walk away, and see them all as one
 > • Lock Screen widgets: under the clock, above it, or a single countdown in a circle; Home Screen widgets in two sizes
 > • Comments on every wait, from "Holy shit, the 37 is real" to "Walking is starting to look attractive"
@@ -91,7 +91,7 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 
 > 37 Shades of Late shows when the next buses and trains leave a stop the user picks, in San Francisco (Muni and BART), Seattle, New York (subway, PATH and MTA buses) and Boston (MBTA), in the app and in Home Screen and Lock Screen widgets. There's no login, account or purchase inside the app.
 >
-> To try it: the app opens on the main screen with a map of a stop near the top. Tap the map (or "Add favorite") to see every line in the city on a map. Tap a line, then tap the white arrow at a stop for that stop and direction (or use the list button to pick by name), then Choose. The stop is saved as a favorite and shown on the map and in the Favorites list with the next departures. Tap a favorite's full-screen button for a live map of the route with the vehicles on it. Swipe left or right to switch city; each city has its own favorites. Edit deletes favorites, hold and drag reorders them.
+> To try it: the app opens on the main screen with a map of a stop near the top. Tap Find a stop on the map (to try a stop, with a + by it to keep it) or + next to Favorites (to keep it right away) to see every line in the city on a map. Tap a line, then tap the white arrow at a stop for that stop and direction (or use the list button to pick by name), then Choose. The stop is saved as a favorite and shown on the map, with its route and the vehicles on their way (pinch to zoom, two fingers to move it), and in the Favorites list with the next departures. Swipe left or right to switch city; each city has its own favorites. Holding a favorite offers Share and Delete; holding its handle on the right drags it to reorder.
 >
 > The widgets show the favorites of the city the device is in. The app has no location permission: the city is a rough guess from the network address, made by our server and not stored. On first launch the app starts in the nearest city at a default stop (line 37 at 14th St & Church St in San Francisco, route 8 at Denny Way & Fairview Ave in Seattle, the G at Metropolitan Av in New York, the Red Line at Park Street in Boston) and offers a 30-second walkthrough for adding the Lock Screen widget.
 >

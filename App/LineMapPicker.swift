@@ -132,7 +132,8 @@ struct LineMapPicker: View {
 
     var body: some View {
         MapReader { proxy in
-            Map(position: $position) {
+            // No tilting: two fingers dragging move the map, as on the home screen.
+            Map(position: $position, bounds: city.cameraBounds, interactionModes: [.pan, .zoom, .rotate]) {
                 // Selected line last, so it's drawn on top of the lines it shares streets with.
                 LineLayer(lines: drawOrder, paths: paths, pathsVersion: pathsVersion, selectedID: selectedID,
                           alsoLineIDs: alsoLineIDs, candidateIDs: Set(candidates.map(\.id)), circleLineIDs: circleLineIDs,
@@ -287,11 +288,21 @@ struct LineMapPicker: View {
             .onChange(of: circleLineIDs) { relabel(proxy) }
             // Alongside the map's own gestures, which would otherwise swallow a plain tap.
             // Not for taps on the circle's list over the map, which the map hears too: those are the list's.
-            .simultaneousGesture(SpatialTapGesture(coordinateSpace: .global).onEnded { tap in
-                guard !circleListFrame.contains(tap.location) else { return }
-                Journey.shared.tap("picker.map.tap", selectedID == nil ? nil : "with a line")
-                handleTap(at: CGPoint(x: tap.location.x - mapFrame.minX, y: tap.location.y - mapFrame.minY), proxy: proxy)
-            })
+            // A double tap zooms in there, as maps do; a single one waits a moment to be sure it isn't one.
+            .simultaneousGesture(SpatialTapGesture(count: 2, coordinateSpace: .global)
+                .exclusively(before: SpatialTapGesture(coordinateSpace: .global))
+                .onEnded { tap in
+                    switch tap {
+                    case .first(let double):
+                        guard !circleListFrame.contains(double.location) else { return }
+                        Journey.shared.tap("picker.map.zoom")
+                        zoomIn(at: CGPoint(x: double.location.x - mapFrame.minX, y: double.location.y - mapFrame.minY), proxy: proxy)
+                    case .second(let single):
+                        guard !circleListFrame.contains(single.location) else { return }
+                        Journey.shared.tap("picker.map.tap", selectedID == nil ? nil : "with a line")
+                        handleTap(at: CGPoint(x: single.location.x - mapFrame.minX, y: single.location.y - mapFrame.minY), proxy: proxy)
+                    }
+                })
         }
         .safeAreaInset(edge: .bottom) {
             // The map fits itself to the space above the card, so a card changing height moves the map.
@@ -493,10 +504,14 @@ struct LineMapPicker: View {
                     .buttonStyle(.borderedProminent)
                     .tint(LineBadge.red)
                 }
+            } else if lines.isEmpty {
+                Label("Asking nicely for the lines…", systemImage: "hand.tap")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else if !recent.isEmpty {
+                recentStops
             } else {
-                Label(lines.isEmpty ? "Asking nicely for the lines…"
-                      : shownStops.isEmpty ? "Tap where you wait to zoom in." : "Tap your stop, or your line.",
-                      systemImage: "hand.tap")
+                Label(shownStops.isEmpty ? "Double-tap where you wait to zoom in." : "Tap your stop, or your line.", systemImage: "hand.tap")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -506,6 +521,48 @@ struct LineMapPicker: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .padding()
+    }
+
+    /// The stops looked at here before and not kept (see `Selection.recent`), newest first.
+    private var recent: [Selection] { Selection.recent.filter { $0.city == city } }
+    /// How tall a row of them is, at this text size: the list shows two, and scrolls for more.
+    @ScaledMetric private var recentRow: CGFloat = 46
+
+    /// Those stops, a tap away from being picked again.
+    private var recentStops: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Looked at before").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(recent) { stop in
+                        Button {
+                            Journey.shared.tap("picker.recent")
+                            onPick(stop)
+                        } label: {
+                            HStack(spacing: 10) {
+                                LineBadges(parts: stop.badgeParts, font: .system(.subheadline, design: .rounded).weight(.heavy), round: stop.roundBadge)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(stop.stopName).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                    Text("To \(stop.destination)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
+                            .frame(minHeight: recentRow)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(stop.lineLabel) at \(stop.stopName), to \(stop.destination)")
+                    }
+                }
+            }
+            // Two rows' room, however many there are; the rest scroll up into it.
+            .frame(height: recentRow * CGFloat(min(recent.count, 2)))
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(recent.count > 2 ? .visible : .hidden)
+        }
     }
 
     /// One way from the picked stop: an arrow pointing the way it goes on the map as it's turned now,
@@ -627,7 +684,11 @@ struct LineMapPicker: View {
             let way = directions?.first { $0.id == other.direction && $0.stops.contains { $0.code == stop } }
             guard let way, let theirs = Self.leavingBearing(at: stop, along: way),
                   let here = way.stops.firstIndex(where: { $0.code == stop }) else { kept.append(other); continue }
-            if way.stops.count - here > 2, abs((theirs - ours + 540).truncatingRemainder(dividingBy: 360) - 180) <= 100 { kept.append(other) }
+            // Two stops to go at least, unless its one stop to go is on ours too (to the World Trade Center
+            // from Exchange Place, where both PATH lines end).
+            let left = way.stops.count - here - 1
+            let endsWithUs = left == 1 && picked.direction.stops.contains { $0.code == way.stops[here + 1].code }
+            if left > 1 || endsWithUs, abs((theirs - ours + 540).truncatingRemainder(dividingBy: 360) - 180) <= 100 { kept.append(other) }
         }
         return kept
     }
@@ -690,10 +751,8 @@ struct LineMapPicker: View {
             withAnimation(.snappy(duration: 0.25)) { pickCorner(near: coordinate) }
             return
         }
-        guard !shownStops.isEmpty else {
-            zoomIn(on: coordinate)
-            return
-        }
+        // Zoomed out too far for stops, a tap does nothing more: a double tap zooms in.
+        guard !shownStops.isEmpty else { return }
         circle(on: coordinate, proxy: proxy)
     }
 
@@ -703,15 +762,13 @@ struct LineMapPicker: View {
         center(on: coordinate, proxy: proxy)
     }
 
-    /// Zooms in on `coordinate`, just far enough for the stops around it to show (or, with none
-    /// around, a step closer).
-    private func zoomIn(on coordinate: CLLocationCoordinate2D) {
-        guard let visibleRect, mapSize.width > 0 else { return }
-        let size = sizeShowingStops(around: coordinate, from: MKMapSize(width: visibleRect.width * 0.8, height: visibleRect.height * 0.8))
-        let center = MKMapPoint(coordinate)
-        withAnimation(.smooth(duration: 0.8)) {
-            position = .rect(MKMapRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height))
-        }
+    /// Zooms in twice as close, the spot double-tapped staying under the finger.
+    private func zoomIn(at point: CGPoint, proxy: MapProxy) {
+        guard let visibleRect, let coordinate = proxy.convert(point, from: .local) else { return }
+        let spot = MKMapPoint(coordinate)
+        let rect = MKMapRect(x: spot.x - (spot.x - visibleRect.minX) / 2, y: spot.y - (spot.y - visibleRect.minY) / 2,
+                             width: visibleRect.width / 2, height: visibleRect.height / 2)
+        withAnimation(.smooth(duration: 0.35)) { position = .rect(rect) }
     }
 
     /// `size`, or smaller (a fifth at a time) until few enough stops are around `coordinate` for them
@@ -1264,6 +1321,65 @@ extension City {
                                span: MKCoordinateSpan(latitudeDelta: 0.45, longitudeDelta: 0.45))
         }
     }
+
+    /// How far the maps let you go: out to the whole of the city's transit network (every line it has,
+    /// to the ends of the regional trains and ferries), not to the rest of the country.
+    var cameraBounds: MapCameraBounds {
+        let network = network
+        return MapCameraBounds(
+            centerCoordinateBounds: MKCoordinateRegion(center: network.center,
+                                                       span: MKCoordinateSpan(latitudeDelta: network.span.latitudeDelta * 1.1,
+                                                                              longitudeDelta: network.span.longitudeDelta * 1.1)),
+            maximumDistance: farthest)
+    }
+
+    /// How far out the maps' camera goes, in meters: enough for the whole network with a little room
+    /// around it (a camera that high shows about half its distance from top to bottom;
+    /// the width counts for more, as the maps are taller than wide), and never less than a little
+    /// past the area they open on.
+    var farthest: Double {
+        let network = network
+        let tall = network.span.latitudeDelta * 111_000
+        let wide = network.span.longitudeDelta * 111_000 * cos(network.center.latitude * .pi / 180)
+        return max(max(tall, wide * 1.6) * 2.1, region.span.latitudeDelta * 111_000 * 4.5)
+    }
+
+    /// The camera's middle, kept over the network as `cameraBounds` keeps it for a map that moves itself.
+    func keepingInside(_ coordinate: CLLocationCoordinate2D) -> CLLocationCoordinate2D {
+        let network = network, reach = 0.55
+        return CLLocationCoordinate2D(
+            latitude: min(max(coordinate.latitude, network.center.latitude - network.span.latitudeDelta * reach),
+                          network.center.latitude + network.span.latitudeDelta * reach),
+            longitude: min(max(coordinate.longitude, network.center.longitude - network.span.longitudeDelta * reach),
+                           network.center.longitude + network.span.longitudeDelta * reach))
+    }
+
+    /// The area all of the city's lines cover, from its line map on the device (or the area the maps
+    /// open on, before there is one). Worked out once per launch: the maps ask for it at every redraw.
+    var network: MKCoordinateRegion {
+        City.networkLock.lock()
+        defer { City.networkLock.unlock() }
+        if let known = City.networks[self] { return known }
+        var minLat = 90.0, maxLat = -90.0, minLon = 180.0, maxLon = -180.0
+        for line in TransitService.cachedLineMap(in: self) {
+            for shape in line.shapes {
+                for point in shape where point.count == 2 {
+                    minLat = min(minLat, point[0]); maxLat = max(maxLat, point[0])
+                    minLon = min(minLon, point[1]); maxLon = max(maxLon, point[1])
+                }
+            }
+        }
+        // No line map yet: the opening area, asked again next time.
+        guard minLat < maxLat, minLon < maxLon else { return region }
+        let found = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2),
+                                       span: MKCoordinateSpan(latitudeDelta: max(maxLat - minLat, region.span.latitudeDelta),
+                                                              longitudeDelta: max(maxLon - minLon, region.span.longitudeDelta)))
+        City.networks[self] = found
+        return found
+    }
+
+    private static var networks: [City: MKCoordinateRegion] = [:]
+    private static let networkLock = NSLock()
 }
 
 // MARK: - Geometry in meters (flat-earth, fine at city scale)

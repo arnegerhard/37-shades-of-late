@@ -258,6 +258,25 @@ struct Selection: Codable, Hashable, Identifiable {
         return open.isEmpty ? [current] : open
     }
 
+    /// Stops looked at but not kept: tried from Find a stop and never added, or taken out of the
+    /// favorites. Newest first, all of them, for the stop picker to offer again. A stop that
+    /// becomes a favorite leaves it.
+    static var recent: [Selection] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: "recentStops"),
+                  let recent = try? JSONDecoder().decode([Selection].self, from: data)
+            else { return [] }
+            let kept = Set(favorites.map(\.id))
+            return recent.filter { !kept.contains($0.id) }
+        }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "recentStops") }
+    }
+
+    /// Puts `stop` at the top of the recent stops.
+    static func remember(_ stop: Selection) {
+        recent = [stop] + recent.filter { $0.id != stop.id }
+    }
+
     /// Saved lines and stops, in the order the user arranged them.
     static var favorites: [Selection] {
         get {

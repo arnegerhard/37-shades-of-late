@@ -201,7 +201,7 @@ async function spreadersOf(days: number, exclude: string[], debug: boolean, jour
   const recipients = debug ? "" : "AND e.version != 'debug'";
   const { results } = await journeys.prepare(`
       WITH sent AS (
-        SELECT install, count(*) AS sent, sum(detail = 'qr') AS sent_qr FROM events
+        SELECT install, count(*) AS sent, sum(detail = 'qr' OR detail LIKE 'qr, %') AS sent_qr FROM events
         WHERE kind = 'tap' AND name = 'share.send' AND at > ?1 GROUP BY install),
       web AS (
         SELECT code, sum(opens) AS web, sum(CASE WHEN qr = 1 THEN opens ELSE 0 END) AS web_qr FROM link_opens

@@ -50,9 +50,9 @@ final class BusActivities {
         withAnimation(.smooth(duration: 0.35)) {
             if wasWatching { stop(selection) } else { start(selection, departures: departures, fetchedAt: fetchedAt) }
         }
+        // Taken off again, so they know how it goes; no need to point it out any more.
+        if wasWatching, !isWatching(selection) { StalkTip.hasLetGo = true }
         if !wasWatching, isWatching(selection) {
-            // Found it, so no need to point it out any more.
-            StalkTip.hasWatched = true
             UIAccessibility.post(notification: .announcement, argument: Island.frame != nil ? "On your Dynamic Island" : "On your Lock Screen")
             IslandShowOff.shared.show(selection, departures: departures, fetchedAt: fetchedAt)
         }
@@ -275,19 +275,24 @@ struct StalkTip: Tip {
     /// Whether this iPhone has a Dynamic Island, for the wording.
     let island: Bool
 
+    /// A new tip, under a new name, since it says how to take it off again too: everyone sees it once,
+    /// whether or not they saw the one before.
+    var id: String { "StalkTip.letGo" }
+
     static let homeWithFavorite = Event(id: "homeWithFavorite")
-    @Parameter static var hasWatched: Bool = false
+    /// Whether they've taken one off the island again: then they know both halves.
+    @Parameter static var hasLetGo: Bool = false
     /// Whether Live Activities are on: without them, the pill just opens the map.
     @Parameter static var canWatch: Bool = false
 
     var title: Text { Text(island ? "Stalk it from any app" : "Stalk it from your Lock Screen") }
     var message: Text? {
-        Text("Tap the pill to put it on your \(island ? "Dynamic Island" : "Lock Screen"). Tap again to let go.")
+        Text("Tap the pill to put it on your \(island ? "Dynamic Island" : "Lock Screen"). Tap it again to take it off.")
     }
     var image: Image? { Image(systemName: island ? "platter.filled.top.iphone" : "lock.iphone") }
 
     var rules: [Rule] {
-        #Rule(Self.$hasWatched) { $0 == false }
+        #Rule(Self.$hasLetGo) { $0 == false }
         #Rule(Self.$canWatch) { $0 == true }
         #Rule(Self.homeWithFavorite) { $0.donations.count >= 2 }
     }

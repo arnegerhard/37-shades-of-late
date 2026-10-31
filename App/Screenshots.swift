@@ -3,11 +3,11 @@ import SwiftUI
 import WidgetKit
 
 /// App Store screenshot support. Launch with `-screen <name>` to open a screen directly:
-/// `lines` and `stops` open the picker, `map` the live map, `cities` the map of cities to pick; `widgets` and `lock` show the widgets on a mock
+/// `lines` and `stops` open the picker, `cities` the map of cities to pick; `widgets` and `lock` show the widgets on a mock
 /// Home Screen and Lock Screen (iOS doesn't let automation place real widgets); `lockwidget` is a
 /// plain Lock Screen with just the clock and the rectangular widget, no captions.
 enum ScreenshotScreen: String {
-    case lines, stops, map, widgets, lock, lockwidget, guide, share, cities
+    case lines, stops, widgets, lock, lockwidget, guide, share, cities
 
     static var current: ScreenshotScreen? {
         UserDefaults.standard.string(forKey: "screen").flatMap(ScreenshotScreen.init)

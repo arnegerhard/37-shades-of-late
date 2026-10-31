@@ -85,7 +85,7 @@ extension DeparturesEntry {
 
 extension Selection {
     /// bus37://open?s=… with the whole choice inside, so a widget tap opens exactly this line and
-    /// stop on the live map, favorite or not.
+    /// stop on the app's map, favorite or not.
     var openURL: URL {
         var components = URLComponents()
         components.scheme = "bus37"
@@ -106,6 +106,17 @@ extension Selection {
     }
 }
 
+extension URL {
+    /// This widget link, saying where it was tapped: "home" (a Home Screen widget), "lock" (a Lock Screen
+    /// widget), "activity" (a Live Activity on the Lock Screen) or "island" (the Dynamic Island), for Journey.
+    func tapped(on place: String) -> URL { appending(queryItems: [URLQueryItem(name: "on", value: place)]) }
+
+    /// Where a widget link was tapped, if it says.
+    var tappedOn: String? {
+        URLComponents(url: self, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "on" }?.value
+    }
+}
+
 /// A tap target for one row: the whole widget opens the first row, and where iOS allows it each
 /// row opens its own line. The medium widget takes a Link per row; the Lock Screen and small widget
 /// only take one URL for the whole widget, but from iOS 18 a button can open a URL there too.
@@ -116,7 +127,7 @@ private struct OpensRow: ViewModifier {
     func body(content: Content) -> some View {
         switch family {
         case .systemMedium, .systemLarge:
-            Link(destination: row.selection.openURL) { content }
+            Link(destination: row.selection.openURL.tapped(on: "home")) { content }
         case .accessoryRectangular:
             // Not OpenURLIntent: from the Lock Screen it runs (the row blinks) but doesn't open the app
             // for a bus37:// link. An intent that opens the app and leaves the stop for it does.
@@ -127,7 +138,7 @@ private struct OpensRow: ViewModifier {
     }
 }
 
-/// A Lock Screen row's tap: opens the app, which then shows that row's line and stop on the live map.
+/// A Lock Screen row's tap: opens the app, which then shows that row's line and stop on its map.
 /// The stop waits in the App Group until the app takes it (see `WidgetTap`), so it gets there whether
 /// iOS runs this in the app or in the widget.
 struct OpenStopIntent: AppIntent {
@@ -140,7 +151,7 @@ struct OpenStopIntent: AppIntent {
     init() {}
 
     init(_ selection: Selection) {
-        link = selection.openURL.absoluteString
+        link = selection.openURL.tapped(on: "lock").absoluteString
     }
 
     @MainActor
@@ -158,8 +169,8 @@ enum WidgetTap {
     static let dateKey = "widgetTapDate"
     static let notification = Notification.Name("widgetTap")
 
-    /// The tapped stop, once: taken out as it's read, and only if it was tapped just now.
-    static func take() -> Selection? {
+    /// The tapped stop's link, once: taken out as it's read, and only if it was tapped just now.
+    static func take() -> URL? {
         let defaults = AppGroup.defaults
         defer {
             defaults.removeObject(forKey: linkKey)
@@ -168,7 +179,7 @@ enum WidgetTap {
         guard let link = defaults.string(forKey: linkKey).flatMap(URL.init(string:)),
               let date = defaults.object(forKey: dateKey) as? Date, Date.now.timeIntervalSince(date) < 60
         else { return nil }
-        return Selection(openURL: link)
+        return link
     }
 }
 
@@ -203,7 +214,7 @@ struct Bus37WidgetView: View {
                 Spacer(minLength: 0)
             }
         }
-        .widgetURL(entry.rows.first?.selection.openURL)
+        .widgetURL(entry.rows.first?.selection.openURL.tapped(on: "home"))
         .overlay(alignment: .bottomTrailing) {
             Button(intent: RefreshIntent()) {
                 Image(systemName: "arrow.clockwise").font(.caption2)
@@ -285,7 +296,7 @@ struct LockScreenView: View {
             }
         }
         .containerBackground(for: .widget) { Color.clear }
-        .widgetURL(entry.rows.first?.selection.openURL)
+        .widgetURL(entry.rows.first?.selection.openURL.tapped(on: "lock"))
     }
 
     private var rectangular: some View {

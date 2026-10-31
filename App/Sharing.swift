@@ -82,10 +82,12 @@ extension Selection {
     }
 }
 
-/// What the share button on the live map opens: the card to send, or the QR code to show.
+/// What the home map's share button opens: the card to send, or the QR code to show.
 struct ShareSheet: View {
     let selection: Selection
     let departures: [Departure]
+    /// Where it was opened, for Journey (see `Journey.from`).
+    var from = "map"
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingQR = false
@@ -126,7 +128,7 @@ struct ShareSheet: View {
                                 ShareCard(selection: selection, departures: departures, now: .now)
                             }
                         }
-                        // While the map's version is on its way, a bar along the bottom, like the live map's.
+                        // While the map's version is on its way, a bar along the bottom, like the home map's.
                         .overlay(alignment: .bottom) {
                             if let cardAsked {
                                 CardLoadingBar(since: cardAsked).transition(.opacity)
@@ -142,7 +144,7 @@ struct ShareSheet: View {
                     .frame(maxHeight: .infinity)
                 }
 
-                Button { Journey.shared.tap("share.send", showingQR ? "qr" : "card"); sending = true } label: {
+                Button { Journey.shared.tap("share.send", "\(showingQR ? "qr" : "card"), \(Journey.from(from))"); sending = true } label: {
                     Label(showingQR ? "Send the link" : "Send to a friend", systemImage: "square.and.arrow.up")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
@@ -164,10 +166,10 @@ struct ShareSheet: View {
             .navigationTitle("Share the suffering")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { Journey.shared.tap("share.done"); dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { Journey.shared.tap("share.done", Journey.from(from)); dismiss() } }
             }
         }
-        .journeyScreen("share")
+        .journeyScreen("share", Journey.from(from))
         .task {
             // The app's own card first, so there's something to send right away; at 3x it's sharp.
             let renderer = ImageRenderer(content: ShareCard(selection: selection, departures: departures, now: .now))
@@ -184,7 +186,7 @@ struct ShareSheet: View {
     }
 }
 
-/// The live map's refresh bar, filling instead of emptying while the website draws its card: there's
+/// The home map's refresh bar, filling instead of emptying while the website draws its card: there's
 /// no knowing how long that takes (a few seconds, with the map), so it slows as it goes, never quite full.
 private struct CardLoadingBar: View {
     let since: Date

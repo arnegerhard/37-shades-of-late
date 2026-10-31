@@ -32,7 +32,7 @@ struct BusActivity: ActivityAttributes {
     let stopName: String
     /// "bus", "train" or "ferry".
     let vehicle: String
-    /// Opens the stop's live map in the app.
+    /// Opens the stop on the app's map.
     let link: URL
     let startedAt: Date
     /// A round badge (see `LineBadge.isRound`); optional, as activities started before it was have none.

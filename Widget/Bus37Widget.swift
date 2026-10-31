@@ -87,7 +87,7 @@ struct BusActivityWidget: Widget {
                 .padding()
                 .activityBackgroundTint(Color.black.opacity(0.75))
                 .activitySystemActionForegroundColor(.white)
-                .widgetURL(context.attributes.link)
+                .widgetURL(context.attributes.link.tapped(on: "activity"))
         } dynamicIsland: { context in
             let state = context.state
             return DynamicIsland {
@@ -128,7 +128,7 @@ struct BusActivityWidget: Widget {
                         .foregroundStyle(state.nextIsLive ? .green : .white)
                 }
             }
-            .widgetURL(context.attributes.link)
+            .widgetURL(context.attributes.link.tapped(on: "island"))
             .keylineTint(LineBadge.red)
         }
     }

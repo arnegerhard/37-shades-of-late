@@ -61,12 +61,20 @@ struct ContentView: View {
     @State private var favoritesFeed = FavoritesFeed()
     @Environment(\.scenePhase) private var scenePhase
     @State private var choosing = false
+    /// Whether the stop picked next is saved as a favorite (the + by Favorites), or only shown on the
+    /// map to try (the map's Find a stop), with a + by its pill to save it after all.
+    @State private var choosingFavorite = true
+    /// The stop picked to try, not (yet) a favorite: on the map until another opens.
+    @State private var trying: Selection?
+    /// Whether the + to keep it has calmed down to a quiet outline: a few seconds after it shows, or
+    /// once the map is touched. It stays, so it never goes away under a thumb, but stops asking.
+    @State private var plusQuiet = false
     @State private var pickerPath: [Line] = []
-    /// The live map, blown up from the home map.
-    @State private var showingMap = false
     @Namespace private var mapZoom
-    /// The stop being shared, from the home map or the live map.
+    /// The stop being shared, from the home map.
     @State private var sharing: Selection?
+    /// Where the share was opened, for Journey: "map" (the map's button) or "favorite" (a row's menu).
+    @State private var sharingFrom = "map"
     /// A stop from a shared link, waiting for "Add".
     @State private var incoming: Selection?
     /// Who shared the incoming stop (see Selection.sharer), for Journey.
@@ -77,16 +85,20 @@ struct ContentView: View {
     /// The cities shown, with a page each (see `City.chosen`), and whether their map is up to change them.
     @State private var cities = City.chosen
     @State private var choosingCities = false
-    /// The city whose favorites are in edit mode (deleting); a sideways swipe turns the page instead.
-    @State private var editingCity: City?
     /// How far each city's list is scrolled; the hint and city picker slide away by as much (up to
     /// their own height) to give the pinned map their room.
     @State private var scrollOffsets: [City: CGFloat] = [:]
     @State private var headerHeight: CGFloat = 0
-    /// The height of a city's page, for the map's two thirds of it.
+    /// The height of a city's page, for the map's share of it.
     @State private var pageHeight: CGFloat = 0
-    /// Each city's list, which takes the touches on the map above it (see `MapTouches`).
+    /// Each city's list, which takes one finger's touches on the map above it (see `MapTouches`).
     @State private var lists: [City: ListScrollView] = [:]
+    /// The cities whose list has been scrolled to hide the city picker (see `hideHeader`).
+    @State private var headerHidden: Set<City> = []
+    /// Each city's list's resting place, with the picker out of view (see `HeaderRest`).
+    @State private var headerRests: [City: HeaderRest] = [:]
+    /// Two fingers moving the open city's map, as they go (see `MapTouches`).
+    @State private var mapGesture: MapGesture?
     /// How much each city's map has shrunk, once its list is at rest.
     @State private var restingShrink: [City: CGFloat] = [:]
     /// The home map's pill hopping toward the island, the first time it's there: it goes up there.
@@ -123,7 +135,7 @@ struct ContentView: View {
                 // switches city and the page slides along. The hint and city picker stay put above
                 // the pages (each page leaves room for them), sliding up only as the list scrolls.
                 ZStack(alignment: .top) {
-                    TabView(selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
+                    TabView(selection: Binding(get: { selection.city }, set: { switchCity(to: $0, from: "swipe") })) {
                         ForEach(shownCities) { city in
                             cityPage(city).tag(city)
                         }
@@ -142,22 +154,9 @@ struct ContentView: View {
             .toolbar(.hidden, for: .navigationBar)
             .journeyScreen("home")
             .onAppear { Journey.shared.setCity(selection.city.rawValue) }
-            .navigationDestination(isPresented: $showingMap) {
-                RouteMap(selection: selection, feed: feed,
-                         onClose: { Journey.shared.tap("livemap.close"); showingMap = false },
-                         onShare: { Journey.shared.tap("share.open", "livemap"); sharing = selection })
-                    .journeyScreen("livemap")
-                    // The map draws its own header, with a button that shrinks it back.
-                    .toolbar(.hidden, for: .navigationBar)
-                    .sheet(item: $sharing) { stop in
-                        ShareSheet(selection: stop, departures: shownDepartures(for: stop).departures)
-                    }
-                    // Grows out of the home map it was tapped on; its header or card pulled down shrinks it back.
-                    .modifier(ZoomTransition(id: selection.city, in: mapZoom))
-            }
-            // Only a favorite's times are shown on the home screen; the live map follows its own.
-            .task(id: favorites.contains { $0.id == selection.id } ? selection : nil) {
-                if favorites.contains(where: { $0.id == selection.id }) { await feed.follow(selection) }
+            // Only a favorite's times are shown on the home screen, or the stop being tried.
+            .task(id: isShown(selection) ? selection : nil) {
+                if isShown(selection) { await feed.follow(selection) }
             }
             .task(id: favorites) { await favoritesFeed.follow(favorites) }
             .task { await startInNearestCity() }
@@ -175,8 +174,8 @@ struct ContentView: View {
                 BusActivities.shared.endFinished()
             }
             .onOpenURL { url in
-                // A widget tap: that line and stop on the live map.
-                if let tapped = Selection(openURL: url) { return openFromWidget(tapped) }
+                // A widget tap: that line and stop on the home map.
+                if let tapped = Selection(openURL: url) { return openFromWidget(tapped, on: url.tappedOn) }
                 // A friend's stop, from a 37shadesoflate.com/s link (or its QR code), with who shared it.
                 sharedBy = Selection.sharer(of: url)
                 Journey.shared.tap("link.open", sharedBy)
@@ -189,7 +188,11 @@ struct ContentView: View {
                     if let picked = incoming {
                         // A friend's stop in a city left out brings the city back.
                         if !cities.contains(picked.city) { setCities(cities + [picked.city]) }
-                        if !favorites.contains(where: { $0.id == picked.id }) { favorites.append(picked) }
+                        if !favorites.contains(where: { $0.id == picked.id }) {
+                            favorites.append(picked)
+                            Journey.shared.tap("favorite.added", Journey.from("link"))
+                        }
+                        Journey.shared.tap("stop.open", Journey.from("link"))
                         select(picked)
                     }
                 }
@@ -213,12 +216,12 @@ struct ContentView: View {
                 switch ScreenshotScreen.current {
                 case .guide: showingGuide = true
                 case .share:
-                    showingMap = true
-                    Task { try? await Task.sleep(for: .seconds(1.5)); sharing = selection }
+                    Task { try? await Task.sleep(for: .seconds(1.5)); sharingFrom = "map"; sharing = selection }
                 case .lines: choosing = true
-                case .map: showingMap = true
                 case .cities: choosingCities = true
                 case .stops:
+                    // As from the map's Find a stop: the stop picked is only shown, to try.
+                    choosingFavorite = false
                     choosing = true
                     // After the sheet is up: pushed in the same moment, the title draws twice.
                     Task {
@@ -229,15 +232,25 @@ struct ContentView: View {
                 }
             }
             #endif
-            .sheet(item: Binding(get: { showingMap ? nil : sharing }, set: { sharing = $0 })) { stop in
-                ShareSheet(selection: stop, departures: shownDepartures(for: stop).departures)
+            .sheet(item: $sharing) { stop in
+                ShareSheet(selection: stop, departures: shownDepartures(for: stop).departures, from: sharingFrom)
             }
-            // Like the live map, the line picker grows out of the home map.
+            // The line picker grows out of the home map.
             .fullScreenCover(isPresented: $choosing) {
                 NavigationStack(path: $pickerPath) {
                     LinePicker { picked in
-                        // Picking a stop saves it: it joins the favorites (at the end) and opens.
-                        if !favorites.contains(where: { $0.id == picked.id }) { favorites.append(picked) }
+                        // From the +, picking a stop saves it: it joins the favorites (at the end) and
+                        // opens. From the map, it only opens, to try.
+                        if !favorites.contains(where: { $0.id == picked.id }) {
+                            if choosingFavorite {
+                                favorites.append(picked)
+                                Journey.shared.tap("favorite.added", Journey.from("plus"))
+                            } else {
+                                trying = picked
+                                Selection.remember(picked)
+                            }
+                        }
+                        Journey.shared.tap("stop.open", Journey.from(choosingFavorite ? "plus" : "find"))
                         select(picked)
                         choosing = false
                         pickerPath = []
@@ -260,13 +273,13 @@ struct ContentView: View {
         }
     }
 
-    /// One city: the map showing its open favorite (tap it for the live map; Add favorite picks
-    /// another stop) and the city's favorites. Before there are any, the map shows the city's main
-    /// lines and the list says how it all works.
+    /// One city: the map showing its open favorite and the city's favorites (+ picks another stop).
+    /// Before there are any, the map shows the city's main lines and the list says how it all works.
     private func cityPage(_ city: City) -> some View {
         let open = preview(for: city)
         let cityFavorites = favorites.filter { $0.city == city }
         let openIsFavorite = cityFavorites.contains { $0.id == open.id }
+        let openIsShown = isShown(open)
         // What the favorites are, for the wording under them: "trains" if they're all trains, "rides"
         // when it's a mix.
         let kinds = Set(cityFavorites.map(\.vehicle))
@@ -280,49 +293,44 @@ struct ContentView: View {
                     if cityFavorites.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Where do you wait?").font(.headline)
-                            Text("Tap Add favorite, then your line where you get on, to start curating your suffering in \(city.endingSentence) Your stops land here and on your widgets. Tap one to put it on the map, then the map to watch the \(city.vehicles) not come, live.")
+                            Text("Find a stop on the map to watch the \(city.vehicles) not come, live, or tap + to keep one and start curating your suffering in \(city.endingSentence) Your stops land here and on your widgets.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 4)
                     }
                     ForEach(cityFavorites) { favorite in
-                        // Tapping a favorite opens it on the map above (tap that for the live map);
-                        // hold and drag to reorder.
+                        // Tapping a favorite opens it on the map above; holding it offers to share or
+                        // delete it, and holding the handle drags it to reorder.
                         HStack(spacing: 8) {
-                            if editingCity == city {
-                                // Deletes at once: no Delete button to confirm with, it's only a favorite.
-                                Button {
-                                    Journey.shared.tap("favorite.delete")
-                                    withAnimation { favorites.removeAll { $0.id == favorite.id } }
-                                    if !favorites.contains(where: { $0.city == city }) { editingCity = nil }
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                        .font(.title3)
-                                        .foregroundStyle(.white, .red)
-                                }
-                                .buttonStyle(.borderless)
-                                .accessibilityLabel("Delete \(favorite.lineLabel) to \(favorite.destination)")
-                                .transition(.move(edge: .leading).combined(with: .opacity))
-                            }
                             Button {
                                 Journey.shared.tap("favorite.open", favorite.id == selection.id ? "already" : nil)
+                                if favorite.id != selection.id { Journey.shared.tap("stop.open", Journey.from("favorite")) }
                                 select(favorite)
                             } label: { favoriteRow(favorite) }
                             .buttonStyle(.borderless)
                             .tint(.primary)
-                            // In edit mode the list draws its own handle.
-                            if editingCity != city {
-                                Image(systemName: "line.3.horizontal")
-                                    .foregroundStyle(.tertiary)
-                                    .frame(width: 20, height: 44)
-                                    .contentShape(Rectangle())
-                                    .accessibilityHidden(true)
+                            .contextMenu {
+                                Button { Journey.shared.tap("share.open", Journey.from("favorite")); sharingFrom = "favorite"; sharing = favorite } label: {
+                                    Label("Share", systemImage: "square.and.arrow.up")
+                                }
+                                // Deletes at once: it's only a favorite, and adding it back takes a moment.
+                                Button(role: .destructive) {
+                                    Journey.shared.tap("favorite.delete")
+                                    withAnimation { favorites.removeAll { $0.id == favorite.id } }
+                                    Selection.remember(favorite)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 20, height: 44)
+                                .contentShape(Rectangle())
+                                .accessibilityHidden(true)
                         }
                         .listRowBackground(favoriteBackground(isSelected: favorite.id == open.id))
-                        // The row's own minus button deletes, not the list's: a sideways swipe on a row is
-                        // for turning the page, and the list's minus would only reveal a Delete button.
+                        // Not the list's own swipe to delete: a sideways swipe on a row turns the page.
                         .deleteDisabled(true)
                     }
                     .onMove { from, to in
@@ -333,29 +341,39 @@ struct ContentView: View {
                         favorites = favorites.filter { $0.city != city } + reordered
                     }
                 } header: {
-                    HStack {
+                    HStack(spacing: 0) {
                         Text("Favorites")
-                        Spacer()
-                        if !cityFavorites.isEmpty {
-                            Button(editingCity == city ? "Done" : "Edit") {
-                                Journey.shared.tap(editingCity == city ? "favorites.done" : "favorites.edit")
-                                withAnimation { editingCity = editingCity == city ? nil : city }
-                            }
-                            .font(.subheadline.weight(.semibold))
+                        // White on the page's gray (the rows' color, so dark in dark mode), the plus in the
+                        // 37's red: the one thing to do here, next to what it adds to.
+                        Button { Journey.shared.tap("favorite.add", Journey.from("plus")); choosingFavorite = true; choosing = true } label: {
+                            Image(systemName: "plus")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(LineBadge.red)
+                                .frame(width: 30, height: 30)
+                                .background(Color(.secondarySystemGroupedBackground), in: Circle())
+                                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                                // A finger-sized target around the smaller circle.
+                                .frame(width: 44, height: 44)
+                                .contentShape(Circle())
                         }
+                        .buttonStyle(.borderless)
+                        .padding(.vertical, -10)
+                        .padding(.leading, 2)
+                        .accessibilityLabel("Add favorite")
+                        Spacer()
                     }
                     .textCase(nil)
-                    // Finds the list it's in, for the map above to scroll (see `scrollList`).
-                    .background(ListScrollView.Finder { lists[city] = $0 })
+                    // Finds the list it's in, for the map above to scroll (see `MapTouches`).
+                    .background(ListScrollView.Finder { lists[city] = $0; hideHeader(city) })
                     // Under the tall map, until scrolled away.
-                    .padding(.top, tallMap - Self.shortMap)
+                    .padding(.top, tallMap(city) - Self.shortMap)
                 } footer: {
                     // The Lock Screen button lives in the favorites' footer rather than a section of its
                     // own: a favorite dragged past the last row would otherwise land in that section,
                     // where it can't go, and snap back instead of moving to the end.
                     VStack(alignment: .leading, spacing: 10) {
                         if !cityFavorites.isEmpty {
-                            Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. Tap the map to watch the \(ride) not move, live. Hold and drag to reorder; Edit to delete.")
+                            Text("When you're in \(city.name), your widgets suffer in this order; the small ones only have room for the top one. Hold one to share or delete it, or its handle to drag it into place.")
                         }
                         Button { Journey.shared.tap("guide.open"); showingGuide = true } label: {
                             Label("Put your \(cityFavorites.isEmpty ? city.vehicles : rides) on the Lock Screen", systemImage: "lock.iphone")
@@ -374,7 +392,6 @@ struct ContentView: View {
                     .textCase(nil)
                 }
             }
-            .environment(\.editMode, .constant(editingCity == city ? .active : .inactive))
             .refreshable { await feed.reload() }
             // The list starts below the hint, picker and map, and scrolls on under them. The safe area
             // only goes down to the short map, as rows under it don't take touches: the tall map's extra
@@ -395,17 +412,18 @@ struct ContentView: View {
                 // up with the list instead of being laid out again at every step of the scroll (which
                 // stutters). Once the list is at rest, the route is framed in what's left.
                 Color.clear
-                    .frame(height: tallMap - shrink(city))
+                    .frame(height: tallMap(city) - shrink(city))
                     .overlay(alignment: .bottom) {
                         Group {
-                            if openIsFavorite {
-                                RouteMap(selection: open, feed: feed, interactive: false, topInset: 44,
-                                         cropped: restingShrink[city] ?? 0)
+                            // The gesture is in the visible part's points; the map's top is cut off by its shrink.
+                            let gesture = city == selection.city ? mapGesture?.moved(down: shrink(city)) : nil
+                            if openIsShown {
+                                RouteMap(selection: open, feed: feed, topInset: 44, cropped: restingShrink[city] ?? 0, gesture: gesture)
                             } else {
-                                CityLinesMap(city: city)
+                                CityLinesMap(city: city, gesture: gesture)
                             }
                         }
-                        .frame(height: tallMap)
+                        .frame(height: tallMap(city))
                         .allowsHitTesting(false)
                     }
                     .task(id: shrink(city)) {
@@ -413,49 +431,98 @@ struct ContentView: View {
                         try? await Task.sleep(for: .milliseconds(250))
                         if !Task.isCancelled { restingShrink[city] = shrunk }
                     }
-                    // The map's touches go to the list it sits over, so dragging it scrolls the favorites
-                    // just as the list does (bounce and all), and sideways still turns the page; a tap
-                    // opens the live map.
+                    // One finger on the map goes to the list it sits over, so dragging it scrolls the
+                    // favorites just as the list does (bounce and all), and sideways still turns the page.
+                    // Two fingers move the map: pinch to zoom, drag to pan.
                     .overlay {
-                        MapTouches(list: lists[city]) { if openIsFavorite { openLiveMap() } }
+                        MapTouches(list: lists[city]) { gesture in
+                            mapGesture = gesture
+                            if gesture != nil, !plusQuiet { withAnimation(.easeInOut(duration: 0.3)) { plusQuiet = true } }
+                        }
                     }
-                    .accessibilityAddTraits(openIsFavorite ? .isButton : [])
-                    .accessibilityLabel(openIsFavorite ? "Live map, \(open.lineLabel) to \(open.destination)" : "\(city.name)'s main lines")
+                    .accessibilityLabel(openIsShown ? "Map, \(open.lineLabel) to \(open.destination)" : "\(city.name)'s main lines")
                     .overlay(alignment: .topLeading) {
-                        if openIsFavorite {
-                            openFavoriteCard(open)
-                                .offset(y: pillNudge)
-                                .task { await nudgePill() }
-                                .padding(10)
-                                // Clear of the share button.
-                                .padding(.trailing, 48)
-                                .transition(.move(edge: .top).combined(with: .opacity))
+                        if openIsShown {
+                            HStack(spacing: 8) {
+                                openFavoriteCard(open)
+                                    .offset(y: pillNudge)
+                                    .task { await nudgePill() }
+                                    .layoutPriority(1)
+                                // A stop being tried, kept with one tap.
+                                if !openIsFavorite {
+                                    Button {
+                                        Journey.shared.tap("favorite.added", Journey.from("pill"))
+                                        withAnimation { favorites.append(open) }
+                                        trying = nil
+                                    } label: {
+                                        Image(systemName: "plus")
+                                            .font(plusQuiet ? .caption.weight(.semibold) : .subheadline.weight(.bold))
+                                            .foregroundStyle(plusQuiet ? AnyShapeStyle(.secondary) : AnyShapeStyle(LineBadge.red))
+                                            .frame(width: plusQuiet ? 26 : 34, height: plusQuiet ? 26 : 34)
+                                            .background {
+                                                if plusQuiet {
+                                                    Circle().fill(.ultraThinMaterial)
+                                                        .overlay(Circle().strokeBorder(.secondary, lineWidth: 1))
+                                                } else {
+                                                    Circle().fill(Color(.secondarySystemGroupedBackground))
+                                                        .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+                                                }
+                                            }
+                                            // A finger-sized target whatever its size.
+                                            .frame(width: 44, height: 44)
+                                            .contentShape(Circle())
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .padding(.horizontal, -5)
+                                    .accessibilityLabel("Add to favorites")
+                                    .transition(.scale.combined(with: .opacity))
+                                    .task(id: open.id) {
+                                        plusQuiet = false
+                                        try? await Task.sleep(for: .seconds(4))
+                                        if !Task.isCancelled { withAnimation(.easeInOut(duration: 0.5)) { plusQuiet = true } }
+                                    }
+                                }
+                            }
+                            .padding(10)
+                            // Clear of the find button.
+                            .padding(.trailing, 48)
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
                     }
                     .overlay(alignment: .topTrailing) {
-                        if openIsFavorite {
-                        Button { Journey.shared.tap("share.open", "home"); sharing = open } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(width: 38, height: 38)
-                                .background(.regularMaterial, in: Circle())
+                        // Any stop, to see it on the map without keeping it.
+                        Button { Journey.shared.tap("stop.find", Journey.from("map")); choosingFavorite = false; choosing = true } label: {
+                            Group {
+                                if openIsShown {
+                                    Image(systemName: "magnifyingglass")
+                                        .frame(width: 38, height: 38)
+                                } else {
+                                    Label("Find a stop", systemImage: "magnifyingglass")
+                                        .padding(.horizontal, 14)
+                                        .frame(height: 38)
+                                }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .background(.regularMaterial, in: Capsule())
                         }
                         .buttonStyle(.borderless)
                         .padding(10)
-                        .accessibilityLabel("Share this stop")
-                        }
+                        .accessibilityLabel("Find a stop")
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        // Says out loud what tapping the map does; the map alone reads as a picture.
-                        Button { Journey.shared.tap("favorite.add"); choosing = true } label: {
-                            Label("Add favorite", systemImage: "plus.circle.fill")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(.regularMaterial, in: Capsule())
+                        if openIsShown {
+                            Button { Journey.shared.tap("share.open", Journey.from("map")); sharingFrom = "map"; sharing = open } label: {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.subheadline.weight(.semibold))
+                                    .frame(width: 38, height: 38)
+                                    .background(.regularMaterial, in: Circle())
+                            }
+                            .buttonStyle(.borderless)
+                            // Clear of the refresh bar along the bottom.
+                            .padding(10)
+                            .padding(.bottom, 3)
+                            .accessibilityLabel("Share this stop")
                         }
-                        .buttonStyle(.borderless)
-                        .padding(12)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: ListCorners.radius, style: .continuous))
                     .modifier(ZoomSource(id: city, in: mapZoom))
@@ -477,7 +544,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 if shownCities.count > 1 {
-                    Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0) })) {
+                    Picker("City", selection: Binding(get: { selection.city }, set: { switchCity(to: $0, from: "tabs") })) {
                         // Five or more don't fit by name next to the pencil: by their codes, as on the widgets.
                         ForEach(shownCities) { Text(shownCities.count > 4 ? $0.code : $0.shortName).tag($0) }
                     }
@@ -500,23 +567,45 @@ struct ContentView: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
-        .onGeometryChange(for: CGFloat.self, of: \.size.height) { headerHeight = $0 }
+        .onGeometryChange(for: CGFloat.self, of: \.size.height) { height in
+            headerHeight = height
+            for rest in headerRests.values { rest.header = height }
+        }
     }
 
-    /// The map's height before the list scrolls: down to two thirds of the page.
-    private var tallMap: CGFloat { max(Self.shortMap, (pageHeight * 2 / 3 - headerHeight).rounded()) }
+    /// The map's height before the list scrolls: three quarters of the page, the favorites below it.
+    private func tallMap(_ city: City) -> CGFloat {
+        max(Self.shortMap, (pageHeight * 3 / 4).rounded())
+    }
     /// How small the map gets with the list scrolled.
     private static let shortMap: CGFloat = 260
 
-    /// How much the map has shrunk for `city`: as far as its list is scrolled, down to the short map.
-    private func shrink(_ city: City) -> CGFloat {
-        min(max(scrollOffsets[city] ?? 0, 0), tallMap - Self.shortMap)
+    /// How far the header has slid away for `city`: as far as its list is scrolled, up to its height.
+    /// It goes first, and starts out gone (see `hideHeader`): most people stay in one city.
+    private func collapse(_ city: City) -> CGFloat {
+        min(max(scrollOffsets[city] ?? 0, 0), headerHeight)
     }
 
-    /// How far the header has slid away for `city`: as far as its list is scrolled past the map's
-    /// shrinking, up to its height.
-    private func collapse(_ city: City) -> CGFloat {
-        min(max((scrollOffsets[city] ?? 0) - (tallMap - Self.shortMap), 0), headerHeight)
+    /// How much the map has shrunk for `city`: as far as its list is scrolled past the header's
+    /// sliding away, down to the short map.
+    private func shrink(_ city: City) -> CGFloat {
+        min(max((scrollOffsets[city] ?? 0) - headerHeight, 0), tallMap(city) - Self.shortMap)
+    }
+
+    /// Scrolls `city`'s list just far enough to slide the city picker away, the first time it shows:
+    /// pulling the list down brings it back.
+    private func hideHeader(_ city: City) {
+        guard let view = lists[city]?.view else { return }
+        if headerRests[city]?.view !== view { headerRests[city] = HeaderRest(view) }
+        headerRests[city]?.header = headerHeight
+        guard !headerHidden.contains(city), headerHeight > 0 else { return }
+        headerHidden.insert(city)
+        view.setContentOffset(CGPoint(x: view.contentOffset.x, y: -view.adjustedContentInset.top + headerHeight), animated: false)
+    }
+
+    /// Whether `stop` is on its city's map: a favorite, or the stop being tried.
+    private func isShown(_ stop: Selection) -> Bool {
+        stop.id == trying?.id || favorites.contains { $0.id == stop.id }
     }
 
     /// The favorite open on the map gets a thin frame in the line-badge red. It's only a marker.
@@ -585,19 +674,15 @@ struct ContentView: View {
 
     /// The open favorite, in one line over the top of the map: line, stop and the next departure, as
     /// the Dynamic Island would show it. Tapping it puts it up there (or on the Lock Screen, without an
-    /// island), or takes it off again; tapping the rest of the map opens the live map.
+    /// island), or takes it off again.
     private func openFavoriteCard(_ open: Selection) -> some View {
         let (departures, dimmed) = shownDepartures(for: open)
         let canWatch = BusActivities.shared.isAvailable
         let watching = BusActivities.shared.isWatching(open)
         return Button {
-            Journey.shared.tap("pill", !canWatch ? "livemap" : watching ? "unwatch" : "watch")
-            if canWatch {
-                BusActivities.shared.toggle(open, departures: departures,
-                                            fetchedAt: open.id == selection.id ? feed.refresh?.fetchedAt ?? .now : .now)
-            } else {
-                openLiveMap()
-            }
+            Journey.shared.tap("pill", watching ? "unwatch" : "watch")
+            BusActivities.shared.toggle(open, departures: departures,
+                                        fetchedAt: open.id == selection.id ? feed.refresh?.fetchedAt ?? .now : .now)
         } label: {
             TimelineView(.everyMinute) { context in
                 let next = departures.first { $0.time > context.date.addingTimeInterval(-30) }
@@ -608,9 +693,11 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.plain)
+        // Without Live Activities (turned off in Settings) there's nowhere for it to go.
+        .disabled(!canWatch)
         .popoverTip(StalkTip(island: Island.frame != nil), arrowEdge: .top)
         .accessibilityLabel("\(open.lineLabel) at \(open.stopName)")
-        .accessibilityHint(!canWatch ? "Opens the live map"
+        .accessibilityHint(!canWatch ? ""
                            : watching ? "Stops watching it from \(Island.frame != nil ? "the Dynamic Island" : "the Lock Screen")"
                            : "Watches it from \(Island.frame != nil ? "the Dynamic Island" : "the Lock Screen")")
     }
@@ -649,26 +736,18 @@ struct ContentView: View {
         }
     }
 
-    /// Opens the line a widget row showed on its live map, over whatever was on screen. Back from
-    /// the map, it stays the open stop: it's the one you came for.
-    private func openFromWidget(_ tapped: Selection) {
-        Journey.shared.tap("widget.open")
+    /// Opens the line a widget row showed on the home map, over whatever was on screen.
+    /// `on`: where it was tapped, "home", "lock", "activity" or "island" (see `URL.tapped(on:)`).
+    private func openFromWidget(_ tapped: Selection, on place: String?) {
+        Journey.shared.tap("widget.open", place)
+        Journey.shared.tap("stop.open", Journey.from(place.map { "widget \($0)" } ?? "widget"))
         choosing = false
         sharing = nil
-        editingCity = nil
         select(tapped)
-        showingMap = true
     }
 
     private func takeWidgetTap() {
-        if let tapped = WidgetTap.take() { openFromWidget(tapped) }
-    }
-
-    /// Blows the home map up into the live map.
-    private func openLiveMap() {
-        Journey.shared.tap("livemap.open")
-        editingCity = nil
-        showingMap = true
+        if let link = WidgetTap.take(), let tapped = Selection(openURL: link) { openFromWidget(tapped, on: link.tappedOn) }
     }
 
     /// Makes `picked` the line and stop shown in the app.
@@ -704,13 +783,13 @@ struct ContentView: View {
     private func setCities(_ chosen: [City]) {
         City.chosen = chosen
         cities = City.chosen
-        if !cities.contains(selection.city), let first = cities.first { switchCity(to: first) }
+        if !cities.contains(selection.city), let first = cities.first { switchCity(to: first, from: "cities") }
     }
 
-    private func switchCity(to city: City) {
+    /// `from`: how, for Journey: "swipe", "tabs", or "cities" (the open one left out on the map of them).
+    private func switchCity(to city: City, from: String) {
         guard city != selection.city else { return }
-        Journey.shared.tap("city.switch", city.rawValue)
-        editingCity = nil
+        Journey.shared.tap("city.switch", "\(city.rawValue), \(Journey.from(from))")
         Selection.setLastOpened(selection)
         select(opening(city))
     }
@@ -733,10 +812,6 @@ enum Quip {
     static func noPrediction(line: String) -> String {
         "Schrödinger's \(line): both coming and not coming."
     }
-
-    static func vanished(line: String) -> String {
-        "The \(line) has entered the witness protection program."
-    }
 }
 
 struct QuipText: View {
@@ -752,11 +827,8 @@ struct QuipText: View {
     }
 }
 
-/// Thin red outline for the favorite open on the map. Its corners follow the section's rounded
-/// corners wherever the row is: after a drag the list doesn't redraw a moved row's background, so
-/// a shape that depended on the row's position would keep its old one and get clipped.
-/// The live map and the line picker grow out of the home map and shrink back into it (iOS 18; before,
-/// they slide in as usual).
+/// The line picker grows out of the home map and shrinks back into it (iOS 18; before, it slides in
+/// as usual).
 private struct ZoomTransition: ViewModifier {
     let id: City
     let namespace: Namespace.ID
@@ -775,7 +847,7 @@ private struct ZoomTransition: ViewModifier {
     }
 }
 
-/// The home map a city's live map zooms out of and back into.
+/// The home map the line picker zooms out of and back into.
 private struct ZoomSource: ViewModifier {
     let id: City
     let namespace: Namespace.ID
@@ -796,6 +868,9 @@ private struct ZoomSource: ViewModifier {
     }
 }
 
+/// Thin red outline for the favorite open on the map. Its corners follow the section's rounded
+/// corners wherever the row is: after a drag the list doesn't redraw a moved row's background, so
+/// a shape that depended on the row's position would keep its old one and get clipped.
 private struct SelectedFavoriteFrame: View {
     private static let inset: CGFloat = 2
     private static var radius: CGFloat { ListCorners.radius - inset }
@@ -805,31 +880,6 @@ private struct SelectedFavoriteFrame: View {
             .strokeBorder(LineBadge.red.opacity(0.7), lineWidth: 2)
             .padding(Self.inset)
             .allowsHitTesting(false)
-    }
-}
-
-/// Inset-grouped sections round their corners by about 26pt on iOS 26 and 10pt before. SwiftUI
-/// doesn't expose the value (and ConcentricRectangle doesn't see a row's container), so it's
-/// matched by hand, for the map card and the selected favorite's frame.
-private enum ListCorners {
-    static var radius: CGFloat {
-        if #available(iOS 26, *) { 26 } else { 12 }
-    }
-}
-
-/// Reports how far a list is scrolled down from its top. Needs iOS 18; before that the header
-/// just stays where it is.
-private struct ScrollOffset: ViewModifier {
-    let onChange: (CGFloat) -> Void
-
-    func body(content: Content) -> some View {
-        if #available(iOS 18, *) {
-            content.onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, new in
-                onChange(new)
-            }
-        } else {
-            content
-        }
     }
 }
 
@@ -863,53 +913,188 @@ struct ListScrollView {
     }
 }
 
-/// The home map's touches, handed to the list under it: whatever its scroll view (and the pages
-/// around it) make of them, as if the map were the top of the list. A tap that's only a tap, `onTap`.
+/// The home map's touches. One finger's go to the list under it: whatever its scroll view (and the
+/// pages around it) make of them, as if the map were the top of the list. Two fingers on the map
+/// move it instead, through `onGesture`; meanwhile the list and the pages hold still.
+///
+/// The two-finger gestures watch the whole window, not the list: UIKit hands a touch to the view
+/// it lands on, and SwiftUI doesn't land a second finger on the list the first one went to.
 private struct MapTouches: UIViewRepresentable {
     let list: ListScrollView?
-    let onTap: () -> Void
+    let onGesture: (MapGesture?) -> Void
 
     func makeUIView(context: Context) -> Forwarder { Forwarder() }
 
     func updateUIView(_ view: Forwarder, context: Context) {
-        view.onTap = onTap
+        view.onGesture = onGesture
         view.list = list?.view
     }
 
     final class Forwarder: UIView, UIGestureRecognizerDelegate {
-        var onTap: (() -> Void)?
-        weak var list: UIScrollView? {
-            didSet {
-                guard list !== oldValue else { return }
-                oldValue?.removeGestureRecognizer(tap)
-                list?.addGestureRecognizer(tap)
-            }
-        }
-        /// On the list, as that's where the touches go; it only answers those that started here.
-        private lazy var tap: UITapGestureRecognizer = {
-            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
-            tap.cancelsTouchesInView = false
-            tap.delaysTouchesEnded = false
-            tap.delegate = self
-            return tap
+        var onGesture: ((MapGesture?) -> Void)?
+        weak var list: UIScrollView?
+        private lazy var pinch = recognizer(UIPinchGestureRecognizer(target: self, action: #selector(moved)))
+        private lazy var pan: UIPanGestureRecognizer = {
+            let pan = recognizer(UIPanGestureRecognizer(target: self, action: #selector(moved)))
+            pan.minimumNumberOfTouches = 2
+            return pan
         }()
+        /// The list and the pages around it, and where they were as the fingers came down: held there
+        /// while two fingers move the map, as the first may have started scrolling them.
+        private var held: [(view: UIScrollView, offset: CGPoint)] = []
+        private var start: CGPoint?
+
+        private func recognizer<T: UIGestureRecognizer>(_ recognizer: T) -> T {
+            recognizer.delegate = self
+            recognizer.cancelsTouchesInView = false
+            recognizer.delaysTouchesEnded = false
+            return recognizer
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            pinch.view?.removeGestureRecognizer(pinch)
+            pan.view?.removeGestureRecognizer(pan)
+            window?.addGestureRecognizer(pinch)
+            window?.addGestureRecognizer(pan)
+        }
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
             guard self.point(inside: point, with: event) else { return nil }
             return list ?? self
         }
 
-        // Not even shown the list's own touches, so its rows' buttons have them to themselves.
+        /// Only touches on this map, on the page that's showing.
         func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            bounds.contains(touch.location(in: self))
+            guard bounds.contains(touch.location(in: self)) else { return false }
+            // The first finger down: where everything is, before it scrolls anything.
+            if gesture === pinch, pinch.numberOfTouches == 0 {
+                held = []
+                var view: UIView? = list
+                while let current = view {
+                    if let scrollView = current as? UIScrollView { held.append((scrollView, scrollView.contentOffset)) }
+                    view = current.superview
+                }
+            }
+            return true
         }
 
         func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             true
         }
 
-        @objc private func tapped() { onTap?() }
+        @objc private func moved(_ gesture: UIGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                // Turning a scroll view's pan off and on again stops whatever it had started.
+                for (view, offset) in held {
+                    view.panGestureRecognizer.isEnabled = false
+                    view.setContentOffset(offset, animated: false)
+                }
+                if start == nil { start = gesture.location(in: self) }
+                report()
+            case .changed:
+                report()
+            default:
+                // Both end; the gesture is over once neither is going.
+                guard ![pinch, pan].contains(where: { $0.state == .began || $0.state == .changed }) else { return }
+                held.forEach { $0.view.panGestureRecognizer.isEnabled = true }
+                held = []
+                start = nil
+                onGesture?(nil)
+            }
+        }
 
-        deinit { list?.removeGestureRecognizer(tap) }
+        private func report() {
+            guard let start else { return }
+            let going = pan.state == .began || pan.state == .changed
+            onGesture?(MapGesture(scale: pinch.state == .began || pinch.state == .changed ? pinch.scale : 1,
+                                  translation: going ? pan.translation(in: self) : .zero, start: start))
+        }
+
+        deinit {
+            pinch.view?.removeGestureRecognizer(pinch)
+            pan.view?.removeGestureRecognizer(pan)
+        }
+    }
+}
+
+/// Inset-grouped sections round their corners by about 26pt on iOS 26 and 10pt before. SwiftUI
+/// doesn't expose the value (and ConcentricRectangle doesn't see a row's container), so it's
+/// matched by hand, for the map card and the selected favorite's frame.
+private enum ListCorners {
+    static var radius: CGFloat {
+        if #available(iOS 26, *) { 26 } else { 12 }
+    }
+}
+
+/// Reports how far a list is scrolled down from its top. Needs iOS 18; before that the header
+/// just stays where it is.
+/// Scrolling back up runs on past the city picker, showing it on the way, but the list comes to rest
+/// with it just out of view, as it starts out (see `hideHeader`). A pull from there brings it in to
+/// stay; let go partway, it goes the way it was going. SwiftUI's lists don't take scroll targets, so
+/// this watches the list's own pan and steers it.
+final class HeaderRest: NSObject {
+    weak var view: UIScrollView?
+    /// The picker's height: how far the list rests from its top.
+    var header: CGFloat = 0
+    /// How far the list was scrolled as the drag began.
+    private var start: CGFloat = 0
+
+    init(_ view: UIScrollView) {
+        self.view = view
+        super.init()
+        view.panGestureRecognizer.addTarget(self, action: #selector(panned))
+    }
+
+    private var offset: CGFloat { view.map { $0.contentOffset.y + $0.adjustedContentInset.top } ?? 0 }
+
+    @objc private func panned(_ pan: UIPanGestureRecognizer) {
+        guard header > 0 else { return }
+        if pan.state == .began { start = offset }
+        guard pan.state == .ended, let view else { return }
+        if start > header + 1 {
+            // From further down (not from its resting place): let it coast, then tuck the picker away if
+            // it stopped on it.
+            settle()
+            return
+        }
+        // Pulled past the top, it's the list's own pull to refresh.
+        guard offset >= 0, offset < header else { return }
+        let velocity = pan.velocity(in: view).y
+        let rest: CGFloat = velocity > 50 || (abs(velocity) <= 50 && offset < header / 2) ? 0 : header
+        // After UIKit has started coasting, which this replaces.
+        DispatchQueue.main.async { self.glide(to: rest) }
+    }
+
+    /// Once the list stops, back to its resting place if it came to rest with the picker showing.
+    private func settle() {
+        Task { @MainActor [weak self] in
+            while let view = self?.view, view.isDecelerating || view.isTracking {
+                if view.isTracking { return }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard let self, offset >= 0, offset < header else { return }
+            glide(to: header)
+        }
+    }
+
+    private func glide(to rest: CGFloat) {
+        guard let view else { return }
+        view.setContentOffset(CGPoint(x: view.contentOffset.x, y: rest - view.adjustedContentInset.top), animated: true)
+    }
+}
+
+private struct ScrollOffset: ViewModifier {
+    let onChange: (CGFloat) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, new in
+                onChange(new)
+            }
+        } else {
+            content
+        }
     }
 }

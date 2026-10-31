@@ -10,7 +10,7 @@ xcrun simctl terminate $device info.jetsons.bus37 2>/dev/null || true
 xcrun simctl launch $device info.jetsons.bus37 -seedFavorites YES -screen home >/dev/null
 sleep 4
 i=1
-for screen in home map lines stops widgets lock; do
+for screen in home lines stops widgets lock; do
   xcrun simctl terminate $device info.jetsons.bus37 2>/dev/null || true
   xcrun simctl launch $device info.jetsons.bus37 -screen $screen >/dev/null
   # Long enough for live data and any opening animation.

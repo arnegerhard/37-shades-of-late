@@ -99,7 +99,7 @@ final class Journey: @unchecked Sendable {
         }
     }
 
-    /// A screen came up: `name` ("home", "livemap"…), and in front of which.
+    /// A screen came up: `name` ("home", "picker.map"…), and in front of which.
     func show(_ name: String, detail: String? = nil) {
         lock.withLock {
             let from = screens.last ?? left
@@ -133,6 +133,11 @@ final class Journey: @unchecked Sendable {
     func diagnosed(_ kind: String, _ what: String, detail: String?) {
         lock.withLock { add(kind, "report", detail: [what, detail].compactMap { $0 }.joined(separator: " · ")) }
     }
+
+    /// Where in the app a tap was, for a thing that can be done from more than one place: "from map",
+    /// the last part of its detail ("qr, from map"), so the stats can tell the places apart. (Commas, as
+    /// the events go in a header, which only takes plain ASCII.)
+    static func from(_ place: String) -> String { "from \(place)" }
 
     /// The city open, sent with what happens from now on.
     func setCity(_ city: String) { lock.withLock { self.city = city } }
