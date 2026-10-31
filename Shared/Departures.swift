@@ -302,19 +302,24 @@ struct Whereabouts: Decodable {
 /// and whether that's far from all the supported cities, where the Lock Screen widgets sleep.
 struct WidgetPlace: Codable, Hashable {
     static let key = "widgetPlace"
-    /// Farther than this from every city is away. IP guesses are good to a few dozen km, and a
-    /// carrier's address can be a lot further off, so this is well beyond any city's suburbs.
-    static let awayKm: Double = 150
+    /// Farther than this from every city is away. IP guesses are good to a few dozen km on home
+    /// internet, but a carrier's can be a lot further off: AT&T's phones in San Francisco come out in
+    /// Fresno, 260 km away. So this is well beyond that, though short of Las Vegas from Los Angeles
+    /// (370 km), the nearest real trip to somewhere else.
+    static let awayKm: Double = 350
 
     var city: City?
     var checkedAt: Date?
     /// Guesses in a row far from every city; it takes two to be away.
     var farStreak = 0
+    /// How far the latest guess was from the nearest city, in km, so being away is judged by the limit
+    /// as it is now, not as it was when the guess came in (a newer app moved it).
+    var nearestKm: Double?
     /// Hours the widgets found this device in each city (by raw value), the older ones fading with
     /// a half-life of two weeks: where it spends its time.
     var hours: [String: Double] = [:]
 
-    var isAway: Bool { farStreak >= 2 }
+    var isAway: Bool { farStreak >= 2 && (nearestKm ?? 0) > Self.awayKm }
 
     /// Where most of the last few weeks went, once there's a day's worth to go by.
     var home: City? {
@@ -335,6 +340,7 @@ struct WidgetPlace: Codable, Hashable {
             }
         }
         farStreak = far ? farStreak + 1 : 0
+        nearestKm = found.km?.values.min()
         city = found.city
         checkedAt = now
     }
@@ -359,7 +365,7 @@ struct WidgetPlace: Codable, Hashable {
             AppGroup.defaults.removeObject(forKey: debugKey)
             return
         }
-        var place = WidgetPlace(city: .nyc, farStreak: 2)
+        var place = WidgetPlace(city: .nyc, farStreak: 2, nearestKm: .infinity)
         if let home = UserDefaults.standard.string(forKey: "fakeHome") { place.hours = [home: 100] }
         AppGroup.defaults.set(try? JSONEncoder().encode(place), forKey: debugKey)
     }

@@ -1326,10 +1326,13 @@ extension City {
     /// to the ends of the regional trains and ferries), not to the rest of the country.
     var cameraBounds: MapCameraBounds {
         let network = network
+        // As a map rect: given a region, MapKit turns it into one with latitude and longitude the wrong
+        // way round on the device, logging "invalid coordinate" at every frame.
+        let corner = { (lat: Double, lon: Double) in MKMapPoint(CLLocationCoordinate2D(latitude: lat, longitude: lon)) }
+        let top = corner(network.center.latitude + network.span.latitudeDelta * 0.55, network.center.longitude - network.span.longitudeDelta * 0.55)
+        let bottom = corner(network.center.latitude - network.span.latitudeDelta * 0.55, network.center.longitude + network.span.longitudeDelta * 0.55)
         return MapCameraBounds(
-            centerCoordinateBounds: MKCoordinateRegion(center: network.center,
-                                                       span: MKCoordinateSpan(latitudeDelta: network.span.latitudeDelta * 1.1,
-                                                                              longitudeDelta: network.span.longitudeDelta * 1.1)),
+            centerCoordinateBounds: MKMapRect(x: top.x, y: top.y, width: bottom.x - top.x, height: bottom.y - top.y),
             maximumDistance: farthest)
     }
 
