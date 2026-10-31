@@ -92,6 +92,7 @@ export default {
     // Stored after the answer, so nobody waits on it.
     const journey = recordJourney(request, env);
     ctx?.waitUntil(journey);
+    ctx?.waitUntil(recordPresence(request, env));
     // The app sending what's waiting of its journey on its own, as it goes away: nothing else to it.
     if (pathname === "/v1/journey") return json({}, 200, 0);
     recordUsage(request, env);
@@ -747,6 +748,47 @@ async function recordJourney(request: Request, env: Env) {
     .map((e) => insert.bind(install, whole(e.i), Math.min(arrived, Math.max(0, whole(e.t))), arrived, e.k, word(e.n), word(e.d, 80),
                             word(e.f), word(e.s, 16) || "unknown", word(e.c, 16), version, favorites, Math.max(0, Math.min(whole(e.x), 86_400))));
   if (rows.length) await env.JOURNEYS.batch(rows).catch(() => undefined);
+}
+
+/** When each install's presence was last written from here, to write it at most every PRESENCE_EVERY_MS
+ *  (an install in front asks every minute or so, more on the live map). */
+const presenceWritten = new Map<string, number>();
+const PRESENCE_EVERY_MS = 20_000;
+const CITY_PATHS = ["seattle", "nyc", "boston", "chicago", "dc", "la"];
+
+/**
+ * Who's around, for the stats page's live view: the install's presence row (table presence in
+ * migrations/), from the request it just made. The app or its live map asking means it's in front; a
+ * widget, only that the phone's showing one. Its city is the one the request was for (San Francisco's
+ * have no prefix); requests for no city in particular (where am I, the journey alone) leave it be. A
+ * journey ending in "exit" was the app going away.
+ */
+async function recordPresence(request: Request, env: Env) {
+  const install = (request.headers.get("X-Install-ID") ?? "").toLowerCase();
+  if (!env.JOURNEYS || !UUID.test(install)) return;
+  const parts = new URL(request.url).pathname.split("/").filter(Boolean);
+  const city = CITY_PATHS.includes(parts[1] ?? "") ? parts[1]
+    : ["departures", "lines", "line", "map", "stops", "stop", "nearby"].includes(parts[1] ?? "") ? "sf" : "";
+  const client = request.headers.get("X-Client") ?? "";
+  const front = client === "app" || client === "map";
+  const away = /"k":"exit"[^{}]*}\s*]\s*$/.test(request.headers.get("X-Journey") ?? "");
+  const now = Date.now();
+  // Going away is written at once; otherwise not again so soon.
+  if (!away && now - (presenceWritten.get(install) ?? 0) < PRESENCE_EVERY_MS) return;
+  presenceWritten.set(install, now);
+  if (presenceWritten.size > 10_000) presenceWritten.clear();
+  const at = Math.floor(now / 1000);
+  await env.JOURNEYS.prepare(`INSERT INTO presence (install, city, version, favorites, first_seen, last_seen, last_app, last_widget, away)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8)
+      ON CONFLICT (install) DO UPDATE SET
+        city = CASE WHEN excluded.city != '' THEN excluded.city ELSE presence.city END,
+        version = excluded.version, favorites = excluded.favorites, last_seen = excluded.last_seen,
+        last_app = max(presence.last_app, excluded.last_app), last_widget = max(presence.last_widget, excluded.last_widget),
+        away = max(presence.away, excluded.away)`)
+    .bind(install, city, (request.headers.get("X-App-Version") ?? "").slice(0, 16),
+          Math.max(0, Math.min(1000, Number(request.headers.get("X-Favorites")) || 0)), at,
+          front && !away ? at : 0, front ? 0 : at, away ? at : 0)
+    .run().catch(() => undefined);
 }
 
 /** The cities an install picked, as it sent them ("sf,nyc"): known ones only, in a fixed order. */

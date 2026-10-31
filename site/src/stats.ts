@@ -46,6 +46,15 @@ export async function handleStats(request: Request, url: URL, env: StatsEnv): Pr
     const picture = SCREENS[screen];
     return picture ? new Response(picture, { headers: { ...PRIVATE, "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400" } }) : text("No such screen.", 404);
   }
+  if (url.pathname === "/stats/live" || url.pathname === "/stats/live/user") {
+    if (!env.JOURNEYS) return text("No journeys database.", 503);
+    const exclude = (url.searchParams.get("exclude") ?? "").split(",").filter((id) => INSTALL.test(id)).slice(0, 50);
+    const debug = url.searchParams.get("debug") === "1";
+    const body = url.pathname === "/stats/live"
+      ? await live(env.JOURNEYS, exclude, debug)
+      : await liveUser(env.JOURNEYS, url.searchParams.get("id") ?? "", Number(url.searchParams.get("after")) || 0);
+    return new Response(JSON.stringify(body), { headers: { ...PRIVATE, "Content-Type": "application/json" } });
+  }
   if (url.pathname === "/stats/data") {
     const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
     // Installs to leave out (the maker's own): install IDs only, so nothing else gets into the query.
@@ -128,6 +137,41 @@ async function numbers(days: number, exclude: string[], debug: boolean, token: s
     journeyOf(days, exclude, debug, journeys),
   ]);
   return { days, excluded: exclude.length, asOf: new Date().toISOString(), journey, ...Object.fromEntries(entries) };
+}
+
+/** An install is live while its app is in front: asking within this many seconds, and not put away since. */
+const LIVE_SECONDS = 150;
+
+/** Who's around (the presence the proxy keeps, see recordPresence): every install seen in the last day,
+ *  live or not, with the screen it was last on, for the live view's map and lists. */
+async function live(db: D1Database, exclude: string[], debug: boolean) {
+  const now = Math.floor(Date.now() / 1000), since = now - 86_400;
+  const conditions = ["p.last_seen > ?1", "p.version != 'test'", ...(debug ? [] : ["p.version != 'debug'"]),
+                      ...(exclude.length ? [`p.install NOT IN (${exclude.map((_, i) => `?${i + 3}`).join(", ")})`] : [])];
+  const { results } = await db.prepare(`
+      SELECT p.install, p.city, p.version, p.favorites, p.first_seen, p.last_seen, p.last_app, p.last_widget, p.away,
+             (p.last_app > ?2 AND p.last_app > p.away) AS live, s.name AS screen, s.at AS screen_at
+      FROM presence p LEFT JOIN (
+        SELECT install, name, at FROM (
+          SELECT install, name, at, ROW_NUMBER() OVER (PARTITION BY install ORDER BY at DESC, seq DESC) AS r
+          FROM events WHERE kind = 'screen' AND at > ?1) WHERE r = 1) s ON s.install = p.install
+      WHERE ${conditions.join(" AND ")} ORDER BY live DESC, p.last_seen DESC LIMIT 1000`)
+    .bind(since, now - LIVE_SECONDS, ...exclude).all();
+  return { now, liveSeconds: LIVE_SECONDS, users: results };
+}
+
+/** One install, as it goes: its presence, and its events stored after `after` (its last 150, first time). Counted
+ *  by the order they were stored (rowid): app builds before 1.1 number their events again every launch. */
+async function liveUser(db: D1Database, install: string, after: number) {
+  if (!INSTALL.test(install)) return { error: "no such install" };
+  const now = Math.floor(Date.now() / 1000);
+  const [presence, events] = await Promise.all([
+    db.prepare(`SELECT *, (last_app > ?2 AND last_app > away) AS live FROM presence WHERE install = ?1`).bind(install, now - LIVE_SECONDS).first(),
+    after
+      ? db.prepare(`SELECT rowid AS id, seq, at, arrived, kind, name, detail, came, session, city, seconds FROM events WHERE install = ?1 AND rowid > ?2 ORDER BY at, rowid`).bind(install, after).all()
+      : db.prepare(`SELECT * FROM (SELECT rowid AS id, seq, at, arrived, kind, name, detail, came, session, city, seconds FROM events WHERE install = ?1 ORDER BY rowid DESC LIMIT 150) ORDER BY at, id`).bind(install).all(),
+  ]);
+  return { now, presence, events: events.results };
 }
 
 /** How people get around the app (see recordJourney in the proxy): every event over `days`, in order, for

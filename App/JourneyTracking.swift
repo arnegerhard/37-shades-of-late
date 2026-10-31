@@ -20,17 +20,12 @@ private struct JourneySessions: ViewModifier {
     @State private var launched = false
 
     func body(content: Content) -> some View {
-        content.onChange(of: scenePhase, initial: true) {
+        content
+        .onChange(of: scenePhase, initial: true) {
             switch scenePhase {
             case .active:
                 Journey.shared.opened(launched ? "resume" : "launch")
                 launched = true
-                // What's waiting since last time (a crash, say), soon after opening, should no request
-                // come along to carry it (no favorites yet, say).
-                Task {
-                    try? await Task.sleep(for: .seconds(3))
-                    await TransitService.sendJourney()
-                }
             // Only once it's been in front: launching, the app can pass through the background first.
             case .background where launched:
                 Journey.shared.closed()

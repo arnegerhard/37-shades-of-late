@@ -1,5 +1,5 @@
 -- How people get around the app, as the app's Journey sends it (see recordJourney in src/index.ts): one row
--- per event, numbered per install, so an event sent twice is kept once.
+-- per event, so an event sent twice is kept once (see 0003 for the key).
 CREATE TABLE events (
   install   TEXT    NOT NULL,  -- the install's random ID
   seq       INTEGER NOT NULL,  -- the event's number on that install

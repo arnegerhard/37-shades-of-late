@@ -56,7 +56,8 @@ final class Journey: @unchecked Sendable {
 
     private init() {
         queue = (defaults.data(forKey: "journey").flatMap { try? JSONDecoder().decode([Event].self, from: $0) }) ?? []
-        next = (queue.map(\.i).max() ?? 0) + 1
+        // Numbers go on from launch to launch: the proxy keeps an install's event once per number.
+        next = max(defaults.integer(forKey: "journeyNext"), (queue.map(\.i).max() ?? 0) + 1)
     }
 
     private static func newSession() -> String { String(UUID().uuidString.prefix(8)).lowercased() }
@@ -138,6 +139,7 @@ final class Journey: @unchecked Sendable {
         queue.append(Event(i: next, t: Int(Date.now.timeIntervalSince1970), k: kind, n: name, d: detail, f: from,
                            s: session ?? self.session, c: city, x: seconds.map { Int($0.rounded()) }))
         next += 1
+        defaults.set(next, forKey: "journeyNext")
         if queue.count > Self.most { queue.removeFirst(queue.count - Self.most) }
         save()
     }

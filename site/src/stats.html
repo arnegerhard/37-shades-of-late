@@ -142,6 +142,55 @@
   .finding .dot.bad { background: var(--red-glow); } .finding .dot.warn { background: #ffb020; } .finding .dot.info { background: #3987e5; }
   .finding small { display: block; color: var(--muted); margin-top: 2px; }
   .finding .count { color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  @keyframes ring { from { opacity: .8; transform: scale(1); } to { opacity: 0; transform: scale(2.6); } }
+  .live-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+  .crumbs { font: 800 17px var(--round); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .crumbs a { color: #6da7ec; cursor: pointer; text-decoration: none; }
+  .crumbs span.sep { color: var(--faint); }
+  .live-sum { font-size: 14px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .live-sum b { color: var(--ink); }
+  .live-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 860px) { .live-grid { grid-template-columns: 1fr; } }
+  .live-stage svg { display: block; width: 100%; height: auto; }
+  .live-stage .land { fill: #1b1f3d; stroke: #2e3463; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .live-stage .borders { fill: none; stroke: #2a2f55; stroke-width: .8; vector-effect: non-scaling-stroke; }
+  .spot { cursor: pointer; }
+  .spot .day { fill: #8a889a33; stroke: #8a889a; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .spot .now { fill: #34c75955; stroke: #34c759; stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .spot .ring { fill: none; stroke: #34c759; stroke-width: 2; vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center; animation: ring 1.8s ease-out infinite; }
+  .spot text { font: 800 22px var(--round); fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 6px; text-anchor: middle; pointer-events: none; }
+  .spot text.n { font-size: 17px; fill: var(--muted); }
+  .person { cursor: pointer; }
+  .person circle { stroke: var(--surface); vector-effect: non-scaling-stroke; stroke-width: 1.5; }
+  .person.on circle { fill: #34c759; } .person.off circle { fill: #6f6d7d; }
+  .person.on .ring { fill: none; stroke: #34c759; transform-box: fill-box; transform-origin: center; animation: ring 1.8s ease-out infinite; }
+  .who { display: grid; gap: 6px; max-height: 560px; overflow: auto; }
+  /* A pointer cursor is what tells iOS Safari a plain element takes taps. */
+  .who-row, .crumbs a, .spot, .person { cursor: pointer; }
+  .who-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 10px; align-items: center; background: #0f1124; border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; cursor: pointer; font-size: 14px; }
+  .who-row:hover { border-color: #3a4078; background: #151938; }
+  .who-row small { display: block; color: var(--muted); font-size: 12px; }
+  .who-row .when { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+  .dot.on { background: #34c759; animation: beat 1.6s ease-out infinite; } .dot.off { background: #6f6d7d; }
+  @keyframes beat { from { box-shadow: 0 0 0 0 #34c759aa; } to { box-shadow: 0 0 0 8px #34c75900; } }
+  .watch { display: grid; justify-items: center; gap: 10px; }
+  .watch-phone { position: relative; width: min(250px, 70vw); aspect-ratio: 300 / 652; border: 7px solid #2a2f55; border-radius: 34px; overflow: hidden; background: #0b0d17; box-shadow: 0 20px 50px #000a; }
+  .watch-phone img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity .35s ease; }
+  .watch-phone .cover { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; background: #0b0d17e6; color: var(--muted); font: 700 15px var(--round); }
+  .watch-phone .cover[hidden] { display: none; }
+  .watch-phone .toast { position: absolute; left: 50%; bottom: 14%; transform: translate(-50%, 10px); background: #ff3b4a; color: #fff; padding: 7px 13px; border-radius: 999px; font: 800 13px var(--round); white-space: nowrap; opacity: 0; transition: opacity .25s, transform .25s; box-shadow: 0 6px 18px #0008; }
+  .watch-phone .toast.on { opacity: 1; transform: translate(-50%, 0); }
+  .watch-meta { font-size: 13px; color: var(--muted); text-align: center; }
+  .watch-meta b { color: var(--ink); }
+  .feed { display: grid; gap: 4px; max-height: 560px; overflow: auto; font-size: 13px; }
+  .feed .ev { display: grid; grid-template-columns: 62px 14px minmax(0, 1fr); gap: 6px; align-items: baseline; padding: 5px 8px; border-radius: 8px; background: #0f1124; }
+  .feed .ev time { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .feed .ev small { color: var(--muted); }
+  .feed .ev.session { background: none; color: var(--faint); font-size: 12px; grid-template-columns: 1fr; text-align: center; padding: 8px 0 2px; }
+  .feed .ev.fresh { animation: fresh 2s ease-out; }
+  @keyframes fresh { from { background: #3987e555; } to { background: #0f1124; } }
+  .feed .ev.bad { background: #3a1018; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .note { color: var(--faint); font-size: 12px; margin-top: 26px; }
 </style>
@@ -161,8 +210,22 @@
   </header>
   <div class="error" id="error"></div>
   <nav class="tabs" role="tablist">
-    <button role="tab" data-tab="experience">Experience</button><button role="tab" data-tab="usage">Usage</button>
+    <button role="tab" data-tab="live">Live</button><button role="tab" data-tab="experience">Experience</button><button role="tab" data-tab="usage">Usage</button>
   </nav>
+
+  <div class="grid" id="live" role="tabpanel" hidden>
+    <section class="panel wide">
+      <div class="live-head">
+        <nav class="crumbs" id="live-crumbs"></nav>
+        <span class="live-sum"><span class="dot on"></span><b id="live-now">–</b> live now · <b id="live-day">–</b> in the last day <small id="live-updated"></small></span>
+      </div>
+      <div class="live-grid">
+        <div class="live-stage" id="live-stage"></div>
+        <div class="live-side" id="live-side"></div>
+      </div>
+      <p class="sub live-note">Live: the app in front, asking within the last 2½ minutes. A city is where the stops are, not where the phone is: the app sends no location. Screens and taps arrive with the app’s next request: within a minute or so while it’s open, and as it’s put away.</p>
+    </section>
+  </div>
 
   <div class="grid" id="experience" role="tabpanel">
     <div class="tiles" id="ux-tiles"></div>
@@ -459,12 +522,12 @@
   // ---- Tabs: the experience, and the usage; the last one open stays open.
   function showTab(tab) {
     document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
-    $("experience").hidden = tab !== "experience";
-    $("usage").hidden = tab !== "usage";
+    for (const id of ["live", "experience", "usage"]) $(id).hidden = tab !== id;
     store.set("tab", tab);
+    // The live view asks every few seconds, only while it's open.
+    if (tab === "live") liveStart(); else liveStop();
   }
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
-  showTab(store.get("tab", "experience"));
 
   async function load(asked) {
     days = asked;
@@ -607,6 +670,199 @@
   const duration = (s) => s == null ? "–" : s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(Math.round(s % 60)).padStart(2, "0")}s` : `${(s / 3600).toFixed(1)}h`;
   const tally = (items) => { const m = new Map(); for (const it of items) m.set(it, (m.get(it) ?? 0) + 1); return [...m].sort((a, b) => b[1] - a[1]); };
   const chips = (pairs, total) => pairs.map(([name, count]) => `<span class="chip">${esc(name)} <small>${pct(count, total)}</small></span>`).join("");
+
+  // ---- Live: who's around now on the map of the US; a city's installs; one install, as it goes (its screen,
+  // as it looks, and its taps and screens as they arrive). Asked every few seconds while the tab is open. ----
+  const LIVE_BOX = [-20, 110, 1140, 760];
+  const live = { level: "us", city: null, install: null, data: null, user: null, toast: null, timer: null, view: [...LIVE_BOX] };
+  const liveQuery = () => `${excludeMine && mine.size ? `&exclude=${[...mine].join(",")}` : ""}${includeDebug ? "&debug=1" : ""}`;
+  const ago = (s) => s < 60 ? `${Math.max(0, Math.round(s))}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+  const shortID = (id) => id.slice(0, 8);
+  const clock = (at) => new Date(at * 1000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: false });
+
+  async function liveTick() {
+    try {
+      const response = await fetch(`/stats/live?v=1${liveQuery()}`, { cache: "no-store" });
+      if (response.ok) live.data = await response.json();
+      if (live.level === "user") await userTick();
+      liveRender();
+    } catch {}
+  }
+  function liveStart() { liveStop(); liveTick(); live.timer = setInterval(liveTick, 3000); }
+  function liveStop() { clearInterval(live.timer); live.timer = null; }
+
+  /** One install's events since the last asked, and its presence; a new tap shows on its phone. */
+  async function userTick() {
+    const known = live.user?.install === live.install ? live.user : null;
+    const after = known ? Math.max(0, ...known.events.map((e) => e.id)) : 0;
+    const response = await fetch(`/stats/live/user?id=${live.install}&after=${after}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    const fresh = data.events ?? [];
+    live.user = { install: live.install, presence: data.presence, now: data.now,
+                  events: [...(known?.events ?? []), ...fresh].sort((a, b) => a.at - b.at || a.id - b.id), fresh: new Set(known ? fresh.map((e) => e.id) : []) };
+    const tap = [...fresh].reverse().find((e) => e.kind === "tap");
+    if (known && tap) live.toast = { text: tapName(tap.name) + (tap.detail ? ` · ${tap.detail}` : ""), until: Date.now() + 2600 };
+  }
+
+  function liveMap() {
+    let svg = $("live-stage").querySelector("svg");
+    if (!svg) {
+      $("live-stage").innerHTML = `<svg viewBox="${live.view.join(" ")}" role="img" aria-label="Who's around, by city">
+        <path class="land" d="${US.land}"/><path class="borders" d="${US.borders}"/><g id="live-spots"></g></svg>`;
+      svg = $("live-stage").querySelector("svg");
+    }
+    return svg;
+  }
+  /** Glides the map to a box [x, y, w, h]. */
+  function zoomTo(target) {
+    const svg = liveMap(), from = [...live.view], start = performance.now();
+    const step = (t) => {
+      const k = reduced ? 1 : Math.min(1, (t - start) / 550), e = k * k * (3 - 2 * k);
+      live.view = from.map((v, i) => v + (target[i] - v) * e);
+      svg.setAttribute("viewBox", live.view.join(" "));
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  const cityBox = (id) => { const [x, y] = US.cities[id].at; return [x - 170, y - 120, 340, 240]; };
+
+  function goUS() { Object.assign(live, { level: "us", city: null, install: null, user: null }); zoomTo(LIVE_BOX); liveRender(); }
+  function goCity(id) { Object.assign(live, { level: "city", city: id, install: null, user: null }); zoomTo(cityBox(id)); liveRender(); }
+  async function goUser(id) {
+    Object.assign(live, { level: "user", install: id, user: null, toast: null });
+    live.city ??= live.data?.users.find((u) => u.install === id)?.city || null;
+    liveRender();
+    await userTick();
+    liveRender();
+  }
+
+  /** Sets an element's HTML only when it changed: replaced every few seconds, a row being tapped would be
+   *  gone before the tap lands. */
+  function setHTML(el, html) { if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } }
+
+  function liveRender() {
+    const data = live.data;
+    if (!data) return;
+    const users = data.users, now = data.now;
+    const isLive = (u) => Number(u.live) === 1;
+    $("live-now").textContent = fmt(users.filter(isLive).length);
+    $("live-day").textContent = fmt(users.length);
+    $("live-updated").textContent = `· ${clock(now)}`;
+    const byCity = new Map();
+    for (const u of users) { const c = u.city || ""; if (!byCity.has(c)) byCity.set(c, []); byCity.get(c).push(u); }
+    const cityName = (id) => NAMES[id] ?? "No city yet";
+
+    // Where we are: the US, a city, an install.
+    const crumbs = [`<a role="button" tabindex="0" data-level="us">United States</a>`];
+    if (live.city != null) crumbs.push(`<span class="sep">›</span>`, live.level === "city" ? `<span>${esc(cityName(live.city))}</span>` : `<a role="button" tabindex="0" data-level="city" data-city="${esc(live.city)}">${esc(cityName(live.city))}</a>`);
+    if (live.level === "user") crumbs.push(`<span class="sep">›</span><span>${esc(shortID(live.install))}</span>`);
+    setHTML($("live-crumbs"), live.level === "us" ? `<span>United States</span>` : crumbs.join(""));
+
+    if (live.level === "user") return renderWatch(byCity);
+    // The map: a gray circle for the last day, a green one (beating) for now; in a city, a dot per install.
+    const spots = Object.entries(US.cities).map(([id, c]) => {
+      const here = byCity.get(id) ?? [], now_ = here.filter(isLive).length;
+      const [x, y] = c.at;
+      if (live.level === "city" && id === live.city) {
+        const sorted = [...here].sort((a, b) => Number(b.live) - Number(a.live) || b.last_seen - a.last_seen);
+        return sorted.map((u, i) => {
+          const angle = i * 2.39996, radius = 11 * Math.sqrt(i + 0.6);
+          const px = x + Math.cos(angle) * radius, py = y + Math.sin(angle) * radius;
+          return `<g class="person ${isLive(u) ? "on" : "off"}" data-install="${u.install}" data-tip="${esc(`<b>${shortID(u.install)}</b><br>${isLive(u) ? `live${u.screen ? ` on ${screenName(u.screen)}` : ""}` : `seen ${ago(now - u.last_seen)}`}`)}">
+            ${isLive(u) ? `<circle class="ring" cx="${px}" cy="${py}" r="4"/>` : ""}<circle cx="${px}" cy="${py}" r="4.2"/></g>`;
+        }).join("") + `<text class="n" x="${x}" y="${y - 70}" style="font-size:12px;fill:var(--muted);text-anchor:middle">each dot an install here, not where it is</text>`;
+      }
+      if (!here.length) return `<g class="spot" data-city="${id}"><circle class="day" cx="${x}" cy="${y}" r="5" style="opacity:.5"/></g>`;
+      const rDay = 10 + Math.sqrt(here.length) * 9, rNow = now_ ? 6 + Math.sqrt(now_) * 9 : 0;
+      return `<g class="spot" data-city="${id}" data-tip="${esc(`<b>${cityName(id)}</b><br>${now_} live · ${here.length} in the last day`)}">
+        <circle class="day" cx="${x}" cy="${y}" r="${rDay}"/>
+        ${now_ ? `<circle class="now" cx="${x}" cy="${y}" r="${rNow}"/><circle class="ring" cx="${x}" cy="${y}" r="${rNow}"/>` : ""}
+        <text x="${x}" y="${y - rDay - 8}">${esc(cityName(id).replace("Washington, D.C.", "DC"))}</text>
+        <text class="n" x="${x}" y="${y + rDay + 20}">${now_ ? `${now_} live · ` : ""}${here.length}</text></g>`;
+    }).join("");
+    liveMap();
+    setHTML($("live-spots"), spots);
+
+    // Beside it: the cities, or the city's installs.
+    if (live.level === "us") {
+      const cities = [...byCity].sort((a, b) => b[1].filter(isLive).length - a[1].filter(isLive).length || b[1].length - a[1].length);
+      setHTML($("live-side"), cities.length ? `<div class="who">${cities.map(([id, here]) => {
+        const n = here.filter(isLive).length;
+        return `<div class="who-row" role="button" tabindex="0" data-city="${esc(id)}"><span class="dot ${n ? "on" : "off"}"></span>
+          <span>${esc(cityName(id))}<small>${n ? `${n} live · ` : ""}${here.length} in the last day</small></span><span class="when">›</span></div>`;
+      }).join("")}</div>` : `<div class="empty">Nobody in the last day.</div>`);
+    } else {
+      const here = [...(byCity.get(live.city) ?? [])].sort((a, b) => Number(b.live) - Number(a.live) || b.last_seen - a.last_seen);
+      setHTML($("live-side"), here.length ? `<div class="who">${here.map((u) => `<div class="who-row" role="button" tabindex="0" data-install="${u.install}">
+          <span class="dot ${isLive(u) ? "on" : "off"}"></span>
+          <span><code>${esc(shortID(u.install))}</code>${mine.has(u.install) ? " ★" : ""}
+            <small>${isLive(u) ? `on ${esc(screenName(u.screen ?? "home"))}${u.screen_at ? ` for ${duration(now - u.screen_at)}` : ""}` : `last in the app ${u.last_app ? ago(now - u.last_app) : "–"}${u.last_widget > u.last_app ? ` · widget ${ago(now - u.last_widget)}` : ""}`}
+            · ${fmt(u.favorites)} fav. · ${esc(u.version)}</small></span>
+          <span class="when">${isLive(u) ? "live" : ago(now - u.last_seen)}</span></div>`).join("")}</div>`
+        : `<div class="empty">Nobody here in the last day.</div>`);
+    }
+  }
+
+  /** One install's phone: the screen it's on, as it looks, taps flashing up, and its events as they come. */
+  function renderWatch(byCity) {
+    const user = live.user, now = live.data.now;
+    if (!$("live-stage").querySelector(`.watch[data-install="${live.install}"]`)) {
+      $("live-stage").innerHTML = `<div class="watch" data-install="${live.install}">
+        <div class="watch-phone"><img id="watch-img" alt=""><div class="cover" id="watch-cover">Loading…</div><div class="toast" id="watch-toast"></div></div>
+        <div class="watch-meta" id="watch-meta"></div></div>`;
+    }
+    if (!user) return;
+    const events = user.events, presence = user.presence ?? {};
+    const lastScreen = [...events].reverse().find((e) => e.kind === "screen");
+    const last = events.at(-1);
+    const isLive = Number(presence.live) === 1;
+    const gone = !isLive || last?.kind === "exit" || last?.kind === "crash";
+    const img = $("watch-img"), cover = $("watch-cover");
+    const screen = lastScreen?.name;
+    if (screen && SCREENS[screen] && img.dataset.screen !== screen) { img.style.opacity = 0; img.onload = () => { img.style.opacity = 1; }; img.src = `/stats/screens/${screen}.jpg`; img.dataset.screen = screen; }
+    cover.hidden = !gone && !!screen && !!SCREENS[screen];
+    cover.textContent = !events.length ? "No screens from this install yet: its app version may not send them."
+      : gone ? (last?.kind === "crash" ? "Crashed." : `Put away${presence.away ? ` ${ago(now - presence.away)}` : ""}. Last on ${screenName(screen ?? "home")}.`)
+      : `On ${screenName(screen ?? "?")}`;
+    const toast = $("watch-toast");
+    if (live.toast && live.toast.until > Date.now()) {
+      toast.textContent = live.toast.text; toast.classList.add("on");
+      setTimeout(() => toast.classList.remove("on"), Math.max(0, live.toast.until - Date.now()));
+    }
+    $("watch-meta").innerHTML = `<span class="dot ${isLive ? "on" : "off"}"></span> <b>${isLive ? "Live" : "Not open"}</b>`
+      + `${screen && !gone ? ` · on <b>${esc(screenName(screen))}</b> for ${duration(now - lastScreen.at)}` : ""}<br>`
+      + `${esc(NAMES[presence.city] ?? "")} · ${fmt(presence.favorites ?? 0)} favorites · ${esc(presence.version ?? "")}`
+      + `${presence.first_seen ? ` · first seen ${new Date(presence.first_seen * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}`;
+
+    // The feed, newest first, a line where each session begins.
+    const icon = { screen: "▸", tap: "•", open: "⏻", exit: "⏏", crash: "✕", hang: "⏳" };
+    const say = (e) => e.kind === "screen" ? `${esc(screenName(e.name))} <small>${[e.came && `from ${esc(screenName(e.came))}`, e.came && e.seconds && `after ${duration(e.seconds)} there`].filter(Boolean).join(", ")}</small>`
+      : e.kind === "tap" ? `${esc(tapName(e.name))} <small>${esc(e.detail)}</small>`
+      : e.kind === "open" ? `Opened <small>${esc(e.name)}</small>`
+      : e.kind === "exit" ? `Put away <small>on ${esc(screenName(e.name))}, after ${duration(e.seconds)}</small>`
+      : e.kind === "crash" ? (e.name === "report" ? `Crash report <small>${esc(e.detail)}</small>` : `Crashed <small>on ${esc(screenName(e.name))}${e.detail ? `, after ${esc(e.detail)}` : ""}</small>`)
+      : `Hang <small>${esc(e.detail)}</small>`;
+    const lines = [];
+    let session = null;
+    for (const e of [...events].reverse()) {
+      if (e.session !== session && session !== null) lines.push(`<div class="ev session">↑ session ${esc(session)}</div>`);
+      session = e.session;
+      lines.push(`<div class="ev${user.fresh.has(e.id) ? " fresh" : ""}${e.kind === "crash" ? " bad" : ""}"><time>${clock(e.at)}</time><span>${icon[e.kind] ?? ""}</span><span>${say(e)}</span></div>`);
+    }
+    setHTML($("live-side"), `<div class="feed">${lines.join("") || `<div class="empty">Nothing yet.</div>`}</div>`);
+    user.fresh = new Set();
+  }
+
+  // Taps on the live view: on its panel, as iOS Safari doesn't hand taps on shapes to the whole page.
+  $("live").addEventListener("click", (event) => {
+    const crumb = event.target.closest("[data-level]");
+    if (crumb) return crumb.dataset.level === "us" ? goUS() : goCity(crumb.dataset.city);
+    const person = event.target.closest("[data-install]");
+    if (person && person.closest("#live-stage, #live-side")) return goUser(person.dataset.install);
+    const city = event.target.closest("[data-city]");
+    if (city) return goCity(city.dataset.city);
+  });
 
   // ---- The flow: the screens as a map, sessions going from one to the next as arrows, colored by what
   // happened after. Where on the map each one goes: the welcome along the top, the picker along the
@@ -1071,6 +1327,8 @@
 
   document.querySelectorAll(".range button").forEach((b) => b.addEventListener("click", () => load(Number(b.dataset.days))));
   load(days);
+  // Last: the live view's code is all there by now.
+  showTab(store.get("tab", "experience"));
 </script>
 </body>
 </html>
