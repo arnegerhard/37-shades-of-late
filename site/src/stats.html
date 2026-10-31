@@ -163,6 +163,7 @@
   .person { cursor: pointer; }
   .person circle { stroke: var(--surface); vector-effect: non-scaling-stroke; stroke-width: 1.5; }
   .person.on circle { fill: #34c759; } .person.off circle { fill: #6f6d7d; }
+  .person.phone circle { stroke-width: 1.5; } .person.phone.off circle { fill: #9a98aa; }
   .person.on .ring { fill: none; stroke: #34c759; transform-box: fill-box; transform-origin: center; animation: ring 1.8s ease-out infinite; }
   .who { display: grid; gap: 6px; max-height: 560px; overflow: auto; }
   /* A pointer cursor is what tells iOS Safari a plain element takes taps. */
@@ -223,7 +224,7 @@
         <div class="live-stage" id="live-stage"></div>
         <div class="live-side" id="live-side"></div>
       </div>
-      <p class="sub live-note">Live: the app in front, asking within the last 2½ minutes. A city is where the stops are, not where the phone is: the app sends no location. Screens and taps arrive with the app’s next request: within a minute or so while it’s open, and as it’s put away.</p>
+      <p class="sub live-note">Live: the app in front, asking within the last 2½ minutes. Big circles are the city the stops are in; small dots are phones, where they are: the rough place Cloudflare guesses from the IP address, to about a city. Screens and taps arrive with the app’s next request: within a minute or so while it’s open, and as it’s put away.</p>
     </section>
   </div>
 
@@ -311,7 +312,7 @@
 
     <section class="panel wide">
       <h2>Where it's used</h2>
-      <p class="sub">Installs using each city by the day on the slider, over the last three months. Using a city: asking for one of its stops on two days or more (not the one the app opens on), or a widget showing one. A city is where the stops are, not where the phone is: the app sends no location.</p>
+      <p class="sub">Installs using each city by the day on the slider, over the last three months. Using a city: asking for one of its stops on two days or more (not the one the app opens on), or a widget showing one. A city is where the stops are, not where the phone is.</p>
       <div class="map-panel">
         <div class="map" id="map"></div>
         <div>
@@ -725,6 +726,34 @@
     };
     requestAnimationFrame(step);
   }
+  /** Where a longitude and latitude go on the map (US.albers, see scripts/cities.mjs): for a phone's rough
+   *  place. Nowhere outside the lower 48. */
+  const ALBERS = (() => {
+    const sy0 = Math.sin(29.5 * Math.PI / 180), n = (sy0 + Math.sin(45.5 * Math.PI / 180)) / 2, c = 1 + sy0 * (2 * n - sy0), r0 = Math.sqrt(c) / n;
+    return { n, c, r0 };
+  })();
+  function project(lon, lat) {
+    if (lon == null || lat == null || lat < 24 || lat > 50 || lon < -125.5 || lon > -66) return null;
+    const { n, c, r0 } = ALBERS, { k, dx, dy } = US.albers;
+    const x = (lon + 96) * Math.PI / 180 * n, r = Math.sqrt(c - 2 * n * Math.sin(lat * Math.PI / 180)) / n;
+    return [k * r * Math.sin(x) + dx, -k * (r0 - r * Math.cos(x)) + dy];
+  }
+  /** Each phone's place on the map, spread a little where several share one (Cloudflare's guess is a city's
+   *  middle). */
+  function phonePlaces(users, spread) {
+    const taken = new Map(), placed = new Map();
+    for (const u of users) {
+      if (u.lat == null || u.lon == null) continue;
+      const at = project(Number(u.lon), Number(u.lat));
+      if (!at) continue;
+      const key = at.join(), i = taken.get(key) ?? 0;
+      taken.set(key, i + 1);
+      const angle = i * 2.39996, radius = i ? spread * Math.sqrt(i) : 0;
+      placed.set(u.install, [at[0] + Math.cos(angle) * radius, at[1] + Math.sin(angle) * radius]);
+    }
+    return placed;
+  }
+  const where = (u) => u.place ? `in ${u.place}` : "";
   const cityBox = (id) => { const [x, y] = US.cities[id].at; return [x - 170, y - 120, 340, 240]; };
 
   function goUS() { Object.assign(live, { level: "us", city: null, install: null, user: null }); zoomTo(LIVE_BOX); liveRender(); }
@@ -760,18 +789,29 @@
     setHTML($("live-crumbs"), live.level === "us" ? `<span>United States</span>` : crumbs.join(""));
 
     if (live.level === "user") return renderWatch(byCity);
-    // The map: a gray circle for the last day, a green one (beating) for now; in a city, a dot per install.
+    // The map: a gray circle for the last day, a green one (beating) for now, for the city its stops are in;
+    // a small dot per phone, where it is. In a city, its installs where their phones are.
+    const person = (u, [px, py], r, extra = "") => `<g class="person ${isLive(u) ? "on" : "off"}${extra}" data-install="${u.install}" data-tip="${esc(`<b>${shortID(u.install)}</b>${u.place ? ` · ${u.place}` : ""}<br>${isLive(u) ? `live${u.screen ? ` on ${screenName(u.screen)}` : ""}` : `seen ${ago(now - u.last_seen)}`}${u.city ? ` · stops in ${cityName(u.city)}` : ""}`)}">
+            ${isLive(u) ? `<circle class="ring" cx="${px}" cy="${py}" r="${r}"/>` : ""}<circle cx="${px}" cy="${py}" r="${r}"/></g>`;
+    let phones = "";
+    if (live.level === "us") {
+      const placed = phonePlaces(users, 9);
+      phones = [...users].sort((a, b) => Number(a.live) - Number(b.live)).filter((u) => placed.has(u.install))
+        .map((u) => person(u, placed.get(u.install), 6.5, " phone")).join("");
+    }
     const spots = Object.entries(US.cities).map(([id, c]) => {
       const here = byCity.get(id) ?? [], now_ = here.filter(isLive).length;
       const [x, y] = c.at;
       if (live.level === "city" && id === live.city) {
-        const sorted = [...here].sort((a, b) => Number(b.live) - Number(a.live) || b.last_seen - a.last_seen);
-        return sorted.map((u, i) => {
-          const angle = i * 2.39996, radius = 11 * Math.sqrt(i + 0.6);
-          const px = x + Math.cos(angle) * radius, py = y + Math.sin(angle) * radius;
-          return `<g class="person ${isLive(u) ? "on" : "off"}" data-install="${u.install}" data-tip="${esc(`<b>${shortID(u.install)}</b><br>${isLive(u) ? `live${u.screen ? ` on ${screenName(u.screen)}` : ""}` : `seen ${ago(now - u.last_seen)}`}`)}">
-            ${isLive(u) ? `<circle class="ring" cx="${px}" cy="${py}" r="4"/>` : ""}<circle cx="${px}" cy="${py}" r="4.2"/></g>`;
-        }).join("") + `<text class="n" x="${x}" y="${y - 70}" style="font-size:12px;fill:var(--muted);text-anchor:middle">each dot an install here, not where it is</text>`;
+        // Where the phone is, when it's known; otherwise gathered around the city's middle. Live ones on top.
+        const sorted = [...here].sort((a, b) => Number(a.live) - Number(b.live) || a.last_seen - b.last_seen);
+        const placed = phonePlaces(sorted, 9);
+        let unplaced = 0;
+        return sorted.map((u) => {
+          let at = placed.get(u.install);
+          if (!at) { const i = unplaced++, angle = i * 2.39996, radius = 11 * Math.sqrt(i + 0.6); at = [x + Math.cos(angle) * radius, y + Math.sin(angle) * radius]; }
+          return person(u, at, 4.2);
+        }).join("") + `<text class="n" x="${x}" y="${y - 100}" style="font-size:7px;stroke-width:3px;fill:var(--muted);text-anchor:middle">each dot a phone, where it is (phones farther away: in the list)</text>`;
       }
       if (!here.length) return `<g class="spot" data-city="${id}"><circle class="day" cx="${x}" cy="${y}" r="5" style="opacity:.5"/></g>`;
       const rDay = 10 + Math.sqrt(here.length) * 9, rNow = now_ ? 6 + Math.sqrt(now_) * 9 : 0;
@@ -782,7 +822,7 @@
         <text class="n" x="${x}" y="${y + rDay + 20}">${now_ ? `${now_} live · ` : ""}${here.length}</text></g>`;
     }).join("");
     liveMap();
-    setHTML($("live-spots"), spots);
+    setHTML($("live-spots"), spots + phones);
 
     // Beside it: the cities, or the city's installs.
     if (live.level === "us") {
@@ -798,7 +838,7 @@
           <span class="dot ${isLive(u) ? "on" : "off"}"></span>
           <span><code>${esc(shortID(u.install))}</code>${mine.has(u.install) ? " ★" : ""}
             <small>${isLive(u) ? `on ${esc(screenName(u.screen ?? "home"))}${u.screen_at ? ` for ${duration(now - u.screen_at)}` : ""}` : `last in the app ${u.last_app ? ago(now - u.last_app) : "–"}${u.last_widget > u.last_app ? ` · widget ${ago(now - u.last_widget)}` : ""}`}
-            · ${fmt(u.favorites)} fav. · ${esc(u.version)}</small></span>
+            ${u.place ? `· ${esc(where(u))} ` : ""}· ${fmt(u.favorites)} fav. · ${esc(u.version)}</small></span>
           <span class="when">${isLive(u) ? "live" : ago(now - u.last_seen)}</span></div>`).join("")}</div>`
         : `<div class="empty">Nobody here in the last day.</div>`);
     }
@@ -832,7 +872,7 @@
     }
     $("watch-meta").innerHTML = `<span class="dot ${isLive ? "on" : "off"}"></span> <b>${isLive ? "Live" : "Not open"}</b>`
       + `${screen && !gone ? ` · on <b>${esc(screenName(screen))}</b> for ${duration(now - lastScreen.at)}` : ""}<br>`
-      + `${esc(NAMES[presence.city] ?? "")} · ${fmt(presence.favorites ?? 0)} favorites · ${esc(presence.version ?? "")}`
+      + `${presence.place ? `Phone ${esc(where(presence))} · ` : ""}${presence.city ? `stops in ${esc(NAMES[presence.city] ?? presence.city)} · ` : ""}${fmt(presence.favorites ?? 0)} favorites · ${esc(presence.version ?? "")}`
       + `${presence.first_seen ? ` · first seen ${new Date(presence.first_seen * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}`;
 
     // The feed, newest first, a line where each session begins.

@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 const modules = process.argv[2];
 if (!modules) throw new Error("usage: node site/scripts/cities.mjs <node_modules with d3-geo, topojson-client, us-atlas>");
 const require = createRequire(join(modules, "x.js"));
-const { geoAlbers, geoPath } = require("d3-geo");
+const { geoAlbers, geoConicEqualAreaRaw, geoPath } = require("d3-geo");
 const { feature, mesh, merge } = require("topojson-client");
 const states = require("us-atlas/states-10m.json");
 
@@ -150,5 +150,17 @@ writeFileSync(join(here, "..", "images", "cities.svg"), svg);
 writeFileSync(join(here, "..", "images", "us-map.json"), JSON.stringify({
   width: W, height: H, land: path(nation), borders: path(borders),
   cities: Object.fromEntries(CITIES.map((c) => [c.id, { name: c.name, at: projection(c.at).map(r1) }])),
+  albers: albersParameters(),
 }));
+
+/** The projection, for the page to place any longitude and latitude itself (a phone's rough place):
+ *  d3's Albers is a conic equal-area one, turned 96° and with parallels 29.5° and 45.5°, scaled by k
+ *  and moved by dx, dy. */
+function albersParameters() {
+  const raw = geoConicEqualAreaRaw(29.5 * Math.PI / 180, 45.5 * Math.PI / 180);
+  const k = projection.scale(), probe = [-100, 40];
+  const [x, y] = raw((probe[0] + 96) * Math.PI / 180, probe[1] * Math.PI / 180);
+  const [px, py] = projection(probe);
+  return { k: r4(k), dx: r4(px - k * x), dy: r4(py + k * y) };
+}
 console.log(`images/cities.svg: ${Math.round(svg.length / 1024)} KB`);

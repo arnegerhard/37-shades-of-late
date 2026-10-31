@@ -149,7 +149,7 @@ async function live(db: D1Database, exclude: string[], debug: boolean) {
   const conditions = ["p.last_seen > ?1", "p.version != 'test'", ...(debug ? [] : ["p.version != 'debug'"]),
                       ...(exclude.length ? [`p.install NOT IN (${exclude.map((_, i) => `?${i + 3}`).join(", ")})`] : [])];
   const { results } = await db.prepare(`
-      SELECT p.install, p.city, p.version, p.favorites, p.first_seen, p.last_seen, p.last_app, p.last_widget, p.away,
+      SELECT p.install, p.city, p.version, p.favorites, p.first_seen, p.last_seen, p.last_app, p.last_widget, p.away, p.place, p.lat, p.lon,
              (p.last_app > ?2 AND p.last_app > p.away) AS live, s.name AS screen, s.at AS screen_at
       FROM presence p LEFT JOIN (
         SELECT install, name, at FROM (

@@ -761,7 +761,8 @@ const CITY_PATHS = ["seattle", "nyc", "boston", "chicago", "dc", "la"];
  * migrations/), from the request it just made. The app or its live map asking means it's in front; a
  * widget, only that the phone's showing one. Its city is the one the request was for (San Francisco's
  * have no prefix); requests for no city in particular (where am I, the journey alone) leave it be. A
- * journey ending in "exit" was the app going away.
+ * journey ending in "exit" was the app going away. Where the phone is, roughly: Cloudflare's guess from its
+ * IP address, a place and its coordinates to about 10 km; not the address itself.
  */
 async function recordPresence(request: Request, env: Env) {
   const install = (request.headers.get("X-Install-ID") ?? "").toLowerCase();
@@ -778,16 +779,22 @@ async function recordPresence(request: Request, env: Env) {
   presenceWritten.set(install, now);
   if (presenceWritten.size > 10_000) presenceWritten.clear();
   const at = Math.floor(now / 1000);
-  await env.JOURNEYS.prepare(`INSERT INTO presence (install, city, version, favorites, first_seen, last_seen, last_app, last_widget, away)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8)
+  const cf = request.cf ?? {};
+  const tenth = (v: unknown) => Number.isFinite(Number(v)) && v !== undefined && v !== null ? Math.round(Number(v) * 10) / 10 : null;
+  const region = cf.country === "US" ? cf.regionCode : cf.country;
+  const place = [cf.city, region].filter((p) => typeof p === "string" && p).join(", ").slice(0, 60);
+  await env.JOURNEYS.prepare(`INSERT INTO presence (install, city, version, favorites, first_seen, last_seen, last_app, last_widget, away, place, lat, lon)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
       ON CONFLICT (install) DO UPDATE SET
         city = CASE WHEN excluded.city != '' THEN excluded.city ELSE presence.city END,
+        place = CASE WHEN excluded.place != '' THEN excluded.place ELSE presence.place END,
+        lat = coalesce(excluded.lat, presence.lat), lon = coalesce(excluded.lon, presence.lon),
         version = excluded.version, favorites = excluded.favorites, last_seen = excluded.last_seen,
         last_app = max(presence.last_app, excluded.last_app), last_widget = max(presence.last_widget, excluded.last_widget),
         away = max(presence.away, excluded.away)`)
     .bind(install, city, (request.headers.get("X-App-Version") ?? "").slice(0, 16),
           Math.max(0, Math.min(1000, Number(request.headers.get("X-Favorites")) || 0)), at,
-          front && !away ? at : 0, front ? 0 : at, away ? at : 0)
+          front && !away ? at : 0, front ? 0 : at, away ? at : 0, place, tenth(cf.latitude), tenth(cf.longitude))
     .run().catch(() => undefined);
 }
 
@@ -803,7 +810,7 @@ function pickedCities(header: string): string {
 const CITIES = { sf: [37.7749, -122.4194], seattle: [47.6062, -122.3321], nyc: [40.7128, -74.006], boston: [42.3601, -71.0589], chicago: [41.8781, -87.6298], dc: [38.9072, -77.0369], la: [34.0522, -118.2437] } as const;
 
 /** The closest supported city to Cloudflare's IP-based guess (good to a few dozen km at best), and how
- * far from each one, for the widgets to sleep when they're far from all of them. Nothing is stored. */
+ * far from each one, for the widgets to sleep when they're far from all of them. Nothing is stored here (the live view's rough place is recordPresence's). */
 function whereabouts(request: Request) {
   const lat = Number(request.cf?.latitude);
   const lon = Number(request.cf?.longitude);
