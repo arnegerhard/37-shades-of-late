@@ -69,6 +69,8 @@ struct ContentView: View {
     @State private var sharing: Selection?
     /// A stop from a shared link, waiting for "Add".
     @State private var incoming: Selection?
+    /// Who shared the incoming stop (see Selection.sharer), for Journey.
+    @State private var sharedBy: String?
     @State private var favorites = Selection.favorites
     /// The widget walkthrough again (screenshot runs; the first launch's is `Welcome`).
     @State private var showingGuide = false
@@ -175,14 +177,15 @@ struct ContentView: View {
             .onOpenURL { url in
                 // A widget tap: that line and stop on the live map.
                 if let tapped = Selection(openURL: url) { return openFromWidget(tapped) }
-                // A friend's stop, from a 37shadesoflate.com/s link (or its QR code).
-                Journey.shared.tap("link.open")
+                // A friend's stop, from a 37shadesoflate.com/s link (or its QR code), with who shared it.
+                sharedBy = Selection.sharer(of: url)
+                Journey.shared.tap("link.open", sharedBy)
                 Task { incoming = await Selection.shared(by: url) }
             }
             .alert(incoming.map { "Add the \($0.spokenLines) at \($0.stopName)?" } ?? "",
                    isPresented: Binding(get: { incoming != nil }, set: { if !$0 { incoming = nil } })) {
                 Button("Add to favorites") {
-                    Journey.shared.tap("link.add")
+                    Journey.shared.tap("link.add", sharedBy)
                     if let picked = incoming {
                         // A friend's stop in a city left out brings the city back.
                         if !cities.contains(picked.city) { setCities(cities + [picked.city]) }
@@ -190,7 +193,7 @@ struct ContentView: View {
                         select(picked)
                     }
                 }
-                Button("Not now", role: .cancel) { Journey.shared.tap("link.dismiss") }
+                Button("Not now", role: .cancel) { Journey.shared.tap("link.dismiss", sharedBy) }
             } message: {
                 if let incoming { Text("To \(incoming.destination), in \(incoming.city.endingSentence) It joins your favorites there.") }
             }

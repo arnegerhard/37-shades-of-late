@@ -7,10 +7,21 @@ import SwiftUI
 // with the 37 in the middle for showing in person.
 
 extension Selection {
-    /// https://37shadesoflate.com/s?c=sf&l=37&s=13254&d=IB — city, line, stop and direction. Lines
-    /// combined with it come along as lists, as the proxy takes them: l=K,L,M&d=IB,IB,IB (and a stop
-    /// per line, when one is caught at a nearby stop).
-    var shareURL: URL {
+    /// https://37shadesoflate.com/s?c=sf&l=37&s=13254&d=IB&f=k3x9p2 — city, line, stop and direction,
+    /// and who shared it (this install's share code, see AppGroup.shareCode). Lines combined with it come
+    /// along as lists, as the proxy takes them: l=K,L,M&d=IB,IB,IB (and a stop per line, when one is
+    /// caught at a nearby stop).
+    var shareURL: URL { shareURL(qr: false) }
+
+    /// The link, as a QR code shows it: q=1, to tell scans in person from links sent.
+    func shareURL(qr: Bool) -> URL {
+        var components = URLComponents(url: stopURL, resolvingAgainstBaseURL: false)!
+        components.queryItems! += [URLQueryItem(name: "f", value: AppGroup.shareCode)] + (qr ? [URLQueryItem(name: "q", value: "1")] : [])
+        return components.url!
+    }
+
+    /// The stop alone, nobody's: what the card is drawn for, so cards are the same for everyone.
+    private var stopURL: URL {
         var components = URLComponents(string: "https://37shadesoflate.com/s")!
         let query = Dictionary(uniqueKeysWithValues: TransitService.departuresQuery(for: self).map { ($0.key, $0.value) })
         components.queryItems = [
@@ -25,7 +36,7 @@ extension Selection {
     /// The card the website draws for `shareURL`, with the wait and a map of the buses on their way:
     /// what WhatsApp and the like show for the link, and so what the app shows and sends too.
     var shareCardURL: URL {
-        var components = URLComponents(url: shareURL, resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: stopURL, resolvingAgainstBaseURL: false)!
         components.path = "/s/card.png"
         return components.url!
     }
@@ -34,6 +45,15 @@ extension Selection {
     var spokenLines: String {
         let ids = lineIDs
         return ids.count == 1 ? ids[0] : ids.dropLast().joined(separator: ", ") + " or " + ids.last!
+    }
+
+    /// Who shared a link, as it says: their share code, "qr" if it came from a QR code, and "new" if this
+    /// install is (see AppGroup.isNew): "k3x9p2 qr new". Nil for links from before there were codes.
+    static func sharer(of url: URL) -> String? {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        guard let code = items.first(where: { $0.name == "f" })?.value, AppGroup.isShareCode(code) else { return nil }
+        let qr = items.contains { $0.name == "q" && $0.value == "1" }
+        return [code, qr ? "qr" : nil, AppGroup.isNew ? "new" : nil].compactMap { $0 }.joined(separator: " ")
     }
 
     /// The stop a shared link points to, with its names looked up like the line picker does, or nil if
@@ -86,7 +106,7 @@ struct ShareSheet: View {
                 .pickerStyle(.segmented)
 
                 if showingQR {
-                    QRCodeView(url: selection.shareURL)
+                    QRCodeView(url: selection.shareURL(qr: true))
                         .frame(maxWidth: 300)
                         .frame(maxHeight: .infinity)
                     Text("Your friend points their camera here and gets this stop's live times, or opens it in the app.")

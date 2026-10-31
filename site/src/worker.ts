@@ -33,12 +33,17 @@ export default {
     }
     const page = await env.ASSETS.fetch(request);
     if (url.pathname !== "/s" || !page.ok) return page;
+    ctx.waitUntil(countOpen(request, url, env));
     const ride = await lookUp(url.searchParams).catch(() => undefined);
     if (!ride) return page;
     const title = `The ${ride.line} at ${ride.stop}`;
     const description = `Live minutes until the ${ride.line} to ${ride.destination} shows up, and how to feel about it.`;
-    // Always https: previews won't fetch a picture over plain http.
-    const image = `https://${url.host}/s/card.png${url.search}`;
+    // Always https: previews won't fetch a picture over plain http. The stop's alone, without who shared
+    // it: the same card for everyone.
+    const stopOnly = new URLSearchParams(url.searchParams);
+    stopOnly.delete("f");
+    stopOnly.delete("q");
+    const image = `https://${url.host}/s/card.png?${stopOnly}`;
     const set = (content: string) => ({ element: (tag: Element) => { tag.setAttribute("content", content); } });
     return new HTMLRewriter()
       .on('meta[property="og:title"]', set(title))
@@ -50,6 +55,20 @@ export default {
       .transform(page);
   },
 };
+
+/** Someone opening a shared stop on the website: one more for the code of who shared it (the app puts
+ *  it in its links, as f; q=1 from a QR code), for the stats page to see whose sharing brings people. The
+ *  code, the day and QR or not; nothing about who opened it. Link previews (Messages fetching the page to
+ *  show it) aren't people opening it. */
+async function countOpen(request: Request, url: URL, env: Env) {
+  const code = url.searchParams.get("f") ?? "";
+  if (!env.JOURNEYS || !/^[a-z2-9]{6}$/.test(code)) return;
+  if (/bot|facebookexternalhit|preview|whatsapp|slack|discord|telegram|signal|skype|linkedin|crawler|spider/i.test(request.headers.get("User-Agent") ?? "")) return;
+  await env.JOURNEYS.prepare(`INSERT INTO link_opens (code, day, qr, opens) VALUES (?1, ?2, ?3, 1)
+      ON CONFLICT (code, day, qr) DO UPDATE SET opens = opens + 1`)
+    .bind(code, new Date().toISOString().slice(0, 10), url.searchParams.get("q") === "1" ? 1 : 0)
+    .run().catch(() => undefined);
+}
 
 /** The stop's card, with its wait as of now; kept for a minute, as previews are fetched in bursts. */
 async function card(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {

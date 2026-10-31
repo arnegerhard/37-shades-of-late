@@ -374,8 +374,31 @@ enum AppGroup {
         if let id = defaults.string(forKey: "installID") { return id }
         let id = UUID().uuidString.lowercased()
         defaults.set(id, forKey: "installID")
+        defaults.set(Date.now.timeIntervalSince1970, forKey: "installedAt")
         return id
     }
+
+    /// Whether this install is new, within its first two days: a shared link opened then is likely what
+    /// brought it. Installs from before this was kept don't know when they began, and aren't new.
+    static var isNew: Bool {
+        let at = defaults.double(forKey: "installedAt")
+        return at > 0 && Date.now.timeIntervalSince1970 - at < 2 * 86_400
+    }
+
+    /// A short random code this install puts in the links it shares ("k3x9p2"), to see whose sharing
+    /// brings people to the app; the proxy learns which install it is from requests. Not the install ID,
+    /// so links don't carry that.
+    static var shareCode: String {
+        if let code = defaults.string(forKey: "shareCode"), isShareCode(code) { return code }
+        let code = String((0..<6).map { _ in shareAlphabet.randomElement()! })
+        defaults.set(code, forKey: "shareCode")
+        return code
+    }
+
+    /// Letters and digits that can't be mistaken for one another.
+    private static let shareAlphabet = Array("abcdefghjkmnpqrstuvwxyz23456789")
+
+    static func isShareCode(_ code: String) -> Bool { code.count == 6 && code.allSatisfy(shareAlphabet.contains) }
 }
 
 /// Which part of the app made a request, for the proxy's usage statistics.
@@ -771,6 +794,7 @@ enum TransitService {
         request.setValue(AppGroup.installID, forHTTPHeaderField: "X-Install-ID")
         request.setValue(client.rawValue, forHTTPHeaderField: "X-Client")
         request.setValue(String(Selection.favorites.count), forHTTPHeaderField: "X-Favorites")
+        request.setValue(AppGroup.shareCode, forHTTPHeaderField: "X-Share-Code")
         // Which cities this install has picked to show, once it has, to see how many ride in more than one.
         if let picked = City.picked { request.setValue(picked.map(\.rawValue).joined(separator: ","), forHTTPHeaderField: "X-Cities") }
         #if DEBUG

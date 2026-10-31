@@ -371,6 +371,12 @@
       <div class="mine-list" id="mine-list"></div>
     </section>
 
+    <section class="panel wide">
+      <h2>Who spreads it</h2>
+      <p class="sub">Installs whose shared stops bring people, most new installs first. Each install's links carry a code of its own. <b>Sent</b>: links sent from the share sheet. <b>On the web</b>: opens of its links on the website, mostly people without the app (with it, a link opens in the app), link previews left out. <b>In the app</b>: other installs opening its links, and <b>added</b> the stop. <b>New installs</b>: of those, the ones opening it in their first two days: brought in by it, most likely. ▣ is from a QR code shown in person. Only from app versions after 1.0; someone who buys the app without opening the link again can't be counted.</p>
+      <div id="spreaders"></div>
+    </section>
+
     <section class="panel">
       <h2>Time of day</h2>
       <p class="sub">Requests by hour, in your time zone.</p>
@@ -622,6 +628,17 @@
         <td class="num">${fmt(t.days)}</td><td class="num">${fmt(t.cities)}</td><td class="num">${fmt(t.favorites)}</td>
         <td>${esc(t.version)}</td><td>${esc(new Date(`${String(t.last).replace(" ", "T")}Z`).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</td></tr>`).join("")}
       </tbody></table></div>` : `<div class="empty">Nothing yet.</div>`;
+
+    const spreaders = data.spreaders ?? [];
+    const qr = (all, scanned) => `${fmt(all)}${n(scanned) ? ` <small>▣ ${fmt(scanned)}</small>` : ""}`;
+    $("spreaders").innerHTML = spreaders.length ? `<div class="table-scroll"><table><thead><tr><th><span class="sr-only">Yours</span></th><th>Install</th><th>Where</th>
+      <th class="num">Sent</th><th class="num">On the web</th><th class="num">In the app</th><th class="num">Added</th><th class="num">New installs</th></tr></thead><tbody>
+      ${spreaders.map((t) => `<tr><td><button class="star" data-mine="${esc(t.install)}" aria-pressed="${mine.has(t.install)}" aria-label="Mine">★</button></td>
+        <td><code>${esc(t.install.slice(0, 8))}</code> <small>${esc(t.code)}</small></td>
+        <td>${esc(t.place || (NAMES[t.city] ?? ""))}</td>
+        <td class="num">${qr(t.sent, t.sent_qr)}</td><td class="num">${qr(t.web, t.web_qr)}</td><td class="num">${qr(t.opened, t.opened_qr)}</td>
+        <td class="num">${fmt(t.added)}</td><td class="num"><b>${fmt(t.brought)}</b></td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="empty">Nobody's shared a stop with a code yet: that comes with the next app version.</div>`;
 
     // The map's days: from the first install on, each city's installs seen there by then.
     const firsts = data.firsts.filter(using).sort((a, b) => a.first.localeCompare(b.first));

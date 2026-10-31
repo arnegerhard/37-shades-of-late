@@ -783,9 +783,12 @@ async function recordPresence(request: Request, env: Env) {
   const tenth = (v: unknown) => Number.isFinite(Number(v)) && v !== undefined && v !== null ? Math.round(Number(v) * 10) / 10 : null;
   const region = cf.country === "US" ? cf.regionCode : cf.country;
   const place = [cf.city, region].filter((p) => typeof p === "string" && p).join(", ").slice(0, 60);
-  await env.JOURNEYS.prepare(`INSERT INTO presence (install, city, version, favorites, first_seen, last_seen, last_app, last_widget, away, place, lat, lon)
-      VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+  // The code in the links it shares (AppGroup.shareCode in the app), to see whose sharing brings people.
+  const shareCode = /^[a-z2-9]{6}$/.test(request.headers.get("X-Share-Code") ?? "") ? request.headers.get("X-Share-Code")! : "";
+  await env.JOURNEYS.prepare(`INSERT INTO presence (install, city, version, favorites, first_seen, last_seen, last_app, last_widget, away, place, lat, lon, share_code)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
       ON CONFLICT (install) DO UPDATE SET
+        share_code = CASE WHEN excluded.share_code != '' THEN excluded.share_code ELSE presence.share_code END,
         city = CASE WHEN excluded.city != '' THEN excluded.city ELSE presence.city END,
         place = CASE WHEN excluded.place != '' THEN excluded.place ELSE presence.place END,
         lat = coalesce(excluded.lat, presence.lat), lon = coalesce(excluded.lon, presence.lon),
@@ -794,7 +797,7 @@ async function recordPresence(request: Request, env: Env) {
         away = max(presence.away, excluded.away)`)
     .bind(install, city, (request.headers.get("X-App-Version") ?? "").slice(0, 16),
           Math.max(0, Math.min(1000, Number(request.headers.get("X-Favorites")) || 0)), at,
-          front && !away ? at : 0, front ? 0 : at, away ? at : 0, place, tenth(cf.latitude), tenth(cf.longitude))
+          front && !away ? at : 0, front ? 0 : at, away ? at : 0, place, tenth(cf.latitude), tenth(cf.longitude), shareCode)
     .run().catch(() => undefined);
 }
 

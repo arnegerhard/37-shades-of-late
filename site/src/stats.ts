@@ -132,11 +132,12 @@ async function numbers(days: number, exclude: string[], debug: boolean, token: s
                   SELECT blob6, max(double1) AS favorites FROM ${DATASET} WHERE ${requests} AND blob6 != 'unknown' GROUP BY blob6)
                 GROUP BY favorites ORDER BY favorites`,
   };
-  const [entries, journey] = await Promise.all([
+  const [entries, journey, spreaders] = await Promise.all([
     Promise.all(Object.entries(queries).map(async ([name, sql]) => [name, await query(sql, token)] as const)),
     journeyOf(days, exclude, debug, journeys),
+    spreadersOf(days, exclude, debug, journeys),
   ]);
-  return { days, excluded: exclude.length, asOf: new Date().toISOString(), journey, ...Object.fromEntries(entries) };
+  return { days, excluded: exclude.length, asOf: new Date().toISOString(), journey, spreaders, ...Object.fromEntries(entries) };
 }
 
 /** An install is live while its app is in front: asking within this many seconds, and not put away since. */
@@ -172,6 +173,47 @@ async function liveUser(db: D1Database, install: string, after: number) {
       : db.prepare(`SELECT * FROM (SELECT rowid AS id, seq, at, arrived, kind, name, detail, came, session, city, seconds FROM events WHERE install = ?1 ORDER BY rowid DESC LIMIT 150) ORDER BY at, id`).bind(install).all(),
   ]);
   return { now, presence, events: events.results };
+}
+
+/**
+ * Who spreads the app, over `days`: per install with a share code (presence.share_code), the links it
+ * sent (share.send taps), how often its links were opened on the website (link_opens, counted by the
+ * site) and in others' apps (link.open, whose detail is "code [qr] [new]"), how often that added the
+ * stop, and how many of those opening it in the app were new installs then (brought in, most likely).
+ */
+async function spreadersOf(days: number, exclude: string[], debug: boolean, journeys?: D1Database) {
+  if (!journeys) return [];
+  const since = Math.floor(Date.now() / 1000) - days * 86_400;
+  const sinceDay = new Date(since * 1000).toISOString().slice(0, 10);
+  const owners = ["p.share_code != ''", "p.version != 'test'", ...(debug ? [] : ["p.version != 'debug'"]),
+                  ...(exclude.length ? [`p.install NOT IN (${exclude.map((_, i) => `?${i + 3}`).join(", ")})`] : [])];
+  const recipients = debug ? "" : "AND e.version != 'debug'";
+  const { results } = await journeys.prepare(`
+      WITH sent AS (
+        SELECT install, count(*) AS sent, sum(detail = 'qr') AS sent_qr FROM events
+        WHERE kind = 'tap' AND name = 'share.send' AND at > ?1 GROUP BY install),
+      web AS (
+        SELECT code, sum(opens) AS web, sum(CASE WHEN qr = 1 THEN opens ELSE 0 END) AS web_qr FROM link_opens
+        WHERE day >= ?2 GROUP BY code),
+      app AS (
+        SELECT substr(e.detail, 1, 6) AS code, e.install, max(e.name = 'link.open') AS opened, max(e.name = 'link.add') AS added,
+               max(e.detail LIKE '% new') AS new, max(e.detail LIKE '% qr%') AS qr
+        FROM events e WHERE e.kind = 'tap' AND e.name IN ('link.open', 'link.add') AND length(e.detail) >= 6 AND e.at > ?1 ${recipients}
+        GROUP BY code, e.install)
+      SELECT p.install, p.share_code AS code, p.city, p.place, p.version,
+             coalesce(s.sent, 0) AS sent, coalesce(s.sent_qr, 0) AS sent_qr,
+             coalesce(w.web, 0) AS web, coalesce(w.web_qr, 0) AS web_qr,
+             (SELECT count(*) FROM app a WHERE a.code = p.share_code AND a.install != p.install AND a.opened) AS opened,
+             (SELECT count(*) FROM app a WHERE a.code = p.share_code AND a.install != p.install AND a.qr) AS opened_qr,
+             (SELECT count(*) FROM app a WHERE a.code = p.share_code AND a.install != p.install AND a.added) AS added,
+             (SELECT count(*) FROM app a WHERE a.code = p.share_code AND a.install != p.install AND a.new) AS brought
+      FROM presence p LEFT JOIN sent s ON s.install = p.install LEFT JOIN web w ON w.code = p.share_code
+      WHERE ${owners.join(" AND ")}`)
+    .bind(since, sinceDay, ...exclude).all();
+  return results.filter((r) => Number(r.sent) || Number(r.web) || Number(r.opened))
+    .sort((a, b) => Number(b.brought) - Number(a.brought) || Number(b.added) - Number(a.added)
+      || Number(b.opened) + Number(b.web) - Number(a.opened) - Number(a.web) || Number(b.sent) - Number(a.sent))
+    .slice(0, 50);
 }
 
 /** How people get around the app (see recordJourney in the proxy): every event over `days`, in order, for
