@@ -679,8 +679,8 @@
     "livemap.close": "Live map: close", "livemap.watch": "Live map: watch", "share.open": "Share: open", "share.send": "Share: send",
     "share.done": "Share: done", "city.switch": "Switch city", "cities.edit": "Pencil (cities)", "cities.toggle": "City map: city on/off",
     "cities.done": "City map: done", "cities.cancel": "City map: cancel", "guide.open": "Lock Screen guide: open", "guide.next": "Guide: next",
-    "guide.skip": "Guide: skip", "guide.done": "Guide: done", "picker.toggle": "Picker: map/list", "picker.city": "Picker: city",
-    "picker.map.tap": "Picker: tap on map", "picker.map.zoom": "Picker: double-tap zoom", "picker.recent": "Picker: looked at before", "picker.circle.line": "Picker: line in circle", "picker.line.switch": "Picker: other line",
+    "guide.skip": "Guide: skip", "guide.done": "Guide: done", "picker.toggle": "Picker: map/list", "picker.close": "Picker: closed", "picker.city": "Picker: city",
+    "picker.map.tap": "Picker: tap on map", "picker.map.zoom": "Picker: tap to zoom in", "picker.recent": "Picker: looked at before", "picker.circle.line": "Picker: line in circle", "picker.line.switch": "Picker: other line",
     "picker.line.close": "Picker: close line", "picker.direction": "Picker: direction", "picker.also": "Picker: also fine with",
     "picker.choose": "Picker: choose", "picker.search": "Picker: search", "picker.search.empty": "Picker: search found nothing",
     "picker.line": "Picker: line from list", "widget.open": "Opened from a widget", "stop.find": "Map: Find a stop", "favorite.added": "Favorite: kept",
@@ -693,7 +693,7 @@
   // ---- Where in the app a tap was, for things that can be done from more than one place: the app ends
   // their detail with "from <place>" ("qr, from map"). Older builds said some of it in their own words.
   const PLACES = { map: "map button", favorite: "favorite's menu", plus: "+ by Favorites", pill: "+ by the pill", link: "shared link",
-    find: "Find a stop", swipe: "swipe", tabs: "city tabs", cities: "city map", "live map": "live map", "older app": "older app" };
+    find: "Find a stop", "map tap": "map tap", swipe: "swipe", tabs: "city tabs", cities: "city map", "live map": "live map", "older app": "older app" };
   const LEGACY_SHARE = { home: "map", favorites: "favorite", livemap: "live map" };
   /** The place a tap says it was, and its detail without it. */
   function placeOf(t) {

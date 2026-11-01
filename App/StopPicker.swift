@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Pick a city and line, then a direction and stop. Calls `onPick` with the finished selection.
+/// Lines by number or name, for those who know theirs: pick one, then a direction and stop. Calls
+/// `onPick` with the finished selection. (On the map, the home map picks: see `HomeMap`.)
 struct LinePicker: View {
     let onPick: (Selection) -> Void
 
@@ -11,8 +12,6 @@ struct LinePicker: View {
     /// Whether this time in the list, a search was started, and came up empty: for Journey.
     @State private var searched = false
     @State private var searchedEmpty = false
-    // The map is the main way to pick; the toolbar button switches to the searchable list.
-    @State private var showingMap = true
 
     private var filtered: [Line] {
         guard !search.isEmpty else { return lines }
@@ -20,54 +19,31 @@ struct LinePicker: View {
     }
 
     var body: some View {
-        Group {
-            if showingMap {
-                LineMapPicker(city: city, onPick: onPick)
-                    .journeyScreen("picker.map")
-                    .safeAreaInset(edge: .top) {
-                        cityPicker
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-                            .background(.bar)
-                    }
-            } else {
-                list.journeyScreen("picker.list")
+        list
+            .journeyScreen("picker.list")
+            .navigationTitle("Pick your poison")
+            .navigationDestination(for: Line.self) { line in
+                StopPicker(line: line, city: city, onPick: onPick)
+                    .journeyScreen("picker.stops")
+                    .onAppear { Journey.shared.tap("picker.line", search.isEmpty ? "browsed" : "searched") }
             }
-        }
-        .navigationTitle("Pick your poison")
-        .navigationBarTitleDisplayMode(showingMap ? .inline : .automatic)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Journey.shared.tap("picker.toggle", showingMap ? "list" : "map")
-                    withAnimation(.snappy(duration: 0.3)) { showingMap.toggle() }
-                } label: {
-                    Label(showingMap ? "List" : "Map", systemImage: showingMap ? "list.bullet" : "map")
+            // What's searched stays on the phone: only that someone searched, and found nothing.
+            .onChange(of: search) {
+                if !search.isEmpty, !searched { searched = true; Journey.shared.tap("picker.search") }
+                if search.count >= 2, filtered.isEmpty, !lines.isEmpty, !searchedEmpty { searchedEmpty = true; Journey.shared.tap("picker.search.empty") }
+                if search.isEmpty { searched = false; searchedEmpty = false }
+            }
+            .onChange(of: city) { Journey.shared.tap("picker.city", city.rawValue) }
+            .task(id: city) {
+                lines = []
+                error = nil
+                lines = TransitService.cachedLines(in: city)
+                if lines.isEmpty { error = "No line data yet. Your connection is running late too." }
+                if let newer = await TransitService.refreshedLines(in: city), !Task.isCancelled {
+                    lines = newer
+                    error = nil
                 }
             }
-        }
-        .navigationDestination(for: Line.self) { line in
-            StopPicker(line: line, city: city, onPick: onPick)
-                .journeyScreen("picker.stops")
-                .onAppear { Journey.shared.tap("picker.line", search.isEmpty ? "browsed" : "searched") }
-        }
-        // What's searched stays on the phone: only that someone searched, and found nothing.
-        .onChange(of: search) {
-            if !search.isEmpty, !searched { searched = true; Journey.shared.tap("picker.search") }
-            if search.count >= 2, filtered.isEmpty, !lines.isEmpty, !searchedEmpty { searchedEmpty = true; Journey.shared.tap("picker.search.empty") }
-            if search.isEmpty { searched = false; searchedEmpty = false }
-        }
-        .onChange(of: city) { Journey.shared.tap("picker.city", city.rawValue) }
-        .task(id: city) {
-            lines = []
-            error = nil
-            lines = TransitService.cachedLines(in: city)
-            if lines.isEmpty { error = "No line data yet. Your connection is running late too." }
-            if let newer = await TransitService.refreshedLines(in: city), !Task.isCancelled {
-                lines = newer
-                error = nil
-            }
-        }
     }
 
     /// The cities shown in the app (and the open one, should it not be); none to pick from with one.

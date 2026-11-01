@@ -2,59 +2,63 @@ import MapKit
 import SwiftUI
 import simd
 
-/// The selected line's route in the selected direction, the chosen stop, and the live buses
-/// headed to it, on the home screen. Bus positions refresh as soon as the proxy can have newer data,
-/// which the bar along the bottom counts down to. Two fingers move it (see `MapGesture`).
-struct RouteMap: View {
-    let selection: Selection
-    /// Shared with the departure list, so both always show the same buses and times.
-    let feed: DepartureFeed
-    /// Points at the top covered by something drawn over the map, kept clear of the route.
-    var topInset: CGFloat = 0
-    /// Points at the top cut off by whatever holds the map (the home screen's, shrunk over a scrolled
-    /// list), also kept clear of the route. Only changed once the list is at rest.
-    var cropped: CGFloat = 0
-    /// Two fingers moving the map, as they go.
-    var gesture: MapGesture? = nil
-
-    @State private var stops: [Stop] = []
+/// The open stop's route in its direction, the stop, and the live buses headed to it: what the home
+/// map (`HomeMap`) shows of a stop, with every other line taken off. Bus positions refresh as soon as
+/// the proxy can have newer data, which the bar along the bottom counts down to.
+@Observable @MainActor
+final class LiveRoute {
+    /// The stop whose route is drawn.
+    private(set) var selection: Selection?
+    private(set) var stops: [Stop] = []
     /// Each line's route, the selected line's first, then the others a combined stop counts (the L and
     /// M besides the K), with where they share a track.
-    @State private var tracks: [Track] = []
-    /// Meters per point at the map's zoom, for setting lines on a shared track side by side.
-    @State private var metersPerPoint: Double = 0
+    private(set) var tracks: [Track] = []
     /// Each bus on its way, gliding along its route between the feed's updates (see `Glide`).
-    @State private var glides: [Departure: Glide] = [:]
+    var glides: [Departure: Glide] = [:]
     /// Moves the gliding buses along, once a second.
-    @State private var tick = Date.now
-    /// What the map shows as it moves, for keeping the buses over it in place.
-    @State private var shown: MKMapRect?
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var position: MapCameraPosition = .automatic
-    @State private var mapSize: CGSize = .zero
-    /// The height of map showing that the route was last framed for.
-    @State private var fittedRoom: CGFloat = 0
-    /// The selection whose route is drawn, to tell a move within a city from a fresh start.
-    @State private var shownSelection: Selection?
-
-    private var departures: [Departure] { feed.loaded?.id == selection.id ? feed.departures : [] }
-    private var refresh: Refresh? { feed.loaded?.id == selection.id ? feed.refresh : nil }
+    var tick = Date.now
     /// The current minute, ticking on the minute mark like the departure list's TimelineView,
     /// so the minutes on the map always match the list's.
-    @State private var now = Date.currentMinute
+    var now = Date.currentMinute
 
     /// Every line's route, as it runs.
-    private var route: [[CLLocationCoordinate2D]] {
+    var route: [[CLLocationCoordinate2D]] {
         tracks.flatMap { $0.segments.map { $0.map(\.coordinate) } }
     }
-    private var selectedStop: Stop? { stops.first { $0.code == selection.stopCode } }
-    /// Live buses on the route. 511 reports a trip's assigned bus wherever it is, so a bus still
-    /// at the yard or finishing another trip would otherwise appear far off the line.
-    private var buses: [(departure: Departure, vehicle: Vehicle)] {
+    var selectedStop: Stop? { stops.first { $0.code == selection?.stopCode } }
+
+    /// The route's extent with a margin, about what `.automatic` frames.
+    var bounds: MKMapRect? {
+        let points = route.joined().map(MKMapPoint.init)
+        guard let first = points.first else { return nil }
+        let rect = points.dropFirst().reduce(MKMapRect(origin: first, size: MKMapSize())) {
+            $0.union(MKMapRect(origin: $1, size: MKMapSize()))
+        }
+        return rect.insetBy(dx: -rect.width * 0.12, dy: -rect.height * 0.12)
+    }
+
+    /// Live buses on the route, on their way to the stop. 511 reports a trip's assigned bus wherever
+    /// it is, so a bus still at the yard or finishing another trip would otherwise appear far off the
+    /// line, or on it past the stop, where it went by on its last trip.
+    func buses(in departures: [Departure]) -> [(departure: Departure, vehicle: Vehicle)] {
         departures.compactMap { departure in
-            guard let vehicle = departure.vehicle, isOnRoute(vehicle) else { return nil }
+            guard let vehicle = departure.vehicle, isOnRoute(vehicle),
+                  !isPastStop(vehicle, line: departure.line ?? selection?.lineID) else { return nil }
             return (departure, vehicle)
         }
+    }
+
+    /// Further along its line's route than the stop, by more than a bus's length or two. Only where
+    /// the route passes the stop (another line of a combined stop may be caught a walk away).
+    private func isPastStop(_ vehicle: Vehicle, line: String?) -> Bool {
+        guard let stop = selectedStop?.coordinate,
+              let track = tracks.first(where: { $0.lineID == line }) ?? tracks.first else { return false }
+        let found = track.segments.compactMap { RoutePath($0.map(\.coordinate)) }
+            .map { (path: $0, bus: $0.locate(vehicle.coordinate)) }
+            .min { $0.bus.off < $1.bus.off }
+        guard let found, found.bus.off < 200 else { return false }
+        let spot = found.path.locate(stop)
+        return spot.off < 60 && found.bus.meters > spot.meters + 40
     }
 
     /// Within 200 m of the drawn route.
@@ -80,140 +84,19 @@ struct RouteMap: View {
         return false
     }
 
-    var body: some View {
-        MapReader { proxy in
-            Map(position: $position, bounds: selection.city.cameraBounds, interactionModes: []) {
-                // Each line in its color, the selected one on top; where they share a track, side by side.
-                ForEach(Array(tracks.enumerated().reversed()), id: \.offset) { _, track in
-                    let color = Self.color(of: track.lineID, in: selection.city).legible(on: colorScheme)
-                    ForEach(Array(track.segments.enumerated()), id: \.offset) { _, segment in
-                        if segment.count > 1 {
-                            MapPolyline(coordinates: segment.map { $0.shifted(by: (Self.lineWidth + Self.lineGap) * metersPerPoint) })
-                                .stroke(color, style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
-                        }
-                    }
-                }
-
-                if let coordinate = selectedStop?.coordinate {
-                    // No title: the pill over the map names the stop, and buses arriving sit on the title,
-                    // which MapKit then keeps hiding and showing again as they move.
-                    Marker(selection.stopName, systemImage: "figure.wave", coordinate: coordinate)
-                        .tint(.blue)
-                        .annotationTitles(.hidden)
-                }
-            }
-            // The buses over the map rather than in it: MapKit hides its labels under annotations, and
-            // with buses moving that had street names flickering in and out wherever they passed.
-            .overlay { busLayer(proxy) }
-            .modifier(FollowsGesture(gesture: gesture, city: selection.city, proxy: proxy, position: $position))
-        }
-        .mapStyle(.standard(pointsOfInterest: .excludingAll))
-        .safeAreaPadding(.top, topInset)
-        // When the map's room changes (its size, or how much of it is cut off), frame the route again
-        // instead of keeping the old zoom, which would show far too much around it, or cut it off.
-        .onGeometryChange(for: CGSize.self, of: \.size) { mapSize = $0 }
-        .onMapCameraChange(frequency: .continuous) { context in
-            shown = context.rect
-            guard mapSize.height > 0 else { return }
-            let meters = context.region.span.latitudeDelta * 110_540 / mapSize.height
-            if abs(meters - metersPerPoint) > metersPerPoint * 0.02 { metersPerPoint = meters }
-        }
-        .task(id: mapSize.height - cropped) {
-            let room = mapSize.height - cropped
-            // Without a route yet, it'll be framed for this room once it loads.
-            guard fittedRoom > 0, abs(fittedRoom - room) > 1, let route = Self.boundingRect(of: route.joined()) else {
-                fittedRoom = room
-                return
-            }
-            fittedRoom = room
-            // Cut off at the top, the route goes in what's left: a frame for the whole map with the
-            // route in its lower part. (Changing the map's safe area instead would jump the camera.)
-            let rect = Self.frame(route, in: CGSize(width: mapSize.width, height: mapSize.height - topInset), showing: room - topInset)
-            // The same frame as a region when it's already this rect: setting an equal position again
-            // wouldn't move the camera.
-            withAnimation(.smooth(duration: 0.6)) { position = position == .rect(rect) ? .region(MKCoordinateRegion(rect)) : .rect(rect) }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) { RefreshBar(refresh: refresh) }
-        .task {
-            while !Task.isCancelled {
-                now = .currentMinute
-                try? await Task.sleep(until: .now + .seconds(now.addingTimeInterval(60).timeIntervalSinceNow), clock: .continuous)
-            }
-        }
-        // New positions: each bus snaps to where it was reported, and glides on from there.
-        .task(id: Pair(departures, tracks.count)) { glides = Glide.update(glides, buses: buses, tracks: tracks, stop: selectedStop?.coordinate) }
-        // Only while one is still on the move: redrawing the map for buses that wait makes its labels flicker.
-        .task(id: glides) {
-            while !Task.isCancelled, glides.values.contains(where: { $0.isMoving(at: .now) }) {
-                try? await Task.sleep(for: .seconds(1))
-                withAnimation(.linear(duration: 1)) { tick = .now }
-            }
-        }
-        .task(id: selection) { [previous = shownSelection] in
-            // Another stop in the same city: keep the old route up while the new one loads, then glide
-            // the camera over to it. Anything else starts afresh.
-            guard let previous, previous.city == selection.city, !stops.isEmpty else {
-                stops = []
-                tracks = []
-                position = .automatic
-                await loadRoute()
-                shownSelection = selection
-                return
-            }
-            await loadRoute(animated: true)
-            shownSelection = selection
-        }
+    /// Nothing drawn.
+    func clear() {
+        selection = nil
+        stops = []
+        tracks = []
+        glides = [:]
     }
 
-    /// Each bus where it's got to since it was last reported, at its pace along the route, placed
-    /// over the map where it shows that spot: as MapKit says, or while it can't (in the middle of a
-    /// pinch), worked out from the area it shows, so the buses don't go missing until it stops.
-    private func busLayer(_ proxy: MapProxy) -> some View {
-        ZStack(alignment: .topLeading) {
-            ForEach(buses, id: \.departure) { bus in
-                let place = glides[bus.departure]?.place(at: tick)
-                let coordinate = place?.coordinate ?? bus.vehicle.coordinate
-                if let point = proxy.convert(coordinate, to: .local) ?? estimatedPoint(of: coordinate) {
-                    BusMarker(bearing: place?.bearing ?? bus.vehicle.bearing, minutes: shortMinutes(bus.departure), isLive: bus.departure.isLive,
-                              line: selection.isMultiLine ? bus.departure.line : nil, vehicle: selection.vehicle,
-                              color: Self.color(of: bus.departure.line ?? selection.lineID, in: selection.city))
-                        .position(point)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .allowsHitTesting(false)
-    }
-
-    /// Where the map shows `coordinate`, from the area it shows: the area below the room kept clear at
-    /// the top (`topInset`), which is also where the buses' layer starts.
-    private func estimatedPoint(of coordinate: CLLocationCoordinate2D) -> CGPoint? {
-        guard let shown, shown.width > 0, shown.height > 0 else { return nil }
-        let spot = MKMapPoint(coordinate)
-        return CGPoint(x: (spot.x - shown.minX) / shown.width * mapSize.width,
-                       y: (spot.y - shown.minY) / shown.height * (mapSize.height - topInset))
-    }
-
-    private static let lineWidth: CGFloat = 4
-    /// The room between lines side by side on a track, so their colors don't run together.
-    private static let lineGap: CGFloat = 2.5
-
-    /// A line's own color, as its badge has it, or the app's red.
-    static func color(of line: String, in city: City) -> Color {
-        Color(hex: LineBadge.color(of: line, in: city)?.hex) ?? LineBadge.red
-    }
-
-    /// "7" or "now", for the compact labels next to buses (no "min", to save space).
-    private func shortMinutes(_ departure: Departure) -> String {
-        let minutes = max(0, Int(departure.time.timeIntervalSince(now) / 60))
-        return minutes == 0 ? "now" : "\(minutes)"
-    }
-
-    private func loadRoute(animated: Bool = false) async {
+    /// `selection`'s stops and routes, to `show`.
+    static func load(_ selection: Selection) async -> (selection: Selection, stops: [Stop], tracks: [Track])? {
         let line = Line(id: selection.lineID, name: selection.lineName, mode: "bus")
-        guard let directions = try? await TransitService.directions(for: line, in: selection.city) else { return }
+        guard let directions = try? await TransitService.directions(for: line, in: selection.city) else { return nil }
         let direction = directions.first { $0.id == selection.directionID } ?? directions.first
-        let newStops = direction?.stops ?? []
         // Each line's route: the real street shape where there is one, else its stops joined in order.
         func route(of direction: Direction?) -> [[CLLocationCoordinate2D]] {
             let shape = (direction?.shapes ?? []).map { segment in
@@ -236,37 +119,109 @@ struct RouteMap: View {
         // Lines drawn in the same color share a slot: side by side they'd only show it twice.
         let city = selection.city
         let colored = lines.map { (id: $0.id, color: LineBadge.color(of: $0.id, in: city)?.hex ?? "", segments: $0.segments) }
-        let newTracks = await Task.detached(priority: .userInitiated) { Track.build(colored) }.value
-        guard animated, let rect = Self.boundingRect(of: lines.flatMap(\.segments).joined()) else {
-            stops = newStops
-            tracks = newTracks
-            return
-        }
-        withAnimation(.easeInOut(duration: 0.8)) {
-            stops = newStops
-            tracks = newTracks
-            position = .rect(cropped > 0 ? Self.frame(rect, in: CGSize(width: mapSize.width, height: mapSize.height - topInset),
-                                                      showing: mapSize.height - cropped - topInset) : rect)
-        }
+        let tracks = await Task.detached(priority: .userInitiated) { Track.build(colored) }.value
+        return (selection, direction?.stops ?? [], tracks)
     }
 
-    /// A frame for a map of `size` (points) that fits `route` into its bottom `height` points.
-    private static func frame(_ route: MKMapRect, in size: CGSize, showing height: CGFloat) -> MKMapRect {
+    func show(_ loaded: (selection: Selection, stops: [Stop], tracks: [Track])) {
+        selection = loaded.selection
+        stops = loaded.stops
+        tracks = loaded.tracks
+    }
+
+    /// "7" or "now", for the compact labels next to buses (no "min", to save space).
+    func shortMinutes(_ departure: Departure) -> String {
+        let minutes = max(0, Int(departure.time.timeIntervalSince(now) / 60))
+        return minutes == 0 ? "now" : "\(minutes)"
+    }
+
+    /// A line's own color, as its badge has it, or the app's red.
+    static func color(of line: String, in city: City) -> Color {
+        Color(hex: LineBadge.color(of: line, in: city)?.hex) ?? LineBadge.red
+    }
+
+    /// A frame for a map of `size` (points) that fits `route` into the points from `band`'s top to its bottom.
+    static func frame(_ route: MKMapRect, in size: CGSize, band: ClosedRange<CGFloat>) -> MKMapRect {
+        let height = band.upperBound - band.lowerBound
         guard size.width > 0, height > 0 else { return route }
         let scale = max(route.width / size.width, route.height / height)
-        let width = size.width * scale, fullHeight = size.height * scale
-        let bottom = route.midY + height / 2 * scale
-        return MKMapRect(x: route.midX - width / 2, y: bottom - fullHeight, width: width, height: fullHeight)
+        let top = route.midY - (band.lowerBound + band.upperBound) / 2 * scale
+        return MKMapRect(x: route.midX - size.width * scale / 2, y: top, width: size.width * scale, height: size.height * scale)
+    }
+}
+
+/// The open stop's lines on the home map, each in its color, the selected one on top; where they
+/// share a track, side by side. And the stop.
+struct RouteLayer: MapContent {
+    let live: LiveRoute
+    let city: City
+    /// Meters per point at the map's zoom, for setting lines on a shared track side by side.
+    let metersPerPoint: Double
+    /// Stepping back, for another line picked over it.
+    var dimmed = false
+    let colorScheme: ColorScheme
+
+    var body: some MapContent {
+        ForEach(Array(live.tracks.enumerated().reversed()), id: \.offset) { _, track in
+            let color = LiveRoute.color(of: track.lineID, in: city).legible(on: colorScheme).opacity(dimmed ? 0.35 : 1)
+            ForEach(Array(track.segments.enumerated()), id: \.offset) { _, segment in
+                if segment.count > 1 {
+                    MapPolyline(coordinates: segment.map { $0.shifted(by: (Self.lineWidth + Self.lineGap) * metersPerPoint) })
+                        .stroke(color, style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
+                }
+            }
+        }
+        if let selection = live.selection, let coordinate = live.selectedStop?.coordinate {
+            // No title: the pill over the map names the stop, and buses arriving sit on the title,
+            // which MapKit then keeps hiding and showing again as they move.
+            Marker(selection.stopName, systemImage: "figure.wave", coordinate: coordinate)
+                .tint(.blue)
+                .annotationTitles(.hidden)
+        }
     }
 
-    /// The route's extent with a margin, about what `.automatic` frames.
-    private static func boundingRect(of coordinates: some Sequence<CLLocationCoordinate2D>) -> MKMapRect? {
-        let points = coordinates.map(MKMapPoint.init)
-        guard let first = points.first else { return nil }
-        let rect = points.dropFirst().reduce(MKMapRect(origin: first, size: MKMapSize())) {
-            $0.union(MKMapRect(origin: $1, size: MKMapSize()))
+    private static let lineWidth: CGFloat = 4
+    /// The room between lines side by side on a track, so their colors don't run together.
+    private static let lineGap: CGFloat = 2.5
+}
+
+/// The buses over the map rather than in it: MapKit hides its labels under annotations, and with
+/// buses moving that had street names flickering in and out wherever they passed. Each where it's
+/// got to since it was last reported, at its pace along the route, placed where the map shows that
+/// spot: as MapKit says, or while it can't (in the middle of a pinch), worked out from the area it
+/// shows, so the buses don't go missing until it stops.
+struct BusLayer: View {
+    let live: LiveRoute
+    let departures: [Departure]
+    let proxy: MapProxy
+    /// What the map shows as it moves, and its size.
+    let shown: MKMapRect?
+    let mapSize: CGSize
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let selection = live.selection {
+                ForEach(live.buses(in: departures), id: \.departure) { bus in
+                    let place = live.glides[bus.departure]?.place(at: live.tick)
+                    let coordinate = place?.coordinate ?? bus.vehicle.coordinate
+                    if let point = proxy.convert(coordinate, to: .local) ?? estimatedPoint(of: coordinate) {
+                        BusMarker(bearing: place?.bearing ?? bus.vehicle.bearing, minutes: live.shortMinutes(bus.departure), isLive: bus.departure.isLive,
+                                  line: selection.isMultiLine ? bus.departure.line : nil, vehicle: selection.vehicle,
+                                  color: LiveRoute.color(of: bus.departure.line ?? selection.lineID, in: selection.city))
+                            .position(point)
+                    }
+                }
+            }
         }
-        return rect.insetBy(dx: -rect.width * 0.12, dy: -rect.height * 0.12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    private func estimatedPoint(of coordinate: CLLocationCoordinate2D) -> CGPoint? {
+        guard let shown, shown.width > 0, shown.height > 0 else { return nil }
+        let spot = MKMapPoint(coordinate)
+        return CGPoint(x: (spot.x - shown.minX) / shown.width * mapSize.width,
+                       y: (spot.y - shown.minY) / shown.height * mapSize.height)
     }
 }
 
@@ -362,7 +317,7 @@ struct Track: @unchecked Sendable {
 }
 
 /// Two values as one task id.
-private struct Pair<A: Equatable, B: Equatable>: Equatable {
+struct Pair<A: Equatable, B: Equatable>: Equatable {
     let a: A, b: B
     init(_ a: A, _ b: B) { self.a = a; self.b = b }
 }
@@ -515,7 +470,7 @@ struct MapGesture: Equatable {
 /// Moves a map that takes no touches itself as two fingers do: from the camera it had as they came
 /// down, the point they started on stays under them, closer or further as they pinch. No further
 /// out than the city allows (`City.farthest`), nor closer than a few blocks, nor off the city.
-private struct FollowsGesture: ViewModifier {
+struct FollowsGesture: ViewModifier {
     let gesture: MapGesture?
     let city: City
     let proxy: MapProxy
@@ -550,7 +505,7 @@ private struct FollowsGesture: ViewModifier {
 }
 
 /// A few-points-tall bar that empties until the proxy's next 511 snapshot is ready.
-private struct RefreshBar: View {
+struct RefreshBar: View {
     let refresh: Refresh?
 
     var body: some View {
@@ -643,45 +598,3 @@ extension Date {
     }
 }
 
-/// A city's main lines (trains, rapid and select buses) on one quiet map, for the home screen
-/// before any stop there is a favorite: what there is to pick from, in its own colors.
-struct CityLinesMap: View {
-    let city: City
-    /// Two fingers moving the map, as they go.
-    var gesture: MapGesture? = nil
-    @State private var lines: [MapLine] = []
-    @State private var position: MapCameraPosition
-    @Environment(\.colorScheme) private var colorScheme
-
-    init(city: City, gesture: MapGesture? = nil) {
-        self.city = city
-        self.gesture = gesture
-        _position = State(initialValue: .region(city.region))
-    }
-
-    var body: some View {
-        MapReader { proxy in
-            Map(position: $position, bounds: city.cameraBounds, interactionModes: []) {
-                ForEach(lines) { line in
-                    let color = line.mapColor.legible(on: colorScheme)
-                    let shapes = line.shapes.map { $0.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil } }
-                    // Ferries dashed across the water, in pieces (see LineLayer.dashed).
-                    ForEach(Array((line.mode == "ferry" ? shapes.flatMap { LineLayer.dashed($0) } : shapes).enumerated()), id: \.offset) { _, shape in
-                        MapPolyline(coordinates: shape)
-                            .stroke(color, style: StrokeStyle(lineWidth: line.mode == "bus" ? 2 : 3, lineCap: .round, lineJoin: .round))
-                    }
-                }
-            }
-            .modifier(FollowsGesture(gesture: gesture, city: city, proxy: proxy, position: $position))
-        }
-        .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .excludingAll))
-        .task(id: city) {
-            // Buses underneath, so the trains read on top of them.
-            // Off the main thread: New York's map is big.
-            let main = await Task.detached(priority: .userInitiated) {
-                TransitService.cachedLineMap(in: city).filter { LineLabels.tier(of: $0) == 0 }
-            }.value
-            lines = main.filter { $0.mode == "bus" } + main.filter { $0.mode != "bus" }
-        }
-    }
-}
