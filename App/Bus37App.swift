@@ -61,11 +61,14 @@ struct ContentView: View {
     @State private var feed = DepartureFeed()
     @State private var favoritesFeed = FavoritesFeed()
     @Environment(\.scenePhase) private var scenePhase
-    /// Whether the open city's map is the stop picker (see `startPicking`), and whether it has opened
-    /// out over the page: a moment after it turns into one, and until a moment before it turns back.
+    /// Whether the open city's map is full screen (see `openFull`), and whether it has opened out over
+    /// the page: a moment after it's made as tall as the page, and until a moment before it's made short again.
+    @State private var full = false
+    @State private var fullOpen = false
+    /// Whether the map is the stop picker (the pen, or a tap on the map): on the home screen or full
+    /// screen, each switched on its own.
     @State private var picking = false
-    @State private var pickerOpen = false
-    /// How far the open picker is being pulled down from its top, to close it.
+    /// How far the full screen map is being pulled down by its top, to close it.
     @State private var pickerPull: CGFloat = 0
     /// The lines by number or name, over the picker, for those who know theirs.
     @State private var searchingLines = false
@@ -106,6 +109,8 @@ struct ContentView: View {
     @State private var headerRests: [City: HeaderRest] = [:]
     /// Two fingers moving the open city's map, as they go (see `MapTouches`).
     @State private var mapGesture: MapGesture?
+    /// Where the buttons over the home map are, in the window, so a tap on one isn't also one on the map.
+    @State private var mapControls: [String: CGRect] = [:]
     /// How much each city's map has shrunk, once its list is at rest.
     @State private var restingShrink: [City: CGFloat] = [:]
     /// The home map's pill hopping toward the island, the first time it's there: it goes up there.
@@ -148,8 +153,8 @@ struct ContentView: View {
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    // Picking a stop, a sideways swipe is the map's: the city stays.
-                    .scrollDisabled(pickerOpen)
+                    // Picking a stop or full screen, a sideways swipe is the map's: the city stays.
+                    .scrollDisabled(fullOpen || picking)
 
                     cityHeader
                         .background(Color(.systemGroupedBackground))
@@ -408,39 +413,33 @@ struct ContentView: View {
                 // Picking a stop, the same map opens out over the whole page into the stop picker, where it
                 // was, the city's lines blending in, and the stops as it goes in.
                 Color.clear
-                    .frame(height: isPicking(city) ? pickingMap - pickerPull : tallMap(city) - shrink(city))
+                    .frame(height: isFull(city) ? closingHeight(city) : tallMap(city) - shrink(city))
                     .overlay(alignment: .top) {
                         // The gesture is in the visible part's points; the map's top is cut off by its crop.
                         let gesture = city == selection.city ? mapGesture?.moved(down: crop(city)) : nil
                         // Always as tall as the page's room for it opened out, and where it is on the page: opening
                         // out only shows more of it below.
-                        HomeMap(city: city, open: openIsShown ? open : nil, feed: feed, picking: picking && city == selection.city,
-                                opened: isPicking(city), topInset: 44, hiddenBottom: pickingMap + crop(city) - tallMap(city),
-                                cropped: restingShrink[city] ?? 0, gesture: gesture, onPick: picked, onClose: stopPicking)
+                        HomeMap(city: city, open: openIsShown ? open : nil, feed: feed, expanded: full && city == selection.city,
+                                picking: picking && city == selection.city, opened: isPicking(city), topInset: 44,
+                                hiddenBottom: pickingMap + crop(city) - tallMap(city), cropped: restingShrink[city] ?? 0, gesture: gesture,
+                                pulled: isFull(city) ? pickerPull : 0, onPick: picked)
                             .frame(height: pickingMap + crop(city))
                             .offset(y: -crop(city))
-                            .allowsHitTesting(isPicking(city))
+                            .allowsHitTesting(isFull(city) || isPicking(city))
                     }
-                    // Pulled down from its top, the open map goes back as a sheet would: following the
-                    // finger, and closing past a point (or flicked), else springing back.
+                    // Pulled down by its top (or by the card at its bottom, see `HomeMap`), the open map closes
+                    // as far as the finger takes it (see `closing`), all the way past a point (or flicked), else
+                    // opening again. Not by the map itself, where a finger dragging down pans it.
                     .overlay(alignment: .top) {
-                        if isPicking(city) {
+                        if isFull(city) {
                             Capsule()
                                 .fill(.secondary)
                                 .frame(width: 36, height: 5)
                                 .padding(.top, 6)
-                                .frame(maxWidth: .infinity, minHeight: 36, alignment: .top)
+                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .top)
                                 .contentShape(Rectangle())
-                                .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .global)
-                                    .onChanged { pickerPull = max(0, $0.translation.height) }
-                                    .onEnded { drag in
-                                        if drag.translation.height > 120 || drag.predictedEndTranslation.height > 300 {
-                                            Journey.shared.tap("picker.close", "pull")
-                                            stopPicking()
-                                        } else {
-                                            withAnimation(.spring(duration: 0.3)) { pickerPull = 0 }
-                                        }
-                                    })
+                                .gesture(pullDown)
+                                .offset(y: topCut(city))
                                 .accessibilityHidden(true)
                                 .transition(.opacity)
                         }
@@ -450,15 +449,17 @@ struct ContentView: View {
                         try? await Task.sleep(for: .milliseconds(250))
                         if !Task.isCancelled { restingShrink[city] = shrunk }
                     }
-                    // One finger on the map goes to the list it sits over, so dragging it scrolls the
-                    // favorites just as the list does (bounce and all), and sideways still turns the page.
-                    // Two fingers move the map: pinch to zoom, drag to pan. A tap opens it into the picker.
+                    // On the home screen, one finger on the map goes to the list it sits over, so dragging it
+                    // scrolls the favorites just as the list does (bounce and all), and sideways still turns the
+                    // page. Two fingers move the map: pinch to zoom, drag to pan. A tap turns it into the picker.
+                    // Picking (or full screen), the map is the fingers' own, as the pen being on says.
                     .overlay {
-                        if !(picking && city == selection.city) {
+                        if !(full && city == selection.city), !isPicking(city) {
                             MapTouches(list: lists[city], onGesture: { gesture in
                                 mapGesture = gesture
                                 if gesture != nil, !plusQuiet { withAnimation(.easeInOut(duration: 0.3)) { plusQuiet = true } }
-                            }, onTap: {
+                            }, onTap: { spot in
+                                guard !mapControls.values.contains(where: { $0.contains(spot) }) else { return }
                                 Journey.shared.tap("stop.find", Journey.from("map tap"))
                                 startPicking(favorite: false)
                             })
@@ -507,49 +508,68 @@ struct ContentView: View {
                                     }
                                 }
                             }
+                            .onMapControl("\(city.rawValue) pill") { mapControls[$0] = $1 }
                             .padding(10)
-                            // Clear of the find button.
-                            .padding(.trailing, 48)
+                            // Clear of the pen and full screen buttons.
+                            .padding(.trailing, 94)
+                            // Full screen, below the bar to pull it down by, and pulling it down too.
+                            .padding(.top, isFull(city) ? Self.barRoom : 0)
+                            .simultaneousGesture(pullDown, including: isFull(city) ? .all : .subviews)
+                            .offset(y: topCut(city))
                             .transition(.move(edge: .top).combined(with: .opacity))
                         }
                     }
                     .overlay(alignment: .topTrailing) {
-                        if isPicking(city) {
-                            // The lines by number, for those who know theirs, and back to the map as it was.
-                            HStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            if isPicking(city) {
+                                // The lines by number, for those who know theirs. (Closing is at the bottom, by the card.)
                                 mapButton("list.bullet", label: "Lines by number") {
                                     Journey.shared.tap("picker.toggle", "list")
                                     searchingLines = true
                                 }
-                                mapButton("xmark", label: "Close") {
-                                    Journey.shared.tap("picker.close", "button")
-                                    stopPicking()
-                                }
+                                .transition(.opacity)
                             }
-                            .padding(10)
-                            .transition(.opacity)
-                        } else {
-                            // Any stop, to see it on the map without keeping it.
-                            Button { Journey.shared.tap("stop.find", Journey.from("map")); startPicking(favorite: false) } label: {
+                            // Picking a stop, on and off: off, back to how the map was before.
+                            Button {
+                                if picking {
+                                    stopPicking(from: "pen")
+                                } else {
+                                    Journey.shared.tap("stop.find", Journey.from("pen"))
+                                    startPicking(favorite: false)
+                                }
+                            } label: {
                                 Group {
-                                    if openIsShown {
-                                        Image(systemName: "magnifyingglass")
+                                    if openIsShown || picking {
+                                        Image(systemName: "pencil")
                                             .frame(width: 38, height: 38)
                                     } else {
-                                        Label("Find a stop", systemImage: "magnifyingglass")
+                                        Label("Find a stop", systemImage: "pencil")
                                             .fixedSize()
                                             .padding(.horizontal, 14)
                                             .frame(height: 38)
                                     }
                                 }
                                 .font(.subheadline.weight(.semibold))
-                                .background(.regularMaterial, in: Capsule())
+                                .foregroundStyle(picking ? AnyShapeStyle(.white) : AnyShapeStyle(.tint))
+                                .background {
+                                    if picking { Capsule().fill(.tint) } else { Capsule().fill(.regularMaterial) }
+                                }
                             }
                             .buttonStyle(.borderless)
-                            .padding(10)
                             .accessibilityLabel("Find a stop")
-                            .transition(.opacity)
+                            .accessibilityAddTraits(picking ? .isSelected : [])
+                            // Full screen and back, whatever the map shows.
+                            mapButton(fullOpen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                      label: fullOpen ? "Exit full screen" : "Full screen") {
+                                toggleFull()
+                            }
                         }
+                        .onMapControl("\(city.rawValue) buttons") { mapControls[$0] = $1 }
+                        .padding(10)
+                        .padding(.top, isFull(city) ? Self.barRoom : 0)
+                        .simultaneousGesture(pullDown, including: isFull(city) ? .all : .subviews)
+                        .offset(y: topCut(city))
+                        .animation(.easeInOut(duration: 0.2), value: picking)
                     }
                     // The bar counting down to the open stop's next update, along the bottom.
                     .overlay(alignment: .bottom) {
@@ -570,9 +590,12 @@ struct ContentView: View {
                             .padding(10)
                             .padding(.bottom, 3)
                             .accessibilityLabel("Share this stop")
+                            .onMapControl("\(city.rawValue) share") { mapControls[$0] = $1 }
                         }
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: ListCorners.radius, style: .continuous))
+                    // Pulled by its top, that comes down with the finger as it closes: cut off, not moved,
+                    // so the map (MapKit's own view, which wouldn't move back with the rest) stays put.
+                    .clipShape(CutFromTop(top: topCut(city), radius: ListCorners.radius))
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
             }
@@ -632,31 +655,88 @@ struct ContentView: View {
         .accessibilityLabel(label)
     }
 
-    /// Opens the open city's map out into the stop picker, where it is. `favorite`: the stop picked is
+    /// Turns the open city's map into the stop picker, as big as it is. `favorite`: the stop picked is
     /// kept (the + by Favorites), else only tried on the map.
     private func startPicking(favorite: Bool) {
         guard !picking else { return }
         choosingFavorite = favorite
-        picking = true
         Journey.shared.show("picker.map")
-        // The map turns into the picker at the page's height first, then opens out to show it.
+        withAnimation(Self.pickAnimation) { picking = true }
+    }
+
+    /// Opens the open city's map out over the whole page, as it is.
+    private func openFull() {
+        guard !full else { return }
+        full = true
+        // Made as tall as the page first, then opened out to show it.
         Task {
             try? await Task.sleep(for: .seconds(0.05))
-            guard picking else { return }
-            withAnimation(Self.pickAnimation) { pickerOpen = true }
+            guard full else { return }
+            withAnimation(Self.pickAnimation) { fullOpen = true }
         }
     }
 
-    /// Back to the map as it was, its stop's buses and all.
-    private func stopPicking() {
-        guard picking else { return }
-        Journey.shared.hide("picker.map")
-        withAnimation(Self.pickAnimation) { pickerOpen = false; pickerPull = 0 }
+    /// Back to the home screen's map, the picker or not, as it was.
+    private func closeFull() {
+        guard full else { return }
+        withAnimation(Self.pickAnimation) { fullOpen = false; pickerPull = 0 }
         // Done once it has closed (an animation's completion doesn't always come).
         Task {
             try? await Task.sleep(for: .seconds(0.5))
-            if !pickerOpen { picking = false }
+            if !fullOpen { full = false }
         }
+    }
+
+    /// The full screen button: in or out, whatever the map shows.
+    private func toggleFull() {
+        Journey.shared.tap("map.full", fullOpen ? "close" : "open")
+        if fullOpen { closeFull() } else { openFull() }
+    }
+
+    /// Pulling the full screen map down by its top (the bar, or what's along it): back to the home screen's.
+    private var pullDown: some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { pickerPull = max(0, $0.translation.height) }
+            .onEnded(letGo)
+    }
+    /// The room above what's along the full screen map's top, for the bar to pull it down by.
+    private static let barRoom: CGFloat = 10
+
+    /// How far a finger pulling the open map down has closed it, from 0 to 1: its window onto the map
+    /// back to the home screen's, the header sliding back above it and the favorites coming up below,
+    /// the map itself staying where it is (resized, MapKit would take a moment each time: see `HomeMap`).
+    private var closing: CGFloat { min(pickerPull / Self.pullToClose, 1) }
+    /// How far a finger pulls the open map to close it all the way.
+    private static let pullToClose: CGFloat = 240
+
+    /// How tall the open map is as it closes: its bottom rising to where the home screen's map ends.
+    private func closingHeight(_ city: City) -> CGFloat {
+        pickingMap + (tallMap(city) - crop(city) - pickingMap) * closing
+    }
+
+    /// How far the open map's top is cut off, pulled down by it: as far as the finger, leaving the
+    /// home screen's shortest map at least.
+    private func topCut(_ city: City) -> CGFloat {
+        guard isFull(city) else { return 0 }
+        return max(min(pickerPull, closingHeight(city) - Self.shortMap), 0)
+    }
+
+    /// Let go of: closed past halfway (or flicked), else open again.
+    private func letGo(_ drag: DragGesture.Value) {
+        if closing > 0.5 || drag.predictedEndTranslation.height > Self.pullToClose * 1.25 {
+            Journey.shared.tap("map.full", "pull")
+            closeFull()
+        } else {
+            withAnimation(.spring(duration: 0.3)) { pickerPull = 0 }
+        }
+    }
+
+    /// Back to the map as it was before the picker, its stop's buses and all: full screen or not.
+    private func stopPicking(from place: String? = nil) {
+        guard picking else { return }
+        if let place { Journey.shared.tap("picker.close", place) }
+        Journey.shared.hide("picker.map")
+        withAnimation(Self.pickAnimation) { picking = false; pickerPull = 0 }
     }
 
     /// A stop picked, on the map or from the lines by number. From the +, picking a stop saves it: it
@@ -677,8 +757,9 @@ struct ContentView: View {
         stopPicking()
     }
 
-    /// Whether `city`'s map has opened out into the stop picker.
-    private func isPicking(_ city: City) -> Bool { pickerOpen && city == selection.city }
+    /// Whether `city`'s map has opened out over the page, and whether it's the stop picker.
+    private func isFull(_ city: City) -> Bool { fullOpen && city == selection.city }
+    private func isPicking(_ city: City) -> Bool { picking && city == selection.city }
 
     /// The map's height while picking: the whole page.
     private var pickingMap: CGFloat { max(tallMap(selection.city), pageHeight - 8) }
@@ -695,13 +776,14 @@ struct ContentView: View {
     /// How far the header has slid away for `city`: as far as its list is scrolled, up to its height.
     /// It goes first, and starts out gone (see `hideHeader`): most people stay in one city.
     private func collapse(_ city: City) -> CGFloat {
-        isPicking(city) ? headerHeight : min(max(scrollOffsets[city] ?? 0, 0), headerHeight)
+        let resting = min(max(scrollOffsets[city] ?? 0, 0), headerHeight)
+        return isFull(city) ? headerHeight - (headerHeight - resting) * closing : resting
     }
 
     /// How much the map has shrunk for `city`: as far as its list is scrolled past the header's
     /// sliding away, down to the short map.
     private func shrink(_ city: City) -> CGFloat {
-        isPicking(city) ? 0 : crop(city)
+        isFull(city) ? 0 : crop(city)
     }
 
     /// How much of the top of `city`'s map is cut off: as much as it has shrunk, and while picking too, so
@@ -868,7 +950,8 @@ struct ContentView: View {
         searchingLines = false
         if picking { Journey.shared.hide("picker.map") }
         picking = false
-        pickerOpen = false
+        full = false
+        fullOpen = false
         sharing = nil
         select(tapped)
     }
@@ -1031,11 +1114,21 @@ struct ListScrollView {
 ///
 /// The two-finger gestures watch the whole window, not the list: UIKit hands a touch to the view
 /// it lands on, and SwiftUI doesn't land a second finger on the list the first one went to.
+private extension View {
+    /// Notes where a button over the home map is, in the window, under `key`, for `MapTouches` to leave
+    /// taps on it be. Gone, it's noted as nowhere.
+    func onMapControl(_ key: String, _ noted: @escaping (String, CGRect) -> Void) -> some View {
+        onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { noted(key, $0) }
+            .onDisappear { noted(key, .null) }
+    }
+}
+
 private struct MapTouches: UIViewRepresentable {
     let list: ListScrollView?
     let onGesture: (MapGesture?) -> Void
-    /// A tap that's only a tap, on the map itself (not a button over it).
-    let onTap: () -> Void
+    /// A tap that's only a tap, on the map itself, where it landed in the window: SwiftUI's buttons over
+    /// the map aren't views of their own, so a tap on one comes here too (see `onMapControl`).
+    let onTap: (CGPoint) -> Void
 
     func makeUIView(context: Context) -> Forwarder { Forwarder() }
 
@@ -1047,7 +1140,7 @@ private struct MapTouches: UIViewRepresentable {
 
     final class Forwarder: UIView, UIGestureRecognizerDelegate {
         var onGesture: ((MapGesture?) -> Void)?
-        var onTap: (() -> Void)?
+        var onTap: ((CGPoint) -> Void)?
         weak var list: UIScrollView?
         private lazy var tap = recognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         private lazy var pinch = recognizer(UIPinchGestureRecognizer(target: self, action: #selector(moved)))
@@ -1078,7 +1171,7 @@ private struct MapTouches: UIViewRepresentable {
             window?.addGestureRecognizer(tap)
         }
 
-        @objc private func tapped() { onTap?() }
+        @objc private func tapped() { onTap?(tap.location(in: nil)) }
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
             guard self.point(inside: point, with: event) else { return nil }
@@ -1220,5 +1313,23 @@ private struct ScrollOffset: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// A rounded rectangle with its top `top` points cut off, which animates as that changes.
+struct CutFromTop: Shape {
+    var top: CGFloat
+    let radius: CGFloat
+
+    var animatableData: CGFloat {
+        get { top }
+        set { top = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var rect = rect
+        rect.origin.y += min(top, rect.height)
+        rect.size.height = max(rect.height - top, 0)
+        return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
     }
 }

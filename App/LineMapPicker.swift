@@ -21,13 +21,15 @@ struct HomeMap: View {
     var open: Selection? = nil
     /// Shared with the departure list, so both always show the same buses and times.
     var feed: DepartureFeed? = nil
-    /// Turned into the stop picker, at the whole page's height, and opened out to show it: the city's
-    /// lines are on it while it's open, and blend out as it closes, before it stops being the picker.
+    /// Opened out over the whole page (full screen, or for the picker), at its height and taking touches.
+    var expanded = false
+    /// Turned into the stop picker, and opened out to show it: the city's lines are on it while it's
+    /// open, and blend out as it closes, before it stops being the picker.
     var picking = false
     var opened = false
     /// Points at the top covered by something drawn over the map, kept clear of the route.
     var topInset: CGFloat = 0
-    /// Points at the bottom of the map out of sight, below what holds it, while it isn't picking: the
+    /// Points at the bottom of the map out of sight, below what holds it, while it isn't expanded: the
     /// map is always as tall as when it is, and only shown as far as the home screen has room for.
     var hiddenBottom: CGFloat = 0
     /// Points at the top cut off by whatever holds the map (the home screen's, shrunk over a scrolled
@@ -35,15 +37,21 @@ struct HomeMap: View {
     var cropped: CGFloat = 0
     /// Two fingers moving the map, as they go, while it takes no touches itself.
     var gesture: MapGesture? = nil
+    /// How far a finger has pulled the full screen map down by its top to close it: the card fades.
+    var pulled: CGFloat = 0
     let onPick: (Selection) -> Void
-    /// Back to the map it opened out of, without a stop: a double tap.
-    var onClose: () -> Void = {}
 
     @State private var lines: [MapLine] = []
     @State private var paths: [String: [[CLLocationCoordinate2D]]] = [:]
     /// Bumped whenever `paths` changes, so the lines' layer can tell it's unchanged cheaply.
     @State private var pathsVersion = 0
     @State private var polylines: [String: [MKPolyline]] = [:]
+    /// Ferries in longer dashes, further out (see `Prepared.farPolylines`).
+    @State private var farPolylines: [String: [MKPolyline]] = [:]
+    /// Where the ferries' dashes are drawn: only in and around the view, unless the whole city shows (see
+    /// `cull`), and whether in the longer ones.
+    @State private var ferryArea: MKMapRect?
+    @State private var farFerries = true
     @State private var candidates: [MapLine] = []
     @State private var selectedID: String?
     @State private var directions: [Direction] = []
@@ -79,6 +87,16 @@ struct HomeMap: View {
     /// Where each line's name badge may go (worked out once per line map), and the badges shown now.
     @State private var labelSpots: [String: [LabelSpot]] = [:]
     @State private var labels: [LineLabel] = []
+
+    /// The badges to draw, those going too, each with its line's look.
+    private var shownBadges: [LineBadgesLayer.Badge] {
+        (labels + leavingLabels.values.map(\.label).sorted { $0.id < $1.id }).compactMap { label in
+            guard let line = lines.first(where: { $0.id == label.lineID }) else { return nil }
+            return LineBadgesLayer.Badge(id: label.id, coordinate: label.coordinate, leaving: leavingLabels[label.id] != nil,
+                                         text: LineBadge.short(line.id, in: city), color: line.mapColor.legible(on: colorScheme),
+                                         textColor: line.badgeTextColor, round: LineBadge.isRound([line.id], in: city), spoken: line.id)
+        }
+    }
     /// Badges just taken off, kept on the map while they fade out, until the given time.
     @State private var leavingLabels: [String: (label: LineLabel, until: Date)] = [:]
     /// When the badges were last placed during a camera move, to do it only a few times a second.
@@ -87,17 +105,28 @@ struct HomeMap: View {
     @State private var mapSize: CGSize = .zero
     /// How much of the map's bottom the picker's card covers, its padding included.
     @State private var cardRoom: CGFloat = 0
+    /// Whether the card (or the circle's list) is tucked away into a bar at the bottom, for more map;
+    /// and how far a finger is dragging it.
+    @State private var tucked = false
+    @State private var cardDrag: CGFloat = 0
     /// How zoomed in the map is; stop dots show once stops are a fingertip apart.
     @State private var metersPerPoint: Double = .infinity
-    /// Every stop in the city, and those in view once zoomed in far enough to show them.
+    /// Every stop in the city; those around once few enough are in view to tell apart, for the circle;
+    /// and the dots on the map, stops too close together to tell apart as one (see `showStops`).
     @State private var allStops: [MapStop] = []
+    @State private var stopsAround: [MapStop] = []
     @State private var shownStops: [MapStop] = []
+    /// The area the dots were last chosen for, and their squares' size (see `showStops`).
+    @State private var dotsArea: MKMapRect?
+    @State private var dotsSquare = 0.0
     /// Zoomed in to the stops, a circle in the middle of the map gathers those within a short walk
     /// (`cornerMeters`) of it: their codes, nearest the middle first, and once looked up, the lines
     /// and directions at each. Its size on screen, in points across.
     @State private var circleCodes: [String] = []
     @State private var circleStops: [CircleStop] = []
-    @State private var circleDiameter: CGFloat = 0
+    /// The lines in the circle as the map last came to rest (see `circleLineIDs`), and whether it's moving.
+    @State private var drawnCircleLineIDs: Set<String> = []
+    @State private var moving = false
     /// Lines' directions read for the circle so far, by line: reading them again (Seattle's come with
     /// their whole route shapes) every time it moves would keep the phone busy for seconds.
     @State private var circleDirections: [String: [Direction]] = [:]
@@ -107,8 +136,10 @@ struct HomeMap: View {
     /// the list's height would move the circle, which changes the list.
     private static let circleListHeight: CGFloat = 240
     @State private var circleRowsHeight: CGFloat = 0
-    /// Where the circle's list and the map are on screen, to tell taps on the list from taps on the map.
-    @State private var circleListFrame: CGRect = .null
+    /// Where the card (or the circle's list) and the map are on screen, to tell taps on the card from
+    /// taps on the map, and when the map was last tapped.
+    @State private var cardFrame: CGRect = .null
+    @State private var tappedAt = Date.distantPast
     @State private var mapFrame: CGRect = .zero
     @State private var error: String?
     @State private var position: MapCameraPosition
@@ -116,10 +147,8 @@ struct HomeMap: View {
 
     /// The open stop's route, stop and buses.
     @State private var live = LiveRoute()
-    /// What the map shows as it moves, for keeping the buses over it in place.
-    @State private var shown: MKMapRect?
-    /// Meters per point as the map moves, for setting the route's lines side by side.
-    @State private var routeMetersPerPoint: Double = 0
+    /// What changes as the map moves (see `MapMotion`).
+    @State private var motion = MapMotion()
     /// The height of map showing that the route was last framed for.
     @State private var fittedRoom: CGFloat = 0
     /// Each line's extent and tier (see `LineLabels.tier`), for `cull`.
@@ -127,6 +156,9 @@ struct HomeMap: View {
     @State private var lineTiers: [String: Int] = [:]
     /// The lines in view that the zoom can tell apart.
     @State private var culledIDs: Set<String> = []
+    /// What the lines in `culledIDs` were chosen for: the area around the map's view, the zoom's tier,
+    /// and how many lines the city has (more, once newer ones load).
+    @State private var culledFor: (area: MKMapRect?, tier: Int, lines: Int) = (nil, -1, 0)
     /// The layers on the map now, on their way to `wantedLayers` (see `switchLayers`).
     @State private var layers: MapLayers
     /// The city's lines waiting to come in over the route until the picker has opened out.
@@ -136,29 +168,29 @@ struct HomeMap: View {
     @State private var mapHeight: CGFloat = 0
     /// The height the map has room for, all of it: as tall as the page.
     @State private var fullHeight: CGFloat = 0
-    @State private var currentCamera: MapCamera?
-    /// Whether the map was last made as tall as the picker's, and the correction under way (see `keepClear`).
-    @State private var sizedForPicking = false
+    /// Whether the map was last made as tall as the expanded one, and the correction under way (see `keepClear`).
+    @State private var sizedExpanded = false
     @State private var keeping: Task<Void, Never>?
     /// A stop picked in the picker, its route to frame once the map is back to its size.
     @State private var routeToFrame = false
     /// When it opened: the second tap of the double tap that opened it isn't one of its own.
     @State private var openedAt = Date.now
 
-    init(city: City, open: Selection? = nil, feed: DepartureFeed? = nil, picking: Bool = false, opened: Bool = false, topInset: CGFloat = 0,
-         hiddenBottom: CGFloat = 0, cropped: CGFloat = 0, gesture: MapGesture? = nil,
-         onPick: @escaping (Selection) -> Void = { _ in }, onClose: @escaping () -> Void = {}) {
+    init(city: City, open: Selection? = nil, feed: DepartureFeed? = nil, expanded: Bool = false, picking: Bool = false, opened: Bool = false, topInset: CGFloat = 0,
+         hiddenBottom: CGFloat = 0, cropped: CGFloat = 0, gesture: MapGesture? = nil, pulled: CGFloat = 0,
+         onPick: @escaping (Selection) -> Void = { _ in }) {
         self.city = city
         self.open = open
         self.feed = feed
+        self.expanded = expanded
         self.picking = picking
         self.opened = opened
         self.topInset = topInset
         self.hiddenBottom = hiddenBottom
         self.cropped = cropped
         self.gesture = gesture
+        self.pulled = pulled
         self.onPick = onPick
-        self.onClose = onClose
         _position = State(initialValue: .region(city.region))
         _layers = State(initialValue: MapLayers(open: open, opened: opened))
     }
@@ -168,18 +200,21 @@ struct HomeMap: View {
 
     /// How tall the map should be: down to what's out of sight below the home screen's room for it, or
     /// to the picker's card.
-    private var wantedHeight: CGFloat { max(fullHeight - (picking ? 0 : hiddenBottom), 0) }
+    private var wantedHeight: CGFloat { max(fullHeight - (expanded ? 0 : hiddenBottom), 0) }
     /// How tall it is, all of it in sight but the top `cropped` points.
     private var shownHeight: CGFloat { max(mapSize.height, 1) }
     /// Where what lies over the map's bottom begins, picking: the card, or the circle's tallest list
-    /// (see `circleListHeight`) with its padding (16 inside, 16 around, and `logoRoom` below).
+    /// (see `circleListHeight`) with its padding (16 inside, 16 around, and `logoRoom` below) and the
+    /// close button above it.
     private var clearBottom: CGFloat {
         guard picking else { return shownHeight }
-        return max(cropped + 1, shownHeight - (isCircling ? Self.circleListHeight + 64 + Self.logoRoom : cardRoom))
+        return max(cropped + 1, shownHeight - (isCircling && !tucked ? Self.circleListHeight + 64 + Self.closeRoom + Self.logoRoom : cardRoom))
     }
     /// The room left under the card and the circle's list, lying over the map, for the Apple Maps logo
     /// and Legal link at its bottom.
     private static let logoRoom: CGFloat = 26
+    /// The close button's room above the card.
+    private static let closeRoom: CGFloat = 38
 
     /// The layers the map is to show, as it is: the open stop's, the picker's.
     private var wantedLayers: MapLayers { MapLayers(open: open, opened: opened) }
@@ -187,13 +222,13 @@ struct HomeMap: View {
     /// The lines drawn: those `cull` leaves, and any the picker has brought up.
     private var visibleLineIDs: Set<String> {
         guard layers.lines else { return [] }
-        return culledIDs.union(alsoLineIDs).union(candidates.map(\.id)).union(circleLineIDs).union([selectedID].compactMap { $0 })
+        return culledIDs.union(alsoLineIDs).union(candidates.map(\.id)).union(drawnCircleLineIDs).union([selectedID].compactMap { $0 })
     }
 
     private var selected: MapLine? { candidates.first { $0.id == selectedID } }
 
     /// Whether the circle is out: zoomed in to the stops, with no line picked yet.
-    private var isCircling: Bool { selectedID == nil && !shownStops.isEmpty }
+    private var isCircling: Bool { selectedID == nil && !stopsAround.isEmpty }
 
     /// The lines stopping inside the circle, drawn up on the map while it's out.
     private var circleLineIDs: Set<String> {
@@ -231,34 +266,19 @@ struct HomeMap: View {
     /// The city's lines and their names, selected line last, so it's drawn on top of the lines it shares
     /// streets with. Off, none (`visibleLineIDs`, `relabel`).
     @MapContentBuilder private var linesLayer: some MapContent {
-        LineLayer(lines: drawOrder, polylines: polylines, pathsVersion: pathsVersion, selectedID: selectedID,
-                  alsoLineIDs: alsoLineIDs, candidateIDs: Set(candidates.map(\.id)), circleLineIDs: circleLineIDs,
+        LineLayer(lines: drawOrder, polylines: polylines, farPolylines: farPolylines, ferryArea: ferryArea, farFerries: farFerries,
+                  pathsVersion: pathsVersion, selectedID: selectedID,
+                  alsoLineIDs: alsoLineIDs, candidateIDs: Set(candidates.map(\.id)), circleLineIDs: drawnCircleLineIDs,
                   colorScheme: colorScheme, isBackground: isBackground)
 
-        // Line names. While a line is picked they step back like the other lines do.
-        ForEach(labels + leavingLabels.values.map(\.label).sorted { $0.id < $1.id }) { label in
-            if let line = lines.first(where: { $0.id == label.lineID }) {
-                Annotation("", coordinate: label.coordinate, anchor: .center) {
-                    FadingBadge(leaving: leavingLabels[label.id] != nil) {
-                        LineBadge(line: LineBadge.short(line.id, in: city), font: .system(size: 12, weight: .heavy, design: .rounded),
-                                  color: line.mapColor.legible(on: colorScheme), textColor: line.badgeTextColor,
-                                  round: LineBadge.isRound([line.id], in: city), spoken: line.id)
-                            .fixedSize()
-                            .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
-                    }
-                    .opacity(selectedID == nil ? 1 : 0.35)
-                    .allowsHitTesting(false)
-                }
-                .annotationTitles(.hidden)
-            }
-        }
+        // The line names aren't on the map, but over it: see `LineBadgesLayer`.
     }
 
     /// The open stop's route and stop, as they are, picking or not: the city's lines come and go under
     /// them. Stepping back while the picker has a line picked. (Its buses go over the map: `BusLayer`.)
     @MapContentBuilder private var routeLayer: some MapContent {
         if layers.route {
-            RouteLayer(live: live, city: city, metersPerPoint: routeMetersPerPoint, dimmed: selectedID != nil, colorScheme: colorScheme)
+            RouteLayer(live: live, city: city, motion: motion, dimmed: selectedID != nil, colorScheme: colorScheme)
         }
     }
 
@@ -289,29 +309,7 @@ struct HomeMap: View {
                 .annotationTitles(.hidden)
             }
 
-            // Every stop around, underneath the selected line's own.
-            ForEach(shownStops) { stop in
-                let inside = isCircling && circleCodes.contains(stop.code)
-                Annotation("", coordinate: stop.coordinate, anchor: .center) {
-                    Circle().fill(.white).stroke(inside ? Color.primary : .gray, lineWidth: inside ? 2 : 1.5)
-                        .frame(width: inside ? 10 : 8, height: inside ? 10 : 8)
-                        .allowsHitTesting(false)
-                }
-                .annotationTitles(.hidden)
-            }
-
-            // The selected line's stops, once zoomed in far enough to tell them apart.
-            if metersPerPoint < Self.dotsBelowMetersPerPoint {
-                let color = (selected?.mapColor ?? LineBadge.red).legible(on: colorScheme)
-                // By place, so switching lines fades dots out and in rather than sliding them across.
-                ForEach(stopDots, id: \.self) { dot in
-                    Annotation("", coordinate: dot.coordinate, anchor: .center) {
-                        Circle().fill(.white).stroke(color, lineWidth: 2).frame(width: 9, height: 9)
-                            .allowsHitTesting(false)
-                    }
-                    .annotationTitles(.hidden)
-                }
-            }
+            // The stop dots aren't on the map, but over it: see `StopDotsLayer`.
 
             // The picked stop's directions, on the side of the street each stops on.
             ForEach(corner) { arrow in
@@ -336,9 +334,9 @@ struct HomeMap: View {
 
     var body: some View {
         MapReader { proxy in
-            // No tilting: two fingers dragging move the map, as on the home screen. Not picking, it takes
-            // no touches: the list under it does, and passes two fingers' on (`gesture`).
-            Map(position: $position, bounds: city.cameraBounds, interactionModes: picking ? [.pan, .zoom, .rotate] : []) {
+            // No tilting: two fingers dragging move the map, as on the home screen. Neither full screen nor
+            // picking, it takes no touches: the list under it does, and passes two fingers' on (`gesture`).
+            Map(position: $position, bounds: city.cameraBounds, interactionModes: expanded || picking ? [.pan, .zoom, .rotate] : []) {
                 // Bottom up: the city's lines, the open stop's route over them, the picker's own on top.
                 linesLayer
                 routeLayer
@@ -356,18 +354,27 @@ struct HomeMap: View {
             // Under the buses: the map's picture, blending what changes (see `MapFader`).
             .overlay { MapFader.Host(fader: fader).allowsHitTesting(false) }
             .overlay {
+                if layers.lines {
+                    LineBadgesLayer(badges: shownBadges, stepBack: selectedID != nil, proxy: proxy, motion: motion, mapSize: mapSize)
+                }
+            }
+            .overlay {
+                if layers.picking {
+                    StopDotsLayer(stops: shownStops, inside: isCircling ? Set(circleCodes) : [],
+                                  lineDots: stopDots.map(\.coordinate), lineDotsBelow: Self.dotsBelowMetersPerPoint,
+                                  lineColor: (selected?.mapColor ?? LineBadge.red).legible(on: colorScheme), proxy: proxy, motion: motion, mapSize: mapSize)
+                }
+            }
+            .overlay {
                 if layers.route {
-                    BusLayer(live: live, departures: departures, proxy: proxy, shown: shown, mapSize: mapSize)
+                    BusLayer(live: live, departures: departures, proxy: proxy, motion: motion, mapSize: mapSize)
                 }
             }
             .modifier(FollowsGesture(gesture: gesture, city: city, proxy: proxy, position: $position))
             .overlay {
                 // Not a map circle: drawn over the map's middle, it stays put while the map moves under it.
                 if layers.picking, isCircling {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.12))
-                        .strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 2)
-                        .frame(width: circleDiameter, height: circleDiameter)
+                    PickerCircle(motion: motion)
                         .position(circleSpot)
                         .allowsHitTesting(false)
                         .transition(.opacity)
@@ -375,32 +382,33 @@ struct HomeMap: View {
             }
             .animation(.easeInOut(duration: 0.25), value: isCircling)
             .onMapCameraChange(frequency: .continuous) { context in
-                shown = context.rect
-                currentCamera = context.camera
+                if !moving { moving = true }
+                motion.shown = context.rect
                 // Moved under the map's picture: it goes at once.
                 fader.moved(to: context.rect)
-                if open != nil, mapSize.width > 0 {
-                    let meters = context.rect.width * MKMetersPerMapPointAtLatitude(context.rect.origin.coordinate.latitude) / mapSize.width
-                    if abs(meters - routeMetersPerPoint) > routeMetersPerPoint * 0.02 { routeMetersPerPoint = meters }
-                }
+                // The route's lines side by side, set apart for the zoom: at once the first time, then as it rests
+                // (every change to them has MapKit build the map's lines again).
+                if open != nil, motion.metersPerPoint == 0 { spaceRoute(context.rect) }
                 guard picking else { return }
                 heading = context.camera.heading
                 if mapSize.width > 0 {
                     let metersPerPoint = context.rect.width * MKMetersPerMapPointAtLatitude(context.rect.origin.coordinate.latitude) / mapSize.width
-                    circleDiameter = 2 * Self.cornerMeters / metersPerPoint
+                    motion.circleDiameter = 2 * Self.cornerMeters / metersPerPoint
                 }
                 if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
-                // The lines, stops and badges follow a pinch or pan as it happens, not just once it's let go.
+                // The stops follow a pinch or pan as it happens, not just once it's let go. The badges go along
+                // with the map, and are only placed again once it rests: placing them takes longer than a frame.
                 guard Date.now.timeIntervalSince(liveRelabelAt) > 0.15 else { return }
                 liveRelabelAt = .now
-                measure(context.rect)
-                cull(context.rect, blending: false)
-                relabel(proxy, showing: context.rect)
+                measure(context.rect, settled: false)
             }
             .onMapCameraChange(frequency: .onEnd) {
+                spaceRoute($0.rect)
+                moving = false
+                drawnCircleLineIDs = circleLineIDs
                 visibleRect = $0.rect
                 camera = $0.camera
-                measure($0.rect)
+                measure($0.rect, settled: true)
                 cull($0.rect)
                 if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
                 relabel(proxy)
@@ -413,19 +421,18 @@ struct HomeMap: View {
                 let old = mapSize
                 mapSize = size
                 // A route loaded before the map had its height.
-                if !picking, open != nil, old.height <= 1, size.height > 1 { frameRoute(animated: false) }
+                if !expanded, open != nil, old.height <= 1, size.height > 1 { frameRoute(animated: false) }
             }
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { mapFrame = $0 }
             .onChange(of: picking) {
                 openedAt = .now
+                tucked = false
                 // Back from the picker to a stop, the one picked there or the one it opened over: its whole route.
-                if !picking, routeToFrame || open != nil {
-                    routeToFrame = false
-                    Task {
-                        try? await Task.sleep(for: .seconds(0.1))
-                        frameRoute(animated: true)
-                    }
-                }
+                if !picking, routeToFrame || open != nil { frameRouteSoon() }
+            }
+            .onChange(of: expanded) {
+                // Back to the home screen from full screen: the whole route in its room for it.
+                if !expanded, !picking, open != nil { frameRouteSoon() }
             }
             .onChange(of: opened) {
                 if opened, let visibleRect { cull(visibleRect) }
@@ -439,7 +446,11 @@ struct HomeMap: View {
                 labelSpots = spots
                 relabel(proxy)
             }
-            .onChange(of: selectedID) { relabel(proxy) }
+            .onChange(of: selectedID) {
+                relabel(proxy)
+                // A line picked on the map: its card comes up, tucked away or not.
+                if selectedID != nil, tucked { withAnimation(.snappy(duration: 0.3)) { tucked = false } }
+            }
             .onChange(of: corner) { old, new in
                 // Another stop: its arrows fade in (on their own) while the old ones fade out.
                 let gone = old.filter { !new.contains($0) }
@@ -452,48 +463,68 @@ struct HomeMap: View {
                 }
             }
             .onChange(of: alsoLineIDs) { relabel(proxy) }
-            .onChange(of: circleLineIDs) { relabel(proxy) }
-            // Alongside the map's own gestures, which would otherwise swallow a plain tap.
-            // Not for taps on the circle's list over the map, which the map hears too: those are the list's.
-            // A double tap closes it, back to the map it opened out of (as a double tap opens it); a single
-            // one waits a moment to be sure it isn't one, by when a tap on the close button, which the map
-            // hears too, has closed it.
-            .simultaneousGesture(SpatialTapGesture(count: 2, coordinateSpace: .global)
-                .exclusively(before: SpatialTapGesture(coordinateSpace: .global))
-                .onEnded { tap in
-                    guard picking, opened, Date.now.timeIntervalSince(openedAt) > 0.4 else { return }
-                    switch tap {
-                    case .first(let double):
-                        guard !circleListFrame.contains(double.location) else { return }
-                        Journey.shared.tap("picker.close", "double tap")
-                        onClose()
-                    case .second(let single):
-                        guard !circleListFrame.contains(single.location) else { return }
-                        Journey.shared.tap("picker.map.tap", selectedID == nil ? nil : "with a line")
-                        handleTap(at: CGPoint(x: single.location.x - mapFrame.minX, y: single.location.y - mapFrame.minY), proxy: proxy)
-                    }
-                })
+            // Drawn up once the map is at rest: changing how the lines are drawn has MapKit build them all
+            // again, half a second in New York, over and over as the circle moves along under a pinch.
+            .onChange(of: circleLineIDs) { if !moving { drawnCircleLineIDs = circleLineIDs } }
+            .onChange(of: drawnCircleLineIDs) { relabel(proxy) }
+            // Alongside the map's own gestures, which would otherwise swallow a plain tap. At once: a double
+            // tap is the map's own, zooming in, as on any map, so its second tap is let be. Not for taps on
+            // what lies over the map, which it hears too: the card, the buttons along its top.
+            .simultaneousGesture(SpatialTapGesture(coordinateSpace: .global)
+                .onEnded { tapped(at: $0.location, proxy: proxy) })
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { fullHeight = $0 }
-        // The card, over the map's bottom: changing, it leaves the map be. Above the Apple Maps logo.
+        // The card (or the circle's list), over the map's bottom: changing, it leaves the map be. Above
+        // the Apple Maps logo, with the close button on top of it, in reach of a thumb. Pulled down, the
+        // open map goes back as a sheet would.
         .overlay(alignment: .bottom) {
-            if picking, !isCircling {
-                card
-                    .padding(.bottom, Self.logoRoom)
-                    .onGeometryChange(for: CGFloat.self, of: \.size.height) { cardRoom = $0 }
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if isCircling {
-                circleList
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { circleListFrame = $0 }
-                    .onDisappear { circleListFrame = .null }
-                    .padding()
-                    .padding(.bottom, Self.logoRoom)
+            if picking {
+                VStack(alignment: .trailing, spacing: 0) {
+                    if tucked {
+                        tuckedBar
+                    } else {
+                        // Down, out of the way of the map: the card tucks itself away (the pen leaves the picker).
+                        Button { tuck(true, from: "button") } label: {
+                            Image(systemName: "chevron.down")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(width: 38, height: 38)
+                                .background(.regularMaterial, in: Circle())
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(.horizontal)
+                        .accessibilityLabel("Make room for the map")
+                        if isCircling {
+                            circleList
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .padding()
+                        } else {
+                            card
+                        }
+                    }
+                }
+                .padding(.bottom, Self.logoRoom)
+                .contentShape(Rectangle())
+                .offset(y: max(cardDrag, 0) * (tucked ? 0.2 : 1))
+                .opacity(1 - min(pulled / 120, 1))
+                // Pulled down, it tucks away, as the button does; the bar pulled up brings it back.
+                .gesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                    .onChanged { cardDrag = $0.translation.height }
+                    .onEnded { drag in
+                        let down = drag.predictedEndTranslation.height
+                        if !tucked, drag.translation.height > 60 || down > 160 { tuck(true, from: "pull") }
+                        else if tucked, drag.translation.height < -20 || down < -80 { tuck(false, from: "pull") }
+                        withAnimation(.spring(duration: 0.3)) { cardDrag = 0 }
+                    })
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                    cardFrame = frame
+                    if tucked || !isCircling { cardRoom = frame.height }
+                }
+                .onDisappear { cardFrame = .null }
+                // At the bottom of what shows: on the home screen, the map's bottom is out of sight.
+                .padding(.bottom, max(fullHeight - mapHeight, 0))
             }
         }
         .overlay {
@@ -554,7 +585,7 @@ struct HomeMap: View {
         // keeping the old zoom, which would show far too much around it, or cut it off.
         .task(id: shownHeight - cropped) {
             let room = shownHeight - cropped
-            guard !picking, open != nil else { return }
+            guard !expanded, !picking, open != nil else { return }
             // Without a route yet, it'll be framed for this room once it loads.
             guard fittedRoom > 0, abs(fittedRoom - room) > 1 else {
                 fittedRoom = room
@@ -576,7 +607,9 @@ struct HomeMap: View {
         .task(id: live.glides) {
             while !Task.isCancelled, live.glides.values.contains(where: { $0.isMoving(at: .now) }) {
                 try? await Task.sleep(for: .seconds(1))
-                withAnimation(.linear(duration: 1)) { live.tick = .now }
+                var glide = Transaction(animation: .linear(duration: 1))
+                glide[BusLayer.Gliding.self] = true
+                withTransaction(glide) { live.tick = .now }
             }
         }
         .task(id: picked?.id) {
@@ -643,6 +676,43 @@ struct HomeMap: View {
         }
     }
 
+    /// The card tucked away: what it's about, in a line, and an arrow to bring it back.
+    private var tuckedBar: some View {
+        // A tap, not a button: a button would keep a finger swiping it up from the card's drag.
+        HStack(spacing: 8) {
+            if let selected {
+                LineBadge(line: LineBadge.short(selected.id, in: city), font: .system(.subheadline, design: .rounded).weight(.heavy),
+                          color: selected.mapColor, textColor: selected.badgeTextColor,
+                          round: LineBadge.isRound([selected.id], in: city), spoken: selected.id)
+            }
+            Text(tuckedTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.up").font(.subheadline.weight(.semibold))
+        }
+        .padding(.horizontal)
+        .frame(height: 44)
+        .background(.regularMaterial, in: Capsule())
+        .contentShape(Capsule())
+        .onTapGesture { tuck(false, from: "button") }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Show \(tuckedTitle)")
+        .accessibilityAction { tuck(false, from: "button") }
+    }
+
+    private var tuckedTitle: String {
+        if let selected { return corner.first?.stop.name ?? selected.name }
+        if isCircling { return circleCodes.isEmpty ? "Slide the circle over where you wait" : "What stops around here" }
+        return recent.isEmpty ? "Tap where you wait" : "Looked at before"
+    }
+
+    private func tuck(_ away: Bool, from place: String) {
+        Journey.shared.tap(away ? "picker.tuck" : "picker.untuck", place)
+        withAnimation(.snappy(duration: 0.3)) { tucked = away }
+    }
+
     @ViewBuilder private var card: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let selected {
@@ -689,10 +759,10 @@ struct HomeMap: View {
                                 }
                             }
                             Spacer(minLength: 0)
-                            if !shownStops.isEmpty {
+                            if !stopsAround.isEmpty {
                                 // Back to the stops in the circle.
                                 Button { Journey.shared.tap("picker.line.close"); withAnimation(.snappy(duration: 0.25)) { deselect() } } label: {
-                                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundStyle(.secondary)
+                                    Image(systemName: "arrow.uturn.backward.circle.fill").font(.title2).foregroundStyle(.secondary)
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Back to the stops around")
@@ -722,7 +792,7 @@ struct HomeMap: View {
             } else if !recent.isEmpty {
                 recentStops
             } else {
-                Label(shownStops.isEmpty ? "Tap where you wait to zoom in." : "Tap your stop, or your line.", systemImage: "hand.tap")
+                Label(stopsAround.isEmpty ? "Tap where you wait to zoom in." : "Tap your stop, or your line.", systemImage: "hand.tap")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -962,8 +1032,8 @@ struct HomeMap: View {
             withAnimation(.snappy(duration: 0.25)) { pickCorner(near: coordinate) }
             return
         }
-        // Zoomed out too far for stops, a tap zooms in there.
-        guard !shownStops.isEmpty else {
+        // Zoomed out too far for the stops, a tap zooms in there.
+        guard !stopsAround.isEmpty else {
             Journey.shared.tap("picker.map.zoom")
             return zoomIn(at: point, proxy: proxy)
         }
@@ -1016,12 +1086,22 @@ struct HomeMap: View {
         }
     }
 
-    /// Notes how zoomed in the map is, for the stop dots.
-    private func measure(_ rect: MKMapRect) {
+    /// Notes how zoomed in the map is, for the stop dots: in `metersPerPoint` only once it's `settled`, as
+    /// what the map shows depends on it, and changing it as the map moves would have all of it gone over
+    /// again, several times a second.
+    private func measure(_ rect: MKMapRect, settled: Bool) {
         guard mapSize.width > 0 else { return }
-        metersPerPoint = rect.width * MKMetersPerMapPointAtLatitude(rect.origin.coordinate.latitude) / mapSize.width
-        circleDiameter = 2 * Self.cornerMeters / metersPerPoint
-        showStops(in: rect)
+        let meters = rect.width * MKMetersPerMapPointAtLatitude(rect.origin.coordinate.latitude) / mapSize.width
+        if settled { metersPerPoint = meters }
+        motion.circleDiameter = 2 * Self.cornerMeters / meters
+        showStops(in: rect, metersPerPoint: meters)
+    }
+
+    /// Sets the route's lines on a shared track apart for the zoom `rect` shows, if it has changed enough to see.
+    private func spaceRoute(_ rect: MKMapRect) {
+        guard open != nil, mapSize.width > 0 else { return }
+        let meters = rect.width * MKMetersPerMapPointAtLatitude(rect.origin.coordinate.latitude) / mapSize.width
+        if abs(meters - motion.metersPerPoint) > motion.metersPerPoint * 0.02 { motion.metersPerPoint = meters }
     }
 
     /// The middle of the map that the card or the circle's list leaves showing, where the circle goes.
@@ -1031,7 +1111,7 @@ struct HomeMap: View {
 
     /// The stops within the circle around `middle`, nearest first.
     private func gather(around middle: CLLocationCoordinate2D) {
-        let codes = shownStops
+        let codes = stopsAround
             .map { ($0.code, meters($0.coordinate, middle)) }
             .filter { $0.1 <= Self.cornerMeters }
             .sorted { $0.1 < $1.1 }
@@ -1062,7 +1142,7 @@ struct HomeMap: View {
     /// the stops, or else from the proxy (Muni's, from the live times); each line's directions that
     /// call there (from the device, or downloaded once) give the way it goes and the stop's name.
     private func lookUpCircle(_ codes: [String]) async -> [CircleStop] {
-        let stops = codes.compactMap { code in shownStops.first { $0.code == code } }
+        let stops = codes.compactMap { code in stopsAround.first { $0.code == code } }
         var linesAt = Dictionary(stops.compactMap { s in s.lines.map { (s.code, $0) } }, uniquingKeysWith: { a, _ in a })
         let asking = stops.filter { $0.lines == nil }.map(\.code)
         if !asking.isEmpty, let found = try? await TransitService.linesAtStops(asking, in: city) {
@@ -1182,23 +1262,60 @@ struct HomeMap: View {
         select(first.line, among: [first.line], way: ways.count == 1 ? (first.direction.id, first.stop) : nil)
     }
 
-    /// The stops in (and just around) `rect`, once few enough are in view to tell apart: sooner where
-    /// stops are sparse (out in the suburbs, along a ferry route) than downtown. None with more in view,
-    /// where they'd bury the lines (and slow the map down).
-    private func showStops(in rect: MKMapRect) {
-        let inView = picking && metersPerPoint < Self.stopsConsideredBelowMetersPerPoint
-            ? allStops.filter { rect.contains(MKMapPoint($0.coordinate)) } : []
-        guard !inView.isEmpty, inView.count <= Self.mostStopsInView else {
-            if !shownStops.isEmpty { shownStops = [] }
-            return
-        }
+    /// The stops in (and just around) `rect`. On the map, those closer together on screen than a dot or
+    /// so as one: the map split into squares about that size, one stop for each square with any. The
+    /// squares stay put as the map moves, and only halve or double as it zooms, so the dots don't keep
+    /// changing (every change has MapKit draw the whole map's lines again). None with too many squares
+    /// in view, where they'd bury the lines. For the circle, every one of them, once few enough are in
+    /// view to tell apart: sooner where stops are sparse (out in the suburbs, along a ferry route) than
+    /// downtown.
+    private func showStops(in rect: MKMapRect, metersPerPoint: Double? = nil) {
+        let metersPerPoint = metersPerPoint ?? self.metersPerPoint
         let area = rect.insetBy(dx: -rect.width * 0.15, dy: -rect.height * 0.15)
-        let nearby = allStops.filter { area.contains(MKMapPoint($0.coordinate)) }
-        if nearby.map(\.code) != shownStops.map(\.code) { shownStops = nearby }
+        let nearby = picking && mapSize.width > 0 && metersPerPoint < Self.stopsConsideredBelowMetersPerPoint
+            ? allStops.filter { area.contains(MKMapPoint($0.coordinate)) } : []
+        let inView = nearby.lazy.filter { rect.contains(MKMapPoint($0.coordinate)) }.count
+        let around = inView <= Self.mostStopsInView ? nearby : []
+        if around.map(\.code) != stopsAround.map(\.code) { stopsAround = around }
+
+        // The same dots while the map shows what they were chosen for, as closely zoomed.
+        let square = Self.dotSpacing * pow(2, (log2(rect.width / max(mapSize.width, 1))).rounded(.up))
+        guard nearby.isEmpty || square != dotsSquare || dotsArea?.contains(rect) != true else { return }
+        dotsArea = nearby.isEmpty ? nil : area
+        dotsSquare = square
+        // Where that leaves too many, as downtown, squares twice as large.
+        var shown: [MapStop] = []
+        // Once dots show, larger squares still, rather than none: right after the squares halve, as the map
+        // zooms in, there are as many as four times the dots for a moment, which would have them all go,
+        // and come back a little further in.
+        let tries = shownStops.isEmpty ? Self.largerSquares : Self.largerSquares + 2
+        for size in (0..<tries).map({ square * pow(2, Double($0)) }) {
+            var dots: [SIMD2<Int>: MapStop] = [:]
+            for stop in nearby {
+                let spot = MKMapPoint(stop.coordinate)
+                let key = SIMD2(Int((spot.x / size).rounded(.down)), Int((spot.y / size).rounded(.down)))
+                if let kept = dots[key], kept.code <= stop.code { continue }
+                dots[key] = stop
+            }
+            if dots.count <= Self.mostDotsAround {
+                shown = dots.values.sorted { $0.code < $1.code }
+                break
+            }
+        }
+        // Too many even so: looked at again as it moves, until there are few enough.
+        if shown.isEmpty { dotsArea = nil }
+        if shown.map(\.code) != shownStops.map(\.code) { shownStops = shown }
     }
 
-    /// Stops show once no more than this many are in view.
+    /// Every stop around shows, for the circle, once no more than this many are in view.
     private static let mostStopsInView = 120
+    /// Stops closer together on screen than this (in points, up to twice as far) show as one dot.
+    private static let dotSpacing = 12.0
+    /// The most dots in and just around the map's view (about 1.7 times its area), and the sizes of
+    /// square tried to get there (each twice the last) before there are none: larger, a dot would stand
+    /// for stops too far apart to mean anything.
+    private static let mostDotsAround = 150
+    private static let largerSquares = 2
     /// Further out than this (a few miles across), they aren't even counted.
     private static let stopsConsideredBelowMetersPerPoint = 30.0
 
@@ -1249,7 +1366,7 @@ struct HomeMap: View {
             let metersPerPoint = visibleRect.width * MKMetersPerMapPointAtLatitude(visibleRect.origin.coordinate.latitude) / mapSize.width
             // Clear of the edges, so no badge is cut off.
             let bounds = CGRect(x: 0, y: cropped, width: mapSize.width, height: clearBottom - cropped).insetBy(dx: 8, dy: 6)
-            let circled = circleLineIDs
+            let circled = drawnCircleLineIDs
             placed = LineLabels.place(
                 lines: lines.filter { circled.isEmpty ? culledIDs.contains($0.id) : circled.contains($0.id) }, spots: labelSpots, excluding: alsoLineIDs.union([selectedID].compactMap { $0 }),
                 previous: labels, visible: visibleRect, bounds: bounds, metersPerPoint: metersPerPoint,
@@ -1276,27 +1393,35 @@ struct HomeMap: View {
         /// The pieces each line is drawn in, made once: given the same ones again with only another
         /// color or width, MapKit keeps them rather than building them anew (ferries dashed, see `LineLayer.dashed`).
         let polylines: [String: [MKPolyline]]
+        /// The same, but the ferries in dashes four times as long, further out: a dash is a piece of its own,
+        /// and in the 300-meter ones New York's ferries come to a thousand of them, which MapKit builds again
+        /// with every change to the lines. The other lines' are the same pieces.
+        let farPolylines: [String: [MKPolyline]]
         let bounds: [String: MKMapRect]
         let tiers: [String: Int]
     }
 
     nonisolated static func prepare(_ loaded: [MapLine]) -> Prepared {
         var paths: [String: [[CLLocationCoordinate2D]]] = [:], bounds: [String: MKMapRect] = [:], tiers: [String: Int] = [:]
-        var polylines: [String: [MKPolyline]] = [:]
+        var polylines: [String: [MKPolyline]] = [:], farPolylines: [String: [MKPolyline]] = [:]
         for line in loaded {
             let path = line.shapes.map { $0.compactMap { $0.count == 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil } }
             paths[line.id] = path
-            polylines[line.id] = (line.mode == "ferry" ? path.flatMap { LineLayer.dashed($0) } : path).map { MKPolyline(coordinates: $0, count: $0.count) }
+            let pieces = (line.mode == "ferry" ? path.flatMap { LineLayer.dashed($0) } : path).map { MKPolyline(coordinates: $0, count: $0.count) }
+            polylines[line.id] = pieces
+            farPolylines[line.id] = line.mode == "ferry"
+                ? path.flatMap { LineLayer.dashed($0, on: 1200, off: 880) }.map { MKPolyline(coordinates: $0, count: $0.count) } : pieces
             bounds[line.id] = path.joined().reduce(MKMapRect.null) { $0.union(MKMapRect(origin: MKMapPoint($1), size: MKMapSize())) }
             tiers[line.id] = LineLabels.tier(of: line)
         }
-        return Prepared(lines: loaded, paths: paths, polylines: polylines, bounds: bounds, tiers: tiers)
+        return Prepared(lines: loaded, paths: paths, polylines: polylines, farPolylines: farPolylines, bounds: bounds, tiers: tiers)
     }
 
     private func show(_ loaded: Prepared) {
         guard !loaded.lines.isEmpty else { return }
         paths = loaded.paths
         polylines = loaded.polylines
+        farPolylines = loaded.farPolylines
         lineBounds = loaded.bounds
         lineTiers = loaded.tiers
         pathsVersion += 1
@@ -1315,17 +1440,23 @@ struct HomeMap: View {
 
     /// Keeps the lines in and around `rect` that the zoom can tell apart: zoomed out to the city, its
     /// backbone (trains, rapid and select buses: tier 0); the regular lines across a few
-    /// neighborhoods; express and owl lines close in. Those coming in as the map comes to rest blend in;
-    /// while it moves, a picture of it would only be dropped (see `MapFader.moved`).
-    private func cull(_ rect: MKMapRect, blending: Bool = true) {
+    /// neighborhoods; express and owl lines close in. Those coming in blend in.
+    private func cull(_ rect: MKMapRect) {
         guard !lines.isEmpty, mapSize.width > 0 else { return }
         let metersPerPoint = rect.width * MKMetersPerMapPointAtLatitude(rect.origin.coordinate.latitude) / mapSize.width
         let tier = metersPerPoint < Self.allLinesBelowMetersPerPoint ? 2 : metersPerPoint < Self.linesBelowMetersPerPoint ? 1 : 0
-        let around = rect.insetBy(dx: -rect.width / 2, dy: -rect.height / 2)
+        // The same lines while the map stays within what they were chosen for, as far in: any change has
+        // MapKit build every line on the map again, half a second in New York.
+        if tier == culledFor.tier, culledFor.lines == lines.count, let area = culledFor.area, area.contains(rect) { return }
+        let around = rect.insetBy(dx: -rect.width * 0.75, dy: -rect.height * 0.75)
+        culledFor = (around, tier, lines.count)
         let culled = Set(lines.lazy.map(\.id).filter { (lineTiers[$0] ?? 1) <= tier && lineBounds[$0]?.intersects(around) == true })
-        guard culled != culledIDs else { return }
+        // The ferries' dashes: the longer ones but closest in; only those around the view, but for the city as a whole.
+        let far = tier < 2, area: MKMapRect? = tier == 0 ? nil : around
+        guard culled != culledIDs || far != farFerries || !LineLayer.same(area, ferryArea) else { return }
+        let change = { culledIDs = culled; farFerries = far; ferryArea = area }
         // Lines coming and going as the map comes to rest blend; not before any are on it.
-        if blending, layers.lines, !visibleLineIDs.isEmpty { fader.blend(at: rect) { culledIDs = culled } } else { culledIDs = culled }
+        if layers.lines, !visibleLineIDs.isEmpty { fader.blend(at: rect, change) } else { change() }
     }
 
     /// Zoomed out further than this, only the backbone; then the regular lines; then all.
@@ -1355,7 +1486,9 @@ struct HomeMap: View {
         let change = {
             if old.picking, !new.picking {
                 deselect()
+                stopsAround = []
                 shownStops = []
+                dotsArea = nil
                 circleCodes = []
             }
             if old.lines, !new.lines {
@@ -1365,7 +1498,7 @@ struct HomeMap: View {
             layers = new
             relabel(proxy)
         }
-        if old.lines != new.lines || old.picking && !new.picking { fader.blend(at: shown, change) } else { change() }
+        if old.lines != new.lines || old.picking && !new.picking { fader.blend(at: motion.shown, change) } else { change() }
     }
 
     /// Makes the map as tall as `wantedHeight` asks, with it just where it is: the same top, as far in.
@@ -1377,12 +1510,12 @@ struct HomeMap: View {
         guard abs(wanted - mapHeight) > 0.5 else { return }
         keeping?.cancel()
         // Otherwise (the page settling, the home screen's room changing), what shows is framed afresh.
-        guard picking || picking != sizedForPicking else {
+        guard expanded || expanded != sizedExpanded else {
             mapHeight = wanted
             if open != nil { frameRoute(animated: false) }
             return
         }
-        sizedForPicking = picking
+        sizedExpanded = expanded
         let corners = (CGPoint(x: 0, y: 0), CGPoint(x: mapSize.width, y: 0))
         guard mapSize.width > 0, mapSize.height > 1, let left = proxy.convert(corners.0, from: .local), let right = proxy.convert(corners.1, from: .local) else {
             mapHeight = wanted
@@ -1407,6 +1540,29 @@ struct HomeMap: View {
                 if off < perPoint * 0.5 { break }
             }
             fader.release(held)
+        }
+    }
+
+    /// A tap on the map, where it landed in the window: the picker's, past the card and what's along the top.
+    private func tapped(at location: CGPoint, proxy: MapProxy) {
+        let now = Date.now
+        defer { tappedAt = now }
+        guard picking, opened, now.timeIntervalSince(openedAt) > 0.4, now.timeIntervalSince(tappedAt) > 0.35,
+              !cardFrame.contains(location), location.y > mapFrame.minY + cropped + topInset,
+              location.y < mapFrame.minY + shownHeight
+        else { return }
+        Journey.shared.tap("picker.map.tap", selectedID == nil ? nil : "with a line")
+        handleTap(at: CGPoint(x: location.x - mapFrame.minX, y: location.y - mapFrame.minY), proxy: proxy)
+    }
+
+    /// Frames the open stop's route, animated, once what shows has settled: the map's new height too
+    /// (see `keepClear`), which would otherwise put back what it showed before.
+    private func frameRouteSoon() {
+        routeToFrame = false
+        Task {
+            try? await Task.sleep(for: .seconds(0.1))
+            await keeping?.value
+            frameRoute(animated: true)
         }
     }
 
@@ -1487,6 +1643,18 @@ struct HomeMap: View {
         withAnimation(.smooth(duration: 0.6)) {
             position = .rect(framed)
         }
+    }
+}
+
+/// The picker's circle, as large as the map's zoom has it (see `MapMotion`).
+private struct PickerCircle: View {
+    let motion: MapMotion
+
+    var body: some View {
+        Circle()
+            .fill(Color.accentColor.opacity(0.12))
+            .strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 2)
+            .frame(width: motion.circleDiameter, height: motion.circleDiameter)
     }
 }
 
@@ -2001,6 +2169,11 @@ struct LineLayer: MapContent, Equatable {
     let lines: [MapLine]
     /// Each line's pieces, the same ones every time (see `HomeMap.Prepared`).
     let polylines: [String: [MKPolyline]]
+    /// The ferries' dashes: the longer ones (`farPolylines`) when `farFerries`, and only those within
+    /// `ferryArea` if there is one. The pieces are always the same ones, so MapKit keeps those it has.
+    let farPolylines: [String: [MKPolyline]]
+    let ferryArea: MKMapRect?
+    let farFerries: Bool
     let pathsVersion: Int
     let selectedID: String?
     let alsoLineIDs: Set<String>
@@ -2011,7 +2184,8 @@ struct LineLayer: MapContent, Equatable {
     let isBackground: (MapLine) -> Bool
 
     static func == (a: Self, b: Self) -> Bool {
-        a.pathsVersion == b.pathsVersion && a.selectedID == b.selectedID && a.alsoLineIDs == b.alsoLineIDs
+        a.pathsVersion == b.pathsVersion && a.farFerries == b.farFerries && same(a.ferryArea, b.ferryArea)
+            && a.selectedID == b.selectedID && a.alsoLineIDs == b.alsoLineIDs
             && a.candidateIDs == b.candidateIDs && a.circleLineIDs == b.circleLineIDs && a.colorScheme == b.colorScheme && a.lines.map(\.id) == b.lines.map(\.id)
     }
 
@@ -2028,7 +2202,7 @@ struct LineLayer: MapContent, Equatable {
             let width: CGFloat = isSelected ? 7 : isCircled ? 5 : isCandidate ? 3.5 : background ? 1.5 : 3
             // Ferries dashed across the water. Not with the stroke's dash: MapKit draws those blurred and
             // about three times too wide. As short pieces of line instead, a few hundred meters each.
-            ForEach(polylines[line.id] ?? [], id: \.self) { polyline in
+            ForEach(pieces(of: line), id: \.self) { polyline in
                 MapPolyline(polyline)
                     .stroke(line.mapColor.legible(on: colorScheme)
                                 .opacity((isStepBack ? 0.22 : selectedID == nil || isSelected ? 1 : isCandidate ? 0.5 : 0.22)
@@ -2036,6 +2210,21 @@ struct LineLayer: MapContent, Equatable {
                             style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
             }
         }
+    }
+
+    static func same(_ a: MKMapRect?, _ b: MKMapRect?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): true
+        case let (a?, b?): MKMapRectEqualToRect(a, b)
+        default: false
+        }
+    }
+
+    private func pieces(of line: MapLine) -> [MKPolyline] {
+        guard line.mode == "ferry" else { return polylines[line.id] ?? [] }
+        let dashes = (farFerries ? farPolylines : polylines)[line.id] ?? []
+        guard let ferryArea else { return dashes }
+        return dashes.filter { $0.boundingMapRect.intersects(ferryArea) }
     }
 
     /// `path` cut into dashes: `on` meters of it, then a gap of `off`.
@@ -2251,6 +2440,128 @@ enum LineLabels {
 
 extension MapStop {
     var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: lat, longitude: lon) }
+}
+
+/// The picker's stop dots over the map rather than on it, as the buses are: every stop around (those
+/// in the circle marked), and over them the selected line's own. On the map, each change (and they
+/// change as it zooms, and as the circle moves) has MapKit build every line on it again, half a second
+/// in New York. Drawn where the map shows them on every frame, so they stay put on it.
+struct StopDotsLayer: View {
+    let stops: [MapStop]
+    let inside: Set<String>
+    /// The selected line's stops, shown closer in than `lineDotsBelow` meters per point.
+    let lineDots: [CLLocationCoordinate2D]
+    let lineDotsBelow: Double
+    let lineColor: Color
+    let proxy: MapProxy
+    /// What the map shows as it moves: read, so the dots are drawn again as it does.
+    let motion: MapMotion
+    let mapSize: CGSize
+
+    /// Where the map shows `coordinate`: as MapKit says, or while it can't (in the middle of a pinch),
+    /// worked out from the area it shows, as for the buses.
+    private func place(_ coordinate: CLLocationCoordinate2D, in shown: MKMapRect?) -> CGPoint? {
+        if let spot = proxy.convert(coordinate, to: .local) { return spot }
+        guard let shown, shown.width > 0, shown.height > 0 else { return nil }
+        let spot = MKMapPoint(coordinate)
+        return CGPoint(x: (spot.x - shown.minX) / shown.width * mapSize.width,
+                       y: (spot.y - shown.minY) / shown.height * mapSize.height)
+    }
+
+    var body: some View {
+        // Placed here rather than in the drawing, reading where the map is: so they're placed again, and
+        // drawn again, as it moves.
+        let shown = motion.shown
+        let dots = stops.compactMap { stop in
+            place(stop.coordinate, in: shown).map { (spot: $0, inside: inside.contains(stop.code)) }
+        }
+        let zoom = shown.map { $0.width * MKMetersPerMapPointAtLatitude($0.origin.coordinate.latitude) / max(mapSize.width, 1) } ?? .infinity
+        let line = zoom < lineDotsBelow ? lineDots.compactMap { place($0, in: shown) } : []
+        Canvas { context, _ in
+            for dot in dots {
+                self.dot(at: dot.spot, size: dot.inside ? 10 : 8, stroke: dot.inside ? .primary : .gray, width: dot.inside ? 2 : 1.5, in: context)
+            }
+            for spot in line {
+                self.dot(at: spot, size: 9, stroke: lineColor, width: 2, in: context)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func dot(at spot: CGPoint, size: CGFloat, stroke: Color, width: CGFloat, in context: GraphicsContext) {
+        let circle = Path(ellipseIn: CGRect(x: spot.x - size / 2, y: spot.y - size / 2, width: size, height: size))
+        context.fill(circle, with: .color(.white))
+        context.stroke(circle, with: .color(stroke), lineWidth: width)
+    }
+}
+
+/// The line name badges over the map rather than on it, as the stop dots are: on it, each time they
+/// were placed again MapKit went over the whole map, longer than a frame. Here they go along with the
+/// map on every frame, where it shows their spot, and are only placed again (`HomeMap.relabel`) as it rests.
+struct LineBadgesLayer: View {
+    struct Badge: Identifiable, Equatable {
+        let id: String
+        let coordinate: CLLocationCoordinate2D
+        let leaving: Bool
+        let text: String
+        let color: Color
+        let textColor: Color
+        let round: Bool
+        let spoken: String
+
+        static func == (a: Badge, b: Badge) -> Bool {
+            a.id == b.id && a.leaving == b.leaving && a.text == b.text && a.color == b.color && a.round == b.round
+                && a.coordinate.latitude == b.coordinate.latitude && a.coordinate.longitude == b.coordinate.longitude
+        }
+    }
+
+    let badges: [Badge]
+    /// A line picked: they step back, as the other lines do.
+    let stepBack: Bool
+    let proxy: MapProxy
+    /// What the map shows as it moves: read, so they're placed again as it does.
+    let motion: MapMotion
+    let mapSize: CGSize
+
+    var body: some View {
+        let shown = motion.shown
+        ZStack(alignment: .topLeading) {
+            ForEach(badges) { badge in
+                if let spot = place(badge.coordinate, in: shown) {
+                    BadgeMark(badge: badge).position(spot)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .opacity(stepBack ? 0.35 : 1)
+        .allowsHitTesting(false)
+        // Along with the map, which MapKit moves its own way: not with anything else animating.
+        .transaction { $0.animation = nil }
+    }
+
+    /// Where the map shows `coordinate`: as MapKit says, or while it can't (in the middle of a pinch),
+    /// worked out from the area it shows.
+    private func place(_ coordinate: CLLocationCoordinate2D, in shown: MKMapRect?) -> CGPoint? {
+        if let spot = proxy.convert(coordinate, to: .local) { return spot }
+        guard let shown, shown.width > 0, shown.height > 0 else { return nil }
+        let spot = MKMapPoint(coordinate)
+        return CGPoint(x: (spot.x - shown.minX) / shown.width * mapSize.width,
+                       y: (spot.y - shown.minY) / shown.height * mapSize.height)
+    }
+
+    /// One badge, the same view while only where it is changes, so it isn't made again on every frame.
+    private struct BadgeMark: View, Equatable {
+        let badge: Badge
+
+        var body: some View {
+            FadingBadge(leaving: badge.leaving) {
+                LineBadge(line: badge.text, font: .system(size: 12, weight: .heavy, design: .rounded),
+                          color: badge.color, textColor: badge.textColor, round: badge.round, spoken: badge.spoken)
+                    .fixedSize()
+                    .shadow(color: .black.opacity(0.25), radius: 1.5, y: 0.5)
+            }
+        }
+    }
 }
 
 /// A stop dot on the map, identified by where it is.

@@ -9,18 +9,33 @@ struct WidgetGuide: View {
 
     @State private var page = 0
     private let steps = Step.allCases
+    /// Seen before (opened again from the home screen), it closes with a ✕, on any step; the first
+    /// time, on the first launch, it's skipped.
+    private let seenBefore = WidgetGuide.hasBeenShown
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
-                Button("Skip") { Journey.shared.tap("guide.skip", "step \(page + 1)"); onDone() }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                if seenBefore {
+                    Button { Journey.shared.tap("guide.close", "step \(page + 1)"); onDone() } label: {
+                        Image(systemName: "xmark")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 32, height: 32)
+                            .background(.quaternary, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
+                } else {
+                    Button("Skip") { Journey.shared.tap("guide.skip", "step \(page + 1)"); onDone() }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .opacity(page == steps.count - 1 ? 0 : 1)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 12)
-            .opacity(page == steps.count - 1 ? 0 : 1)
 
             TabView(selection: $page) {
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in

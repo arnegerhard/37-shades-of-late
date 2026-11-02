@@ -150,13 +150,26 @@ final class LiveRoute {
     }
 }
 
+/// What changes on the home map as it moves, frame by frame, read only where it's needed: changed in
+/// the map's own state, it has SwiftUI go over everything on the map again, every one of the city's
+/// lines, which takes it longer than a frame.
+@Observable @MainActor
+final class MapMotion {
+    /// What the map shows, for keeping the buses over it in place.
+    var shown: MKMapRect?
+    /// Meters per point, for setting the route's lines side by side.
+    var metersPerPoint: Double = 0
+    /// The picker's circle's size on screen, in points across.
+    var circleDiameter: CGFloat = 0
+}
+
 /// The open stop's lines on the home map, each in its color, the selected one on top; where they
 /// share a track, side by side. And the stop.
 struct RouteLayer: MapContent {
     let live: LiveRoute
     let city: City
-    /// Meters per point at the map's zoom, for setting lines on a shared track side by side.
-    let metersPerPoint: Double
+    /// The map's zoom, for setting lines on a shared track side by side.
+    let motion: MapMotion
     /// Stepping back, for another line picked over it.
     var dimmed = false
     let colorScheme: ColorScheme
@@ -166,7 +179,7 @@ struct RouteLayer: MapContent {
             let color = LiveRoute.color(of: track.lineID, in: city).legible(on: colorScheme).opacity(dimmed ? 0.35 : 1)
             ForEach(Array(track.segments.enumerated()), id: \.offset) { _, segment in
                 if segment.count > 1 {
-                    MapPolyline(coordinates: segment.map { $0.shifted(by: (Self.lineWidth + Self.lineGap) * metersPerPoint) })
+                    MapPolyline(coordinates: segment.map { $0.shifted(by: (Self.lineWidth + Self.lineGap) * motion.metersPerPoint) })
                         .stroke(color, style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
                 }
             }
@@ -195,16 +208,19 @@ struct BusLayer: View {
     let departures: [Departure]
     let proxy: MapProxy
     /// What the map shows as it moves, and its size.
-    let shown: MKMapRect?
+    let motion: MapMotion
     let mapSize: CGSize
 
     var body: some View {
+        // Read on every frame, not just when MapKit can't place a bus: it's what has them redrawn as the map
+        // moves. Without it, they'd only catch up with a pan or pinch on their next glide, a second later.
+        let shown = motion.shown
         ZStack(alignment: .topLeading) {
             if let selection = live.selection {
                 ForEach(live.buses(in: departures), id: \.departure) { bus in
                     let place = live.glides[bus.departure]?.place(at: live.tick)
                     let coordinate = place?.coordinate ?? bus.vehicle.coordinate
-                    if let point = proxy.convert(coordinate, to: .local) ?? estimatedPoint(of: coordinate) {
+                    if let point = proxy.convert(coordinate, to: .local) ?? estimatedPoint(of: coordinate, in: shown) {
                         BusMarker(bearing: place?.bearing ?? bus.vehicle.bearing, minutes: live.shortMinutes(bus.departure), isLive: bus.departure.isLive,
                                   line: selection.isMultiLine ? bus.departure.line : nil, vehicle: selection.vehicle,
                                   color: LiveRoute.color(of: bus.departure.line ?? selection.lineID, in: selection.city))
@@ -215,9 +231,17 @@ struct BusLayer: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .allowsHitTesting(false)
+        // Only ever moving on their own as they glide: brought along with anything else animating (the map
+        // closing, framing the route), they'd lag behind the map, which MapKit moves its own way.
+        .transaction { if !$0[Gliding.self] { $0.animation = nil } }
     }
 
-    private func estimatedPoint(of coordinate: CLLocationCoordinate2D) -> CGPoint? {
+    /// The buses gliding along their routes, the one animation they go along with.
+    struct Gliding: TransactionKey {
+        static let defaultValue = false
+    }
+
+    private func estimatedPoint(of coordinate: CLLocationCoordinate2D, in shown: MKMapRect?) -> CGPoint? {
         guard let shown, shown.width > 0, shown.height > 0 else { return nil }
         let spot = MKMapPoint(coordinate)
         return CGPoint(x: (spot.x - shown.minX) / shown.width * mapSize.width,
