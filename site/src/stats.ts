@@ -151,6 +151,12 @@ function screensVersion(): string {
   return (screensHash = (hash >>> 0).toString(36));
 }
 
+/** The journeys of the app as it is (1.1, every favorite a page of its own, swiped like reels): what
+ *  earlier builds sent are other screens and buttons, so the journeys leave them out, and anything from
+ *  before then (the maker's own builds from Xcode, "debug", included: it compares after the numbers). */
+const JOURNEYS_FROM = 1793686179;
+const JOURNEYS_SINCE_VERSION = "1.1";
+
 /** An install is live while its app is in front: asking within this many seconds, and not put away since. */
 const LIVE_SECONDS = 150;
 
@@ -166,7 +172,7 @@ async function live(db: D1Database, exclude: string[], debug: boolean) {
       FROM presence p LEFT JOIN (
         SELECT install, name, at FROM (
           SELECT install, name, at, ROW_NUMBER() OVER (PARTITION BY install ORDER BY at DESC, seq DESC) AS r
-          FROM events WHERE kind = 'screen' AND at > ?1) WHERE r = 1) s ON s.install = p.install
+          FROM events WHERE kind = 'screen' AND at > ?1 AND at >= ${JOURNEYS_FROM} AND version >= '${JOURNEYS_SINCE_VERSION}') WHERE r = 1) s ON s.install = p.install
       WHERE ${conditions.join(" AND ")} ORDER BY live DESC, p.last_seen DESC LIMIT 1000`)
     .bind(since, now - LIVE_SECONDS, ...exclude).all();
   return { now, liveSeconds: LIVE_SECONDS, users: results };
@@ -180,8 +186,8 @@ async function liveUser(db: D1Database, install: string, after: number) {
   const [presence, events] = await Promise.all([
     db.prepare(`SELECT *, (last_app > ?2 AND last_app > away) AS live FROM presence WHERE install = ?1`).bind(install, now - LIVE_SECONDS).first(),
     after
-      ? db.prepare(`SELECT rowid AS id, seq, at, arrived, kind, name, detail, came, session, city, seconds FROM events WHERE install = ?1 AND rowid > ?2 ORDER BY at, rowid`).bind(install, after).all()
-      : db.prepare(`SELECT * FROM (SELECT rowid AS id, seq, at, arrived, kind, name, detail, came, session, city, seconds FROM events WHERE install = ?1 ORDER BY rowid DESC LIMIT 150) ORDER BY at, id`).bind(install).all(),
+      ? db.prepare(`SELECT rowid AS id, seq, at, arrived, kind, name, detail, came, session, city, seconds FROM events WHERE install = ?1 AND rowid > ?2 AND version >= '${JOURNEYS_SINCE_VERSION}' ORDER BY at, rowid`).bind(install, after).all()
+      : db.prepare(`SELECT * FROM (SELECT rowid AS id, seq, at, arrived, kind, name, detail, came, session, city, seconds FROM events WHERE install = ?1 AND at >= ${JOURNEYS_FROM} AND version >= '${JOURNEYS_SINCE_VERSION}' ORDER BY rowid DESC LIMIT 150) ORDER BY at, id`).bind(install).all(),
   ]);
   return { now, presence, events: events.results };
 }
@@ -231,8 +237,8 @@ async function spreadersOf(days: number, exclude: string[], debug: boolean, jour
  *  the page to follow each session through. From D1, which keeps them all (Analytics Engine samples). */
 async function journeyOf(days: number, exclude: string[], debug: boolean, journeys?: D1Database) {
   if (!journeys) return [];
-  const since = Math.floor(Date.now() / 1000) - days * 86_400;
-  const conditions = ["at > ?", "version != 'test'", ...(debug ? [] : ["version != 'debug'"]),
+  const since = Math.max(Math.floor(Date.now() / 1000) - days * 86_400, JOURNEYS_FROM);
+  const conditions = ["at > ?", `version >= '${JOURNEYS_SINCE_VERSION}'`, "version != 'test'", ...(debug ? [] : ["version != 'debug'"]),
                       ...(exclude.length ? [`install NOT IN (${exclude.map(() => "?").join(", ")})`] : [])];
   const { results } = await journeys.prepare(`SELECT kind, name, detail, came, install, version, city, session, seconds, at, seq
       FROM events WHERE ${conditions.join(" AND ")} ORDER BY at, seq LIMIT 100000`).bind(since, ...exclude).all();

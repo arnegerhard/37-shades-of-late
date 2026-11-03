@@ -261,7 +261,8 @@
   .lock-points b { display: block; color: var(--ink); font: 800 19px/1.25 var(--round); margin-bottom: 2px; }
 
   /* ---------- Screenshots ---------- */
-  .phones { display: flex; justify-content: center; gap: clamp(20px, 6vw, 80px); margin-top: 70px; perspective: 1400px; }
+  .phones { display: flex; justify-content: center; gap: clamp(20px, 4vw, 56px); margin-top: 70px; perspective: 1400px; }
+  .phones .phone { width: clamp(200px, 24vw, 280px); }
   .phone-wrap { text-align: center; will-change: transform; }
   .phone {
     width: clamp(220px, 28vw, 300px); aspect-ratio: 1206 / 2622;
@@ -338,6 +339,7 @@
     .digits { font-size: 88px; }
     .shade { min-height: 56vh; }
     .phones { flex-direction: column; align-items: center; gap: 56px; }
+    .phones .phone { width: min(280px, 72vw); }
     .lock { padding-top: 84px; }
     .lock-grid { grid-template-columns: 1fr; justify-items: center; }
     .lock-copy { order: -1; }
@@ -532,16 +534,20 @@
     <div class="wrap">
       <div class="kicker">The app</div>
       <h2>Disappointment, beautifully arranged.</h2>
-      <p class="lede">Tap where you wait on a map of the whole city, pick your line, and watch where the bus actually is.</p>
+      <p class="lede">Every stop you wait at gets the whole screen: a live map of where the bus actually is. Swipe up for the next one, sideways for the next city.</p>
 
       <div class="phones">
+        <figure class="phone-wrap" data-speed="0.06">
+          <div class="phone"><img src="{{IMG_HOME}}" alt="The 37 at 14th St &amp; Church St in San Francisco, full screen: its route on the map with the bus 7 minutes away, your favorites as circles down the side, and “Stay put, lazy bastard.”"></div>
+          <figcaption><b>Swipe through your stops.</b>Each one a full-screen map with the bus on it, your others down the side, and commentary nobody asked for.</figcaption>
+        </figure>
         <figure class="phone-wrap" data-speed="-0.06">
-          <div class="phone"><img src="{{IMG_PICKER}}" alt="Picking a stop on the map of San Francisco: a circle over Church &amp; Market, listing the K, L and M at Church Station and the F on Market St"></div>
-          <figcaption><b>Tap where you wait.</b>A circle lists every stop around it and the lines that stop there. Pick yours, then which way.</figcaption>
+          <div class="phone"><img src="{{IMG_PICKER}}" alt="Adding a stop in San Francisco: a circle over Church &amp; Market listing the F, 22, J and 37 that stop around it"></div>
+          <figcaption><b>Tap + where you wait.</b>Slide the circle over your corner and it lists every line that stops there. Pick yours, then which way.</figcaption>
         </figure>
         <figure class="phone-wrap" data-speed="0.06">
-          <div class="phone"><img src="{{IMG_HOME}}" alt="The app in New York: the G at Metropolitan Av on the map, and favorites for the G, the B63 bus and PATH with minutes until each"></div>
-          <figcaption><b>The app.</b>A page per city, your stops in your order, and commentary nobody asked for.</figcaption>
+          <div class="phone"><img src="{{IMG_GRID}}" alt="All your San Francisco stops zoomed out side by side as small maps: the 37, 14, N and Y, ready to rearrange"></div>
+          <figcaption><b>Hold to rearrange.</b>Your stops zoom out like a deck of cards. Drag one where it goes, or drop it in the bin.</figcaption>
         </figure>
       </div>
     </div>

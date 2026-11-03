@@ -106,6 +106,8 @@ struct ContentView: View {
     @State private var storyFrames: [String: CGRect] = [:]
     /// How far the cities' pages are swiped, in pages, for the ring along the cities to follow.
     @State private var cityProgress: CGFloat?
+    /// Where the city switch under way came from, for Journey, when not a swipe (a dot).
+    @State private var switchingFrom: String?
     /// Whether the cities' dots show: for a few seconds after the app opens or the cities are swiped,
     /// then they fade. Each swipe starts the wait again.
     @State private var dotsAwake = true
@@ -270,7 +272,7 @@ struct ContentView: View {
                         .frame(width: 12, height: 22)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            Journey.shared.tap("city.switch", "\(city.rawValue), dots")
+                            switchingFrom = "dots"
                             withAnimation(.smooth(duration: 0.4)) { page = city.rawValue }
                         }
                         .accessibilityElement()
@@ -285,6 +287,7 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         Journey.shared.tap("cities.edit", "dots")
+                        switchingFrom = "dots"
                         withAnimation(.smooth(duration: 0.4)) { page = Self.citiesPage }
                     }
                     .accessibilityLabel("Choose cities")
@@ -354,9 +357,19 @@ struct ContentView: View {
             cityProgress = progress
         })
         .scrollDisabled(reordering != nil)
-        .onChange(of: page) {
-            if let city = page.flatMap(City.init(rawValue:)) { switchCity(to: city, from: "swipe") }
-            else if page == Self.citiesPage { Journey.shared.tap("cities.edit", "swipe") }
+        .onChange(of: page) { old, new in
+            // What's in front for Journey: the map of cities, or a city's picker, come and gone with its page.
+            if old == Self.citiesPage { Journey.shared.hide("cities") }
+            if let left = old.flatMap(City.init(rawValue:)), reels[left] == Self.pickerPage { Journey.shared.hide("picker.map") }
+            if new == Self.citiesPage { Journey.shared.show("cities", detail: "edit") }
+            if let city = new.flatMap(City.init(rawValue:)), reel(in: city).wrappedValue == Self.pickerPage { Journey.shared.show("picker.map") }
+            if let city = new.flatMap(City.init(rawValue:)) { switchCity(to: city, from: switchingFrom ?? "swipe") }
+            else if new == Self.citiesPage, switchingFrom == nil { Journey.shared.tap("cities.edit", "swipe") }
+            switchingFrom = nil
+        }
+        // The favorites zoomed out, as a screen of their own.
+        .onChange(of: reordering == nil) { _, closed in
+            if closed { Journey.shared.hide("favorites.grid") } else { Journey.shared.show("favorites.grid") }
         }
     }
 
@@ -1176,7 +1189,7 @@ struct ContentView: View {
         if !cities.contains(selection.city), let first = cities.first { switchCity(to: first, from: "cities") }
     }
 
-    /// `from`: how, for Journey: "swipe", or "cities" (the open one left out on the map of them).
+    /// `from`: how, for Journey: "swipe", "dots", or "cities" (the open one left out on the map of them).
     private func switchCity(to city: City, from: String) {
         guard city != selection.city else { return }
         Journey.shared.tap("city.switch", "\(city.rawValue), \(Journey.from(from))")

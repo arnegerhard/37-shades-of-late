@@ -236,7 +236,7 @@
 
     <section class="panel wide">
       <h2>How people move through the app</h2>
-      <p class="sub">Each screen, and arrows for people going from one to the next, as wide as how often. Colored by what happens after: whether the session went on to get somewhere (added a favorite, watched from the island, shared, opened another favorite, set up its cities, or stayed on the live map 10 seconds or more), or whether people came right back. Hover an arrow or a screen for the numbers; tap a screen, or a finding below, to see just its arrows.</p>
+      <p class="sub">Each screen, and arrows for people going from one to the next, as wide as how often. Colored by what happens after: whether the session went on to get somewhere (added a favorite, watched from the island, shared, swiped or tapped to another stop, moved a favorite, or set up its cities), or whether people came right back. Hover an arrow or a screen for the numbers; tap a screen, or a finding below, to see just its arrows.</p>
       <div class="flow-controls">
         <label>Color by <select id="flow-color">
           <option value="outcome">Getting somewhere</option><option value="back">Coming right back</option><option value="traffic">Traffic only</option>
@@ -262,7 +262,7 @@
     </section>
     <section class="panel">
       <h2>Paths that go nowhere</h2>
-      <p class="sub">Sessions that went past Home but reached no goal (not counting a glance at Home alone, which is the app working).</p>
+      <p class="sub">Sessions that went past their stops but reached no goal (not counting a glance at the stop that opened, which is the app working).</p>
       <div class="rows paths" id="paths-nowhere"></div>
     </section>
 
@@ -286,7 +286,7 @@
     </section>
     <section class="panel">
       <h2>Adding a favorite</h2>
-      <p class="sub">From tapping Add favorite to choosing a stop: how many get there, how long it takes, and what gets in the way.</p>
+      <p class="sub">From getting to the picker (the + under the favorites, or a city without any) to choosing a stop: how many get there, how long it takes, and what gets in the way.</p>
       <div class="rows" id="picking"></div>
     </section>
 
@@ -297,7 +297,7 @@
     </section>
     <section class="panel">
       <h2>Same feature, different places</h2>
-      <p class="sub">Things that can be done from more than one spot in the app, split by where: taps, and the installs tapping (after the dot). Older builds didn't say where.</p>
+      <p class="sub">Things that can be done from more than one spot in the app, split by where: taps, and the installs tapping (after the dot).</p>
       <div class="rows" id="sources"></div>
     </section>
     <section class="panel">
@@ -671,49 +671,43 @@
   // ---- The experience: how people get around the app, from Journey's events (see the app). Each
   // session is followed through in order: a visit to a screen lasts until the next screen, or the
   // session's end; the crash and exit say where it ended.
-  const SCREENS = { home: "Home", livemap: "Live map", "picker.map": "Picker · map", "picker.list": "Picker · line list",
-                    "picker.stops": "Picker · stops", share: "Share", cities: "City map", guide: "Widget guide" };
+  const SCREENS = { home: "Stops", "picker.map": "Picker", "picker.list": "Line list", "picker.stops": "Line's stops",
+                    "favorites.grid": "Favorites zoomed out", share: "Share", cities: "City map", guide: "Widget guide" };
   const TAPS = {
-    "favorite.open": "Favorite: open", "favorite.add": "Add favorite", "favorite.delete": "Favorite: delete", "favorite.reorder": "Favorite: reorder", "favorite.hold": "Favorite: held, zoomed out", "favorite.grid.done": "Favorites zoomed out: done",
-    "favorites.edit": "Favorites: Edit", "favorites.done": "Favorites: Done", "pill": "Pill (island)", "livemap.open": "Map: open live map",
-    "livemap.close": "Live map: close", "livemap.watch": "Live map: watch", "share.open": "Share: open", "share.send": "Share: send",
-    "share.done": "Share: done", "city.switch": "Switch city", "cities.edit": "Pencil (cities)", "cities.toggle": "City map: city on/off",
+    "stop.open": "Opened a stop", "favorite.open": "Favorite circle", "favorite.add": "+ under the favorites", "favorite.added": "Favorite: added",
+    "favorite.hold": "Favorite: held", "favorite.reorder": "Favorite: moved", "favorite.delete": "Favorite: dropped in the bin",
+    "favorite.grid.done": "Zoomed out: Done", "pill": "Pill (island)", "share.open": "Share: open", "share.send": "Share: send",
+    "share.done": "Share: done", "city.switch": "Switch city", "cities.edit": "City map: open", "cities.toggle": "City map: city on/off",
     "cities.done": "City map: done", "cities.cancel": "City map: cancel", "guide.open": "Lock Screen guide: open", "guide.next": "Guide: next",
-    "guide.skip": "Guide: skip", "guide.close": "Guide: close", "guide.done": "Guide: done", "picker.toggle": "Picker: map/list", "map.full": "Map: full screen", "picker.close": "Picker: closed", "picker.tuck": "Picker: card tucked away", "picker.untuck": "Picker: card back up", "picker.city": "Picker: city",
-    "picker.map.tap": "Picker: tap on map", "picker.map.zoom": "Picker: tap to zoom in", "picker.recent": "Picker: looked at before", "picker.circle.line": "Picker: line in circle", "picker.line.switch": "Picker: other line",
-    "picker.line.close": "Picker: close line", "picker.direction": "Picker: direction", "picker.also": "Picker: also fine with",
-    "picker.choose": "Picker: choose", "picker.search": "Picker: search", "picker.search.empty": "Picker: search found nothing",
-    "picker.line": "Picker: line from list", "widget.open": "Opened from a widget", "stop.find": "Map: Find a stop", "favorite.added": "Favorite: kept",
-    "stop.open": "Opened a stop", "link.open": "Opened a shared link",
-    "link.add": "Shared link: add", "link.dismiss": "Shared link: not now",
+    "guide.skip": "Guide: skip", "guide.close": "Guide: close", "guide.done": "Guide: done",
+    "picker.close": "Picker: ✕", "picker.toggle": "Picker: lines by number", "picker.tuck": "Picker: card tucked away", "picker.untuck": "Picker: card back up",
+    "picker.city": "Picker: city", "picker.map.tap": "Picker: tap on map", "picker.map.zoom": "Picker: tap to zoom in", "picker.recent": "Picker: looked at before",
+    "picker.circle.line": "Picker: line in circle", "picker.line.switch": "Picker: other line", "picker.line.close": "Picker: close line",
+    "picker.direction": "Picker: direction", "picker.also": "Picker: also fine with", "picker.choose": "Picker: choose", "picker.search": "Picker: search",
+    "picker.search.empty": "Picker: search found nothing", "picker.line": "Picker: line from list", "widget.open": "Opened from a widget",
+    "link.open": "Opened a shared link", "link.add": "Shared link: add", "link.dismiss": "Shared link: not now",
   };
   const screenName = (id) => SCREENS[id] ?? id;
   const tapName = (id) => TAPS[id] ?? id;
 
   // ---- Where in the app a tap was, for things that can be done from more than one place: the app ends
   // their detail with "from <place>" ("qr, from map"). Older builds said some of it in their own words.
-  const PLACES = { map: "map button", favorite: "favorite's menu", plus: "+ by Favorites", pill: "+ by the pill", link: "shared link",
-    find: "Find a stop", "map tap": "map tap", swipe: "swipe", tabs: "city tabs", cities: "city map", "live map": "live map", "older app": "older app" };
-  const LEGACY_SHARE = { home: "map", favorites: "favorite", livemap: "live map" };
-  /** The place a tap says it was, and its detail without it. */
+  const PLACES = { swipe: "swipe", side: "favorite circles", grid: "zoomed out", map: "holding the map", picker: "picker", link: "shared link",
+    dots: "city dots", cities: "city map", share: "share button" };
+  /** The place a tap says it was ("from swipe", the end of its detail), and its detail without it. */
   function placeOf(t) {
     const m = /(?:^|[ ,]+)from (.+)$/.exec(t.detail ?? "");
-    if (m) return { place: m[1], rest: (t.detail ?? "").slice(0, m.index) };
-    if (t.name === "share.open" && LEGACY_SHARE[t.detail]) return { place: LEGACY_SHARE[t.detail], rest: "" };
-    return { place: null, rest: t.detail ?? "" };
+    return m ? { place: m[1], rest: (t.detail ?? "").slice(0, m.index) } : { place: null, rest: t.detail ?? "" };
   }
   const placeName = (p) => PLACES[p] ?? (p.startsWith("widget") ? p.replace("widget ", "widget, ").replace(", home", ", Home Screen").replace(", lock", ", Lock Screen").replace(", activity", ", Live Activity").replace(", island", ", Dynamic Island") : p);
-  /** The features done from more than one place, and which taps are doing them (with a place for older builds). */
+  /** The features done from more than one place, and where each tap did it. */
   const MULTI = [
-    ["Share a stop (opened)", (t) => t.name === "share.open" ? placeOf(t).place ?? "older app" : null],
-    ["Share a stop (sent)", (t) => t.name === "share.send" ? placeOf(t).place ?? "older app" : null],
-    ["Keep a favorite", (t, legacy) => t.name === "favorite.added" ? placeOf(t).place
-      : legacy && t.name === "picker.choose" ? "older app" : legacy && t.name === "link.add" ? "link" : null],
-    ["Open a stop", (t, legacy) => t.name === "stop.open" ? placeOf(t).place
-      : !legacy ? null : t.name === "favorite.open" && t.detail !== "already" ? "favorite" : t.name === "widget.open" ? `widget${t.detail ? " " + t.detail : ""}` : null],
-    ["Open the picker", (t) => t.name === "favorite.add" ? "plus" : t.name === "stop.find" ? "find" : null],
-    ["Watch from the island", (t) => t.name === "pill" && t.detail === "watch" ? "pill" : t.name === "livemap.watch" && t.detail === "watch" ? "live map" : null],
-    ["Switch city", (t) => t.name === "city.switch" ? placeOf(t).place ?? "older app" : null],
+    ["Open a stop", (t) => t.name === "stop.open" ? placeOf(t).place : null],
+    ["Pick up a favorite", (t) => t.name === "favorite.hold" ? (t.detail === "side" ? "side" : "map") : null],
+    ["Move a favorite", (t) => t.name === "favorite.reorder" ? (t.detail === "side" ? "side" : "grid") : null],
+    ["Switch city", (t) => t.name === "city.switch" ? placeOf(t).place : null],
+    ["Open the city map", (t) => t.name === "cities.edit" ? t.detail || null : null],
+    ["Share a stop (sent)", (t) => t.name === "share.send" ? placeOf(t).place ?? "share button" : null],
   ];
   const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : "–");
   const median = (xs) => {
@@ -958,30 +952,27 @@
   });
 
   // ---- The flow: the screens as a map, sessions going from one to the next as arrows, colored by what
-  // happened after. Where on the map each one goes: the welcome along the top, the picker along the
-  // bottom, the live map and sharing to the right, where the app is put away.
+  // happened after. Where on the map each one goes: the welcome along the top, the stops in the middle,
+  // the picker along the bottom, the favorites zoomed out and sharing to the right, where the app is put away.
   const FLOW_NODES = {
     open: { x: 90, y: 330, label: "App opens", end: true },
     guide: { x: 250, y: 95 }, cities: { x: 470, y: 95 }, home: { x: 470, y: 330 },
-    livemap: { x: 730, y: 215 }, share: { x: 905, y: 95 },
+    "favorites.grid": { x: 730, y: 215 }, share: { x: 905, y: 95 },
     "picker.map": { x: 250, y: 565 }, "picker.list": { x: 490, y: 565 }, "picker.stops": { x: 730, y: 565 },
     away: { x: 905, y: 375, label: "Puts it away", end: true }, crash: { x: 905, y: 565, label: "Crash", end: true },
   };
-  /** What a session coming to something looks like: the app doing its job for someone. */
-  /** Installs whose app says where things happen (it sends stop.open): there, choosing a stop in the
-   *  picker can be just trying it (Find a stop), and keeping one is favorite.added. Set as data arrives. */
-  let placesKnown = new Set();
-  /** A stop kept as a favorite: said outright, or by an older app, chosen in the picker (which always kept it). */
-  const keptFavorite = (e) => e.kind === "tap" && (e.name === "favorite.added" || (e.name === "picker.choose" && !placesKnown.has(e.install)));
+  /** A session coming to something: the app doing its job for someone. */
+  const keptFavorite = (e) => e.kind === "tap" && e.name === "favorite.added";
   const GOALS = [
     ["added a favorite", keptFavorite],
-    ["watched from the island", (e) => e.kind === "tap" && (e.name === "pill" || e.name === "livemap.watch") && e.detail === "watch"],
+    ["watched from the island", (e) => e.kind === "tap" && e.name === "pill" && e.detail === "watch"],
     ["shared a stop", (e) => e.kind === "tap" && e.name === "share.send"],
-    ["opened another favorite", (e) => e.kind === "tap" && e.name === "favorite.open" && e.detail !== "already"],
+    ["went to another stop", (e) => e.kind === "tap" && e.name === "stop.open" && /from (swipe|side|grid)$/.test(e.detail ?? "")],
+    ["moved a favorite", (e) => e.kind === "tap" && e.name === "favorite.reorder"],
     ["set up their cities", (e) => e.kind === "tap" && e.name === "cities.done"],
   ];
   /** Names short enough for the map's boxes. */
-  const BOX_NAMES = { "picker.map": "Picker map", "picker.list": "Line list", "picker.stops": "Stops", guide: "Guide" };
+  const BOX_NAMES = { "picker.list": "Line list", "picker.stops": "Stops", "favorites.grid": "Zoomed out", guide: "Guide" };
   let flow = null, focus = null;
 
   /** The flow's numbers, for every session or only each install's first. */
@@ -1001,10 +992,9 @@
     };
     for (const session of kept) {
       const vs = bySession.get(session.id);
-      // Its goals, in order: what it did, and staying on the live map 10 seconds or more.
+      // Its goals, in order.
       const goals = [];
       for (const e of sessions.get(session.id) ?? []) for (const [name, test] of GOALS) if (test(e)) goals.push({ at: e.at, name });
-      for (const v of vs) if (v.screen === "livemap" && (v.dwell ?? 0) >= 10) goals.push({ at: v.at + 10, name: "watched the live map" });
       goals.sort((a, b) => a.at - b.at);
       goalsOf.set(session.id, goals);
       vs.forEach((v, i) => {
@@ -1093,7 +1083,7 @@
       if (crashes) add("bad", crashes * 3, `Crashes on ${screenName(id)}`, `${fmt(crashes)} sessions crashed there. The crash list below has the last taps before.`, [id, "crash"]);
     }
     // Screens few sessions reach: hard to find, or not needed.
-    if (n >= 10) for (const id of ["livemap", "share", "picker.list"]) {
+    if (n >= 10) for (const id of ["share", "picker.list", "favorites.grid"]) {
       const reached = kept.filter((s) => bySession.get(s.id).some((v) => v.screen === id)).length;
       if (reached / n < 0.1) add("info", reached, `Few get to ${screenName(id)}`, `Only ${pct(reached, n)} of sessions do. Hard to find, or not needed?`, [id]);
     }
@@ -1229,7 +1219,6 @@
   function showJourney(journey) {
     const num = (x) => Number(x) || 0;
     const events = journey.map((r) => ({ ...r, at: num(r.at), seq: num(r.seq), seconds: num(r.seconds) }));
-    placesKnown = new Set(events.filter((e) => e.name === "stop.open").map((e) => e.install));
     $("journey-empty").hidden = events.length > 0;
 
     // Sessions, each in order.
@@ -1337,8 +1326,8 @@
       ["Went through the widget guide", (l) => did(l, (e) => e.name === "guide.done")],
       ["Skipped the widget guide", (l) => did(l, (e) => e.name === "guide.skip")],
       ["Picked their cities", (l) => did(l, (e) => e.name === "cities.done")],
-      ["Got to Home", (l) => did(l, (e) => e.kind === "screen" && e.name === "home")],
-      ["Opened the picker", (l) => did(l, (e) => e.name === "favorite.add" || e.name === "stop.find")],
+      ["Got to their stops", (l) => did(l, (e) => e.kind === "screen" && e.name === "home")],
+      ["Got to the picker", (l) => did(l, (e) => e.kind === "screen" && e.name === "picker.map")],
       ["Added a favorite", (l) => did(l, keptFavorite)],
       ["Came back another time", (l) => new Set(l.map((e) => e.session)).size > 1],
     ].map(([name, test]) => ({ name, count: newcomers.filter(test).length }));
@@ -1346,14 +1335,14 @@
     const skips = tally(taps.filter((t) => t.name === "guide.skip").map((t) => t.detail || "?"));
     rows($("guide-skips"), skips, (s) => s[1], (s) => `Skipped the guide at ${esc(s[0])}`, () => "");
 
-    // ---- Picking a stop: from opening the picker (the + by Favorites, or Find a stop) to a chosen stop,
-    // in the same session.
-    const opens = taps.filter((t) => t.name === "favorite.add" || t.name === "stop.find");
+    // ---- Picking a stop: from getting to the picker (the +, or a city with no favorites yet) to a chosen
+    // stop, in the same session; leaving the picker's screens, or the app, without one is going back.
+    const opens = events.filter((e) => e.kind === "screen" && e.name === "picker.map" && e.detail !== "back");
     let chosen = 0, cancelled = 0; const times = [], mapTaps = [];
     for (const open of opens) {
       const list = sessions.get(open.session) ?? [];
       const after = list.filter((e) => e.at >= open.at && e.seq > open.seq);
-      const end = after.find((e) => e.name === "picker.choose" || (e.kind === "screen" && e.name === "home") || e.kind === "exit");
+      const end = after.find((e) => e.name === "picker.choose" || (e.kind === "screen" && !e.name.startsWith("picker.")) || e.kind === "exit");
       if (end?.name === "picker.choose") {
         chosen++;
         times.push(end.at - open.at);
@@ -1362,9 +1351,11 @@
     }
     const chooses = taps.filter((t) => t.name === "picker.choose");
     rows($("picking"), opens.length || chooses.length ? [
-      { name: "Opened the picker", value: opens.length, extra: "" },
+      { name: "Got to the picker", value: opens.length, extra: "" },
+      { name: "…with the +", value: taps.filter((t) => t.name === "favorite.add").length, extra: "" },
       { name: "Chose a stop", value: chosen, extra: ` <small>${pct(chosen, opens.length)}, typically in ${duration(median(times))}</small>` },
-      { name: "Went back without one", value: cancelled, extra: ` <small>${pct(cancelled, opens.length)}</small>` },
+      { name: "Left without one", value: cancelled, extra: ` <small>${pct(cancelled, opens.length)}</small>` },
+      { name: "…with the ✕", value: taps.filter((t) => t.name === "picker.close").length, extra: "" },
       { name: "Chose on the map", value: chooses.filter((t) => (t.detail ?? "").startsWith("map")).length, extra: "" },
       { name: "Chose in the line list", value: chooses.filter((t) => t.detail === "list").length, extra: "" },
       { name: "Added lines that are also fine", value: chooses.filter((t) => (t.detail ?? "").includes("more")).length, extra: "" },
@@ -1374,15 +1365,17 @@
 
     // ---- Features: share of installs that used each, and how often those do.
     const FEATURES_USED = [
-      ["Opened the live map", (e) => e.kind === "screen" && e.name === "livemap"],
-      ["Watched from the island", (e) => (e.name === "pill" || e.name === "livemap.watch") && e.detail === "watch"],
+      ["Swiped to another stop", (e) => e.name === "stop.open" && (e.detail ?? "").endsWith("from swipe")],
+      ["Tapped a favorite circle", (e) => e.name === "favorite.open"],
+      ["Watched from the island", (e) => e.name === "pill" && e.detail === "watch"],
       ["Added a favorite", keptFavorite],
-      ["Tried a stop without keeping it", (e) => e.name === "stop.find"],
-      ["Switched city", (e) => e.name === "city.switch"],
-      ["Shared a stop", (e) => e.name === "share.send"],
-      ["Reordered favorites", (e) => e.name === "favorite.reorder"],
+      ["Moved a favorite in the circles", (e) => e.name === "favorite.reorder" && e.detail === "side"],
+      ["Zoomed out the favorites", (e) => e.kind === "screen" && e.name === "favorites.grid"],
+      ["Moved a favorite zoomed out", (e) => e.name === "favorite.reorder" && e.detail !== "side"],
       ["Deleted a favorite", (e) => e.name === "favorite.delete"],
-      ["Changed their cities", (e) => e.name === "cities.edit"],
+      ["Switched city", (e) => e.name === "city.switch"],
+      ["Changed their cities", (e) => e.name === "cities.done"],
+      ["Shared a stop", (e) => e.name === "share.send"],
       ["Used the line list", (e) => e.kind === "screen" && e.name === "picker.list"],
       ["Searched for a line", (e) => e.name === "picker.search"],
       ["Opened from a widget", (e) => e.name === "widget.open"],
@@ -1396,12 +1389,10 @@
          (f) => ` <small>${pct(f.installs, byInstall.size)}${f.installs ? ` · ${fmt(f.typical)}× each` : ""}</small>`);
 
     // ---- Same feature, different places: a group per feature, a bar per place.
-    // Builds that don't say where yet (no stop.open from them) count their old taps for it.
-    const legacyInstalls = new Set([...byInstall.keys()].filter((id) => !placesKnown.has(id)));
     const groups = MULTI.map(([feature, placeFor]) => {
       const byPlace = new Map();
       for (const t of taps) {
-        const place = placeFor(t, legacyInstalls.has(t.install));
+        const place = placeFor(t);
         if (!place) continue;
         const p = byPlace.get(place) ?? { place, count: 0, installs: new Set() };
         p.count++; p.installs.add(t.install); byPlace.set(place, p);

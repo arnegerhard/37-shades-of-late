@@ -340,14 +340,16 @@ struct CityChooser: View {
             .tint(LineBadge.red)
             .disabled(chosen.isEmpty)
             .padding(.horizontal, 24)
-            .padding(.bottom, 16)
+            // As a page, clear of the cities' dots along the bottom.
+            .padding(.bottom, onCancel == nil ? 16 : 44)
         }
         .background(Color(.systemBackground))
         .environment(\.colorScheme, .dark)
         .preferredColorScheme(onCancel == nil ? .dark : nil)
         // As a page, the cities as they are now, each time it comes in.
         .onAppear { if onCancel != nil { chosen = Set(City.picked ?? []) } }
-        .journeyScreen("cities", isWelcome ? "welcome" : "edit")
+        // As a page past the last city, it's there before it's swiped to: the home screen tells Journey.
+        .modifier(JourneyScreenIf(shows: onCancel == nil, name: "cities", detail: isWelcome ? "welcome" : "edit"))
         .task {
             // To start with, the cities with favorites (after an update), or where this phone seems to be.
             guard isWelcome, chosen.isEmpty else { return }
@@ -384,5 +386,16 @@ struct Welcome: View {
                 if City.picked == nil { withAnimation(.snappy) { pickingCities = true } } else { onDone() }
             }
         }
+    }
+}
+
+/// `journeyScreen`, only when `shows`.
+private struct JourneyScreenIf: ViewModifier {
+    let shows: Bool
+    let name: String
+    let detail: String
+
+    func body(content: Content) -> some View {
+        if shows { content.journeyScreen(name, detail) } else { content }
     }
 }
