@@ -1,13 +1,21 @@
 import SwiftUI
 import WidgetKit
 
-/// First-launch walkthrough for adding the Lock Screen widget. iOS has no way for an app to add a
-/// widget itself, so each step shows a drawn iPhone doing exactly what the user's will do,
-/// with an animated finger on the spot to touch.
+/// First-launch walkthrough for adding the Lock Screen widget, then for watching one stop live on the
+/// Dynamic Island. iOS has no way for an app to add a widget itself, so each step shows a drawn iPhone
+/// doing exactly what the user's will do, with an animated finger on the spot to touch. The ? on the home
+/// screen opens it again.
 struct WidgetGuide: View {
     let onDone: () -> Void
 
-    @State private var page = 0
+    /// `-guideStep 8` (Debug): opens on that step, for screenshots.
+    @State private var page: Int = {
+        #if DEBUG
+        return UserDefaults.standard.integer(forKey: "guideStep")
+        #else
+        return 0
+        #endif
+    }()
     private let steps = Step.allCases
     /// Seen before (opened again from the home screen), it closes with a ✕, on any step; the first
     /// time, on the first launch, it's skipped.
@@ -84,7 +92,16 @@ struct WidgetGuide: View {
 // MARK: - Steps
 
 private enum Step: CaseIterable {
-    case intro, hold, customize, lockScreen, area, pick, done
+    case intro, hold, customize, lockScreen, area, pick, done, pill, island
+
+    /// The steps of adding the widget, numbered; the Live Activity's have their own heading.
+    var kicker: (text: String, number: Bool)? {
+        switch self {
+        case .intro, .done: nil
+        case .pill, .island: ("LIVE ON THE ISLAND", false)
+        default: ("STEP", true)
+        }
+    }
 
     var title: String {
         switch self {
@@ -95,6 +112,8 @@ private enum Step: CaseIterable {
         case .area: "Tap under the clock"
         case .pick: "Pick 37 Shades of Late"
         case .done: "Tap Done. That's it."
+        case .pill: "Waiting for one bus? Tap its pill"
+        case .island: "Now it waits with you"
         }
     }
 
@@ -107,13 +126,15 @@ private enum Step: CaseIterable {
         case .area: "It may say Add Widgets. Already full? Remove one with the minus. Your ride deserves the space."
         case .pick: "Scroll or search, then tap the wide widget: all your favorites, with the minutes until each one shows."
         case .done: "Top right. Your Lock Screen now does the waiting for you, in the order of your favorites."
+        case .pill: "On any of your stops, tap the black pill at the bottom with the line, the stop and the countdown. It's a Live Activity, so it has to be the one you're actually waiting for."
+        case .island: "The countdown moves up to the Dynamic Island and onto your Lock Screen, live, until your bus has come and gone (an hour at most). Tap the pill again to let it go sooner."
         }
     }
 
     var button: String {
         switch self {
         case .intro: "Show me how"
-        case .done: "Start waiting"
+        case .island: "Start waiting"
         default: "Next"
         }
     }
@@ -128,8 +149,8 @@ private struct StepPage: View {
             MockPhone(step: step)
                 .frame(maxHeight: .infinity)
             VStack(spacing: 10) {
-                if number > 0 && step != .done {
-                    Text("STEP \(number)")
+                if let kicker = step.kicker {
+                    Text(kicker.number ? "\(kicker.text) \(number)" : kicker.text)
                         .font(.caption.weight(.heavy))
                         .tracking(1.5)
                         .foregroundStyle(LineBadge.red)
@@ -194,6 +215,8 @@ private struct MockPhone: View {
         case .lockScreen: switcher.overlay { Finger().offset(x: -46, y: -20) }
         case .area: lockScreen(widget: false, editing: true).overlay { Finger().offset(y: -18) }
         case .pick: gallery
+        case .pill: stopPage
+        case .island: liveActivity
         }
     }
 
@@ -279,6 +302,76 @@ private struct MockPhone: View {
             }
             .foregroundStyle(.white)
             .padding(.top, 30)
+        }
+    }
+
+    /// A stop's page in the app: a sketch of its map and route, and the pill along the bottom, tapped.
+    private var stopPage: some View {
+        ZStack(alignment: .bottom) {
+            Color(red: 0.93, green: 0.92, blue: 0.88)
+            Path { path in
+                path.move(to: CGPoint(x: 40, y: 80)); path.addLine(to: CGPoint(x: 60, y: 210))
+                path.addLine(to: CGPoint(x: 150, y: 170)); path.addLine(to: CGPoint(x: 120, y: 330))
+            }
+            .stroke(LineBadge.red, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+            VStack(alignment: .leading, spacing: 6) {
+                pill.overlay(alignment: .trailing) { Finger().offset(x: -30) }
+                Text("To Masonic + Haight").font(.system(size: 10, weight: .semibold))
+                Text("Stay put, lazy bastard.").font(.system(size: 8)).italic()
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom))
+        }
+    }
+
+    /// The pill, as on a stop's page.
+    private var pill: some View {
+        HStack(spacing: 5) {
+            LineBadge(line: "37", font: .system(size: 9, weight: .heavy, design: .rounded))
+            Text("14th St & Church").font(.system(size: 9, weight: .semibold)).lineLimit(1)
+            Text("4:12").font(.system(size: 9, weight: .heavy, design: .rounded)).foregroundStyle(.green)
+        }
+        .padding(.horizontal, 7)
+        .frame(height: 22)
+        .background(.black, in: Capsule())
+    }
+
+    /// The Lock Screen with the Live Activity on it, and the Dynamic Island counting down at the top.
+    private var liveActivity: some View {
+        ZStack(alignment: .top) {
+            lockScreen(widget: false, editing: false)
+            // Over the drawn island: the countdown on either side of the camera.
+            HStack {
+                LineBadge(line: "37", font: .system(size: 8, weight: .heavy, design: .rounded))
+                Spacer()
+                Text("4m").font(.system(size: 9, weight: .heavy, design: .rounded)).foregroundStyle(.green)
+            }
+            .padding(.horizontal, 8)
+            .frame(width: 118, height: 20)
+            .background(.black, in: Capsule())
+            .padding(.top, 11)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    LineBadge(line: "37", font: .system(size: 11, weight: .heavy, design: .rounded))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("14th St & Church St").font(.system(size: 10, weight: .semibold))
+                        Text("To Masonic + Haight").font(.system(size: 8)).foregroundStyle(.white.opacity(0.7))
+                    }
+                    Spacer()
+                    Text("4 min").font(.system(size: 13, weight: .heavy, design: .rounded)).foregroundStyle(.green)
+                }
+                Capsule().fill(.white.opacity(0.2)).frame(height: 4)
+                    .overlay(alignment: .leading) { Capsule().fill(LineBadge.red).frame(width: 110, height: 4) }
+            }
+            .foregroundStyle(.white)
+            .padding(10)
+            .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.horizontal, 10)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, 36)
         }
     }
 
