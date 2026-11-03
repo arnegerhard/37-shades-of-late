@@ -928,7 +928,10 @@
       : e.kind === "tap" ? `${esc(tapName(e.name))} <small>${esc(e.detail)}</small>`
       : e.kind === "open" ? `Opened <small>${esc(e.name)}</small>`
       : e.kind === "exit" ? `Put away <small>on ${esc(screenName(e.name))}, after ${duration(e.seconds)}</small>`
-      : e.kind === "crash" ? (e.name === "report" ? `Crash report <small>${esc(e.detail)}</small>` : `Crashed <small>on ${esc(screenName(e.name))}${e.detail ? `, after ${esc(e.detail)}` : ""}</small>`)
+      : e.kind === "crash" ? (e.name === "report" ? `Crash report <small>${esc(e.detail)}</small>`
+        // An Xcode build open when it stopped: stopped from Xcode, most likely (see showJourney).
+        : live.user?.presence?.version === "debug" ? `Stopped from Xcode <small>on ${esc(screenName(e.name))}</small>`
+        : `Crashed <small>on ${esc(screenName(e.name))}${e.detail ? `, after ${esc(e.detail)}` : ""}</small>`)
       : `Hang <small>${esc(e.detail)}</small>`;
     const lines = [];
     let session = null;
@@ -1218,7 +1221,10 @@
 
   function showJourney(journey) {
     const num = (x) => Number(x) || 0;
-    const events = journey.map((r) => ({ ...r, at: num(r.at), seq: num(r.seq), seconds: num(r.seconds) }));
+    const events = journey.map((r) => ({ ...r, at: num(r.at), seq: num(r.seq), seconds: num(r.seconds) }))
+      // A build from Xcode still open when it stops was stopped from Xcode (Stop, or another build run over
+      // it): the app can't tell that from a crash, so it says crashed. Not a crash, nor a time on screen.
+      .map((e) => e.kind === "crash" && e.name !== "report" && e.version === "debug" ? { ...e, kind: "exit", detail: "xcode", seconds: null } : e);
     $("journey-empty").hidden = events.length > 0;
 
     // Sessions, each in order.
@@ -1249,8 +1255,10 @@
           current = { screen: e.name, at: e.at, came: e.came || null, install, session: id };
           if (session.screens.at(-1) !== e.name) session.screens.push(e.name);
         } else if (e.kind === "exit") {
-          close(e.at, "ended");
-          session.length = e.seconds;
+          // Stopped from Xcode: only found out at the next launch, so how long is unknown.
+          const xcode = e.detail === "xcode";
+          close(xcode ? null : e.at, "ended");
+          session.length = xcode ? null : e.seconds;
           session.exit = e.name;
         } else if (e.kind === "crash" && e.name !== "report") {
           close(null, "crashed");
