@@ -68,6 +68,55 @@ export async function readZipEntry(zip: ArrayBuffer, name: string): Promise<stri
   return undefined;
 }
 
+/** The bytes of `name` in a zip, still compressed, and how (0 stored, 8 deflated). */
+function zipEntry(zip: ArrayBuffer, name: string): { bytes: Uint8Array; method: number } | undefined {
+  const view = new DataView(zip);
+  let eocd = -1;
+  for (let i = zip.byteLength - 22; i >= Math.max(0, zip.byteLength - 65_557); i--) {
+    if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return undefined;
+  let entry = view.getUint32(eocd + 16, true);
+  const count = view.getUint16(eocd + 10, true);
+  const decoder = new TextDecoder();
+  for (let i = 0; i < count && view.getUint32(entry, true) === 0x02014b50; i++) {
+    const nameLength = view.getUint16(entry + 28, true);
+    const entryName = decoder.decode(new Uint8Array(zip, entry + 46, nameLength));
+    if (entryName === name || entryName.endsWith(`/${name}`)) {
+      const local = view.getUint32(entry + 42, true);
+      const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+      return { bytes: new Uint8Array(zip, start, view.getUint32(entry + 20, true)), method: view.getUint16(entry + 10, true) };
+    }
+    entry += 46 + nameLength + view.getUint16(entry + 30, true) + view.getUint16(entry + 32, true);
+  }
+  return undefined;
+}
+
+/** Calls `row` with each line of a zipped CSV past its header, split on commas (no quoted fields: stop_times.txt
+ *  has none), decompressing as it goes, for files too big to hold whole (Muni's stop_times.txt is over 100 MB).
+ *  Gives the header's columns first. */
+export async function eachZipRow(zip: ArrayBuffer, name: string, header: (columns: string[]) => void, row: (fields: string[]) => void): Promise<boolean> {
+  const found = zipEntry(zip, name);
+  if (!found || (found.method !== 0 && found.method !== 8)) return false;
+  let stream: ReadableStream<Uint8Array> = new Blob([found.bytes]).stream();
+  if (found.method === 8) stream = stream.pipeThrough(new DecompressionStream("deflate-raw"));
+  const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
+  let rest = "", first = true;
+  for (;;) {
+    const { value, done } = await reader.read();
+    const text = rest + (value ?? "");
+    const lines = text.split("\n");
+    rest = done ? "" : lines.pop()!;
+    for (const raw of lines) {
+      const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+      if (!line) continue;
+      if (first) { first = false; header(line.replace(/^\uFEFF/, "").split(",")); continue; }
+      row(line.split(","));
+    }
+    if (done) return true;
+  }
+}
+
 /** Parses CSV (with quoted fields) into objects keyed by the header row. */
 export function parseCSV(text: string): Record<string, string>[] {
   const rows: string[][] = [];

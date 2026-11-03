@@ -9,6 +9,7 @@ import { handleBoston } from "./boston";
 import { handleChicago } from "./chicago";
 import { handleDC } from "./dc";
 import { handleLA } from "./la";
+import { scheduledLines, type ScheduledLine } from "./schedule";
 import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, parseCSV, readZipEntry, simplify, type NearbyLine, type Polyline } from "./geo";
 
 /**
@@ -34,7 +35,7 @@ import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY
  *                                          be lists ("K,L,M" / "IB,IB,IB"): departures of all of
  *                                          them, merged by time, each tagged with its `line`. So may
  *                                          `stop`, a stop per line, for lines caught at a nearby stop
- *   GET /v1/stop?stop=15728                the lines currently serving a stop, with direction and
+ *   GET /v1/stop?stop=15728                the lines serving a stop (with a bus coming, or scheduled to), with direction and
  *                                          destination (same for /v1/seattle/stop). A list of stops
  *                                          ("15728,13254") gives each line with its `stop`
  *   GET /v1/nearby?stop=15728&direction=IB the lines at a stop plus those at stops within 150 m going
@@ -309,12 +310,12 @@ export class TransitCache extends DurableObject<Env> {
       if (parts[1] === "stop") {
         const stop = url.searchParams.get("stop");
         if (!stop || !/^\d+(,\d+)*$/.test(stop)) return json({ error: "stop (numeric) is required" }, 400);
-        const snapshot = await this.currentSnapshot();
+        const [snapshot, scheduled] = await Promise.all([this.currentSnapshot(), this.scheduled()]);
         const data = snapshot.stops.get(stop.split(",")[0]);
-        if (!stop.includes(",")) return json({ stop: { code: stop, name: data?.name ?? "" }, lines: linesAtStop(data?.visits ?? []) });
+        const at = (code: string) => withScheduled(linesAtStop(snapshot.stops.get(code)?.visits ?? []), scheduled[code]);
+        if (!stop.includes(",")) return json({ stop: { code: stop, name: data?.name ?? "" }, lines: at(stop) });
         // Several stops, like those around a busy corner the map was tapped at: each line with its stop.
-        const lines = stop.split(",").slice(0, 40)
-          .flatMap((code) => linesAtStop(snapshot.stops.get(code)?.visits ?? []).map((l) => ({ ...l, stop: code })));
+        const lines = stop.split(",").slice(0, 40).flatMap((code) => at(code).map((l) => ({ ...l, stop: code })));
         return json({ stop: { code: stop.split(",")[0], name: data?.name ?? "" }, lines });
       }
 
@@ -322,11 +323,12 @@ export class TransitCache extends DurableObject<Env> {
         const stop = url.searchParams.get("stop");
         if (!stop || !/^\d+$/.test(stop)) return json({ error: "stop (numeric) is required" }, 400);
         const direction = url.searchParams.get("direction") ?? "";
-        const [snapshot, places] = await Promise.all([
+        const [snapshot, places, scheduled] = await Promise.all([
           this.currentSnapshot(),
           this.cached("sf-stops-v1", this.staticTTL, () => this.fetchStopPlaces()),
+          this.scheduled(),
         ]);
-        return json({ stop: { code: stop }, lines: this.nearby(stop, direction, snapshot, places.data) });
+        return json({ stop: { code: stop }, lines: this.nearby(stop, direction, snapshot, places.data, scheduled) });
       }
 
       if (parts[1] === "departures") {
@@ -594,9 +596,10 @@ export class TransitCache extends DurableObject<Env> {
    * "Also fine with". Muni's IB/OB (toward or away from downtown) is the same for every line, so
    * the same direction is a good stand-in for the same way; it also leaves out the stop across the street.
    */
-  private nearby(stop: string, direction: string, snapshot: Snapshot, places: Record<string, [number, number]>): NearbyLine[] {
+  private nearby(stop: string, direction: string, snapshot: Snapshot, places: Record<string, [number, number]>,
+                 scheduled: Record<string, ScheduledLine[]>): NearbyLine[] {
     const here = places[stop];
-    const found: NearbyLine[] = linesAtStop(snapshot.stops.get(stop)?.visits ?? [])
+    const found: NearbyLine[] = withScheduled(linesAtStop(snapshot.stops.get(stop)?.visits ?? []), scheduled[stop])
       .map((l) => ({ ...l, stop, stopName: snapshot.stops.get(stop)?.name ?? "", distance: 0 }));
     if (here && direction) {
       const center = { lat: here[0], lon: here[1] };
@@ -605,12 +608,27 @@ export class TransitCache extends DurableObject<Env> {
         const distance = metersBetween(center, { lat, lon });
         if (distance > NEARBY_METERS) continue;
         const data = snapshot.stops.get(code);
-        for (const l of linesAtStop(data?.visits ?? [])) {
+        for (const l of withScheduled(linesAtStop(data?.visits ?? []), scheduled[code])) {
           if (l.direction === direction) found.push({ ...l, stop: code, stopName: data?.name ?? "", distance: Math.round(distance), lat, lon });
         }
       }
     }
     return closestPerLine(found);
+  }
+
+  /** Which lines are scheduled at each Muni stop (see schedule.ts), from its GTFS feed (one 511 call a day).
+   *  Nothing, rather than an error, when the feed can't be read: the live times still say a lot. */
+  private async scheduled(): Promise<Record<string, ScheduledLine[]>> {
+    return this.cached("sf-scheduled-v1", this.staticTTL, async () => {
+      await this.spendBudget();
+      const url = `https://api.511.org/transit/datafeeds?api_key=${this.env.API_KEY_511}&operator_id=${AGENCY}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new UpstreamError(response.status);
+      return scheduledLines(await response.arrayBuffer());
+    }).then((entry) => entry.data).catch((error) => {
+      console.error(`scheduled lines: ${(error as Error)?.message ?? error}`);
+      return {};
+    });
   }
 
   /** Where every Muni stop is, from stops.txt in its GTFS feed (one 511 call a day). */
@@ -893,3 +911,9 @@ function json(body: unknown, status = 200, maxAge = 0, headers: Record<string, s
 
 export { LiveActivities } from "./activities";
 export { WidgetPushes } from "./widgets";
+
+/** The lines at a stop with a bus on the way, then those scheduled there that haven't one just now. */
+function withScheduled<T extends { line: string; direction: string; destination: string }>(live: T[], scheduled: ScheduledLine[] = []): T[] {
+  const missing = scheduled.filter((s) => !live.some((l) => l.line === s.line && l.direction === s.direction));
+  return [...live, ...(missing as T[])].sort((a, b) => a.line.localeCompare(b.line, "en", { numeric: true }));
+}
