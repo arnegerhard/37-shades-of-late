@@ -141,12 +141,15 @@ final class LiveRoute {
     }
 
     /// A frame for a map of `size` (points) that fits `route` into the points from `band`'s top to its bottom.
-    static func frame(_ route: MKMapRect, in size: CGSize, band: ClosedRange<CGFloat>) -> MKMapRect {
+    static func frame(_ route: MKMapRect, in size: CGSize, band: ClosedRange<CGFloat>, across: ClosedRange<CGFloat>? = nil) -> MKMapRect {
         let height = band.upperBound - band.lowerBound
-        guard size.width > 0, height > 0 else { return route }
-        let scale = max(route.width / size.width, route.height / height)
+        let across = across ?? 0...size.width
+        let width = across.upperBound - across.lowerBound
+        guard width > 0, height > 0 else { return route }
+        let scale = max(route.width / width, route.height / height)
         let top = route.midY - (band.lowerBound + band.upperBound) / 2 * scale
-        return MKMapRect(x: route.midX - size.width * scale / 2, y: top, width: size.width * scale, height: size.height * scale)
+        let left = route.midX - (across.lowerBound + across.upperBound) / 2 * scale
+        return MKMapRect(x: left, y: top, width: size.width * scale, height: size.height * scale)
     }
 }
 
@@ -476,6 +479,13 @@ struct Glide: Equatable {
         }
         return glides
     }
+}
+
+/// A tap on a map that takes no touches itself, where it landed in the window, told apart from the
+/// tap before it in the same spot.
+struct MapTap: Equatable {
+    var location: CGPoint
+    var at = Date.now
 }
 
 /// Two fingers on a home map: how far they've pinched (2 is twice as close), how far they've moved

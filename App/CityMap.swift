@@ -297,6 +297,8 @@ extension City {
 struct CityChooser: View {
     /// On the welcome screen: the nearest city starts out picked, and Done goes on to the app.
     var isWelcome = false
+    /// As the page past the last city (see `ContentView`), rather than a sheet: Cancel goes back to it.
+    var onCancel: (() -> Void)? = nil
     let onDone: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var chosen = Set(City.picked ?? [])
@@ -305,7 +307,7 @@ struct CityChooser: View {
         VStack(alignment: .leading, spacing: 0) {
             if !isWelcome {
                 HStack {
-                    Button("Cancel") { Journey.shared.tap("cities.cancel"); dismiss() }
+                    Button("Cancel") { Journey.shared.tap("cities.cancel"); if let onCancel { onCancel() } else { dismiss() } }
                     Spacer()
                 }
                 .padding(.horizontal, 24)
@@ -341,7 +343,10 @@ struct CityChooser: View {
             .padding(.bottom, 16)
         }
         .background(Color(.systemBackground))
-        .preferredColorScheme(.dark)
+        .environment(\.colorScheme, .dark)
+        .preferredColorScheme(onCancel == nil ? .dark : nil)
+        // As a page, the cities as they are now, each time it comes in.
+        .onAppear { if onCancel != nil { chosen = Set(City.picked ?? []) } }
         .journeyScreen("cities", isWelcome ? "welcome" : "edit")
         .task {
             // To start with, the cities with favorites (after an update), or where this phone seems to be.

@@ -29,6 +29,11 @@ struct HomeMap: View {
     var opened = false
     /// Points at the top covered by something drawn over the map, kept clear of the route.
     var topInset: CGFloat = 0
+    /// Points at the bottom covered by what's drawn over the map (a caption, the home indicator), kept
+    /// clear of the route and, picking, of the card.
+    var bottomInset: CGFloat = 0
+    /// Points at the left covered by what's drawn over the map, kept clear of the route.
+    var leadingInset: CGFloat = 0
     /// Points at the bottom of the map out of sight, below what holds it, while it isn't expanded: the
     /// map is always as tall as when it is, and only shown as far as the home screen has room for.
     var hiddenBottom: CGFloat = 0
@@ -37,6 +42,8 @@ struct HomeMap: View {
     var cropped: CGFloat = 0
     /// Two fingers moving the map, as they go, while it takes no touches itself.
     var gesture: MapGesture? = nil
+    /// A tap on the map, while it takes no touches itself (see `MapTouches`).
+    var tap: MapTap? = nil
     /// How far a finger has pulled the full screen map down by its top to close it: the card fades.
     var pulled: CGFloat = 0
     let onPick: (Selection) -> Void
@@ -177,7 +184,7 @@ struct HomeMap: View {
     @State private var openedAt = Date.now
 
     init(city: City, open: Selection? = nil, feed: DepartureFeed? = nil, expanded: Bool = false, picking: Bool = false, opened: Bool = false, topInset: CGFloat = 0,
-         hiddenBottom: CGFloat = 0, cropped: CGFloat = 0, gesture: MapGesture? = nil, pulled: CGFloat = 0,
+         bottomInset: CGFloat = 0, leadingInset: CGFloat = 0, hiddenBottom: CGFloat = 0, cropped: CGFloat = 0, gesture: MapGesture? = nil, tap: MapTap? = nil, pulled: CGFloat = 0,
          onPick: @escaping (Selection) -> Void = { _ in }) {
         self.city = city
         self.open = open
@@ -186,9 +193,12 @@ struct HomeMap: View {
         self.picking = picking
         self.opened = opened
         self.topInset = topInset
+        self.bottomInset = bottomInset
+        self.leadingInset = leadingInset
         self.hiddenBottom = hiddenBottom
         self.cropped = cropped
         self.gesture = gesture
+        self.tap = tap
         self.pulled = pulled
         self.onPick = onPick
         _position = State(initialValue: .region(city.region))
@@ -208,13 +218,16 @@ struct HomeMap: View {
     /// close button above it.
     private var clearBottom: CGFloat {
         guard picking else { return shownHeight }
-        return max(cropped + 1, shownHeight - (isCircling && !tucked ? Self.circleListHeight + 64 + Self.closeRoom + Self.logoRoom : cardRoom))
+        return max(cropped + 1, shownHeight - (isCircling && !tucked ? Self.circleListHeight + 64 + Self.closeRoom + Self.logoRoom + bottomInset : cardRoom))
     }
     /// The room left under the card and the circle's list, lying over the map, for the Apple Maps logo
     /// and Legal link at its bottom.
     private static let logoRoom: CGFloat = 26
     /// The close button's room above the card.
     private static let closeRoom: CGFloat = 38
+
+    /// What lies over the map's top and left, for `frameRoute`.
+    private var overlaid: CGSize { CGSize(width: leadingInset, height: topInset) }
 
     /// The layers the map is to show, as it is: the open stop's, the picker's.
     private var wantedLayers: MapLayers { MapLayers(open: open, opened: opened) }
@@ -334,9 +347,9 @@ struct HomeMap: View {
 
     var body: some View {
         MapReader { proxy in
-            // No tilting: two fingers dragging move the map, as on the home screen. Neither full screen nor
-            // picking, it takes no touches: the list under it does, and passes two fingers' on (`gesture`).
-            Map(position: $position, bounds: city.cameraBounds, interactionModes: expanded || picking ? [.pan, .zoom, .rotate] : []) {
+            // Unless expanded, it takes no drags itself: one finger's go to the pages it's on, and two
+            // fingers' come in as `gesture`. Taps still reach it, for the picker.
+            Map(position: $position, bounds: city.cameraBounds, interactionModes: expanded ? [.pan, .zoom, .rotate] : []) {
                 // Bottom up: the city's lines, the open stop's route over them, the picker's own on top.
                 linesLayer
                 routeLayer
@@ -472,9 +485,13 @@ struct HomeMap: View {
             // what lies over the map, which it hears too: the card, the buttons along its top.
             .simultaneousGesture(SpatialTapGesture(coordinateSpace: .global)
                 .onEnded { tapped(at: $0.location, proxy: proxy) })
+            // Taking no touches, it hears of its taps instead.
+            .onChange(of: tap) { if let tap { tapped(at: tap.location, proxy: proxy) } }
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { fullHeight = $0 }
+        // What lies over the map has moved: the route framed clear of it again.
+        .onChange(of: overlaid) { if !expanded, !picking, open != nil { frameRoute(animated: true) } }
         // The card (or the circle's list), over the map's bottom: changing, it leaves the map be. Above
         // the Apple Maps logo, with the close button on top of it, in reach of a thumb. Pulled down, the
         // open map goes back as a sheet would.
@@ -505,7 +522,7 @@ struct HomeMap: View {
                         }
                     }
                 }
-                .padding(.bottom, Self.logoRoom)
+                .padding(.bottom, Self.logoRoom + bottomInset)
                 .contentShape(Rectangle())
                 .offset(y: max(cardDrag, 0) * (tucked ? 0.2 : 1))
                 .opacity(1 - min(pulled / 120, 1))
@@ -1579,8 +1596,9 @@ struct HomeMap: View {
             return
         }
         fittedRoom = shownHeight - cropped
-        let band = min(cropped + topInset, shownHeight - 1)...shownHeight
-        let rect = LiveRoute.frame(route, in: CGSize(width: mapSize.width, height: shownHeight), band: band)
+        let band = min(cropped + topInset, shownHeight - 1)...max(shownHeight - bottomInset, cropped + topInset + 1)
+        let across = min(leadingInset, mapSize.width - 1)...mapSize.width
+        let rect = LiveRoute.frame(route, in: CGSize(width: mapSize.width, height: shownHeight), band: band, across: across)
         // The same frame as a region when it's already this rect: setting an equal position again
         // wouldn't move the camera.
         let framed: MapCameraPosition = position == .rect(rect) ? .region(MKCoordinateRegion(rect)) : .rect(rect)
