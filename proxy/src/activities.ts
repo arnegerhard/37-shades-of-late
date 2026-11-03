@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { APNs, shard, type APNsEnv } from "./apns";
 import proxy from "./index";
 
 /**
@@ -20,14 +21,10 @@ import proxy from "./index";
  * activity's token, stop and times are kept only until then.
  */
 
-export interface ActivityEnv {
+export interface ActivityEnv extends APNsEnv {
   ACTIVITIES: DurableObjectNamespace<LiveActivities>;
-  /** The APNs auth key (.p8, PEM) and its id, for signing push requests. */
-  APNS_KEY?: string;
-  APNS_KEY_ID?: string;
 }
 
-const TEAM_ID = "DLJLEZ2Y6W";
 const TOPIC = "info.jetsons.bus37.push-type.liveactivity";
 const LONGEST_SECONDS = 60 * 60;
 const CHECK_EVERY_MS = 30_000;
@@ -71,19 +68,12 @@ export async function handleActivity(request: Request, env: ActivityEnv, path: s
   try { token = String(JSON.parse(body)?.token ?? ""); } catch { /* the object turns it away */ }
   // The same token always lands on the same object, so its updates and its end meet up there.
   // ("activities-v1", from before there were shards, ends its last activities on its own.)
-  const stub = env.ACTIVITIES.get(env.ACTIVITIES.idFromName(`activities-v2-${shard(token)}`));
+  const stub = env.ACTIVITIES.get(env.ACTIVITIES.idFromName(`activities-v2-${shard(token, SHARDS)}`));
   return stub.fetch(new Request(`https://activities${path}`, { method: "POST", body }));
 }
 
-/** Which of the SHARDS objects `token` belongs to (FNV-1a). */
-function shard(token: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < token.length; i++) hash = Math.imul(hash ^ token.charCodeAt(i), 0x01000193);
-  return (hash >>> 0) % SHARDS;
-}
-
 export class LiveActivities extends DurableObject<ActivityEnv> {
-  private jwt?: { token: string; madeAt: number };
+  private apns = new APNs(this.env);
 
   async fetch(request: Request): Promise<Response> {
     const { pathname } = new URL(request.url);
@@ -145,9 +135,7 @@ export class LiveActivities extends DurableObject<ActivityEnv> {
   }
 
   /** Sends one push; "gone" when the token is no good any more (the activity ended on the phone). */
-  private async push(watch: Watch, event: "update" | "end", state?: State): Promise<"ok" | "gone" | "failed"> {
-    const jwt = await this.signedToken();
-    if (!jwt) return "failed";
+  private push(watch: Watch, event: "update" | "end", state?: State): Promise<"ok" | "gone" | "failed"> {
     const now = Math.floor(Date.now() / 1000);
     const aps: Record<string, unknown> = { timestamp: now, event };
     if (state) {
@@ -162,43 +150,7 @@ export class LiveActivities extends DurableObject<ActivityEnv> {
       aps["stale-date"] = Math.ceil(state.ends);
     }
     if (event === "end") aps["dismissal-date"] = now;
-    const host = watch.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
-    try {
-      const response = await fetch(`https://${host}/3/device/${watch.token}`, {
-        method: "POST",
-        headers: {
-          authorization: `bearer ${jwt}`,
-          "apns-topic": TOPIC,
-          "apns-push-type": "liveactivity",
-          "apns-priority": "10",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ aps }),
-      });
-      if (response.ok) return "ok";
-      const reason = String(((await response.json().catch(() => ({}))) as any).reason ?? "");
-      if (["BadDeviceToken", "Unregistered", "ExpiredToken", "DeviceTokenNotForTopic"].includes(reason)) return "gone";
-      if (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken") this.jwt = undefined;
-      return "failed";
-    } catch {
-      return "failed";
-    }
-  }
-
-  /** The ES256 token APNs wants, made again every 40 minutes (it takes them for up to an hour). */
-  private async signedToken(): Promise<string | undefined> {
-    const now = Math.floor(Date.now() / 1000);
-    if (this.jwt && now - this.jwt.madeAt < 40 * 60) return this.jwt.token;
-    const pem = this.env.APNS_KEY, keyID = this.env.APNS_KEY_ID;
-    if (!pem || !keyID) return undefined;
-    const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "")), (c) => c.charCodeAt(0));
-    const key = await crypto.subtle.importKey("pkcs8", der, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
-    const encode = (value: object) => base64url(new TextEncoder().encode(JSON.stringify(value)));
-    const unsigned = `${encode({ alg: "ES256", kid: keyID.trim() })}.${encode({ iss: TEAM_ID, iat: now })}`;
-    // WebCrypto's ECDSA signature is r and s back to back, as JWTs want them.
-    const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(unsigned));
-    this.jwt = { token: `${unsigned}.${base64url(new Uint8Array(signature))}`, madeAt: now };
-    return this.jwt.token;
+    return this.apns.send({ token: watch.token, environment: watch.environment, topic: TOPIC, type: "liveactivity", aps });
   }
 }
 
@@ -269,10 +221,6 @@ function stopsAway(vehicle: { lat: number; lon: number }, stop: string, route: {
 function moved(a: State, b: State): boolean {
   const apart = (x?: number, y?: number) => (x === undefined) !== (y === undefined) || Math.abs((x ?? 0) - (y ?? 0)) >= 30;
   return apart(a.next, b.next) || apart(a.after, b.after) || a.nextIsLive !== b.nextIsLive || a.stopsAway !== b.stopsAway;
-}
-
-function base64url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function reply(body: unknown, status = 200): Response {

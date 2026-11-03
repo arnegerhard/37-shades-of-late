@@ -624,6 +624,35 @@ enum TransitService {
         try await post("activity/end", ["token": token.map { String(format: "%02x", $0) }.joined()])
     }
 
+    /// Tells the proxy what the widgets now show, for it to push to `token` once that's wrong (see
+    /// proxy/src/widgets.ts): each row's next few departures, and when their minutes run out.
+    static func reportWidgets(token: Data, rows: [WidgetRow], until: Date) async throws {
+        guard let city = rows.first?.selection.city else { return }
+        let now = Date.now
+        var body: [String: Any] = [
+            "token": token.map { String(format: "%02x", $0) }.joined(),
+            "city": city.rawValue,
+            "until": until.timeIntervalSince1970,
+            "rows": rows.filter { $0.selection.city == city }.map { row -> [String: Any] in
+                var fields: [String: Any] = ["shown": row.departures.filter { $0.time > now.addingTimeInterval(-30) }
+                    .prefix(3).map(\.time.timeIntervalSince1970)]
+                for (key, value) in departuresQuery(for: row.selection) { fields[key] = value }
+                return fields
+            },
+        ]
+        #if DEBUG
+        body["environment"] = "sandbox"
+        #else
+        body["environment"] = "production"
+        #endif
+        try await post("widget", body)
+    }
+
+    /// Stops the widget pushes to `token`: there are no widgets any more.
+    static func forgetWidgets(token: Data) async throws {
+        try await post("widget/end", ["token": token.map { String(format: "%02x", $0) }.joined()])
+    }
+
     private static func post(_ path: String, _ body: [String: Any]) async throws {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = "POST"

@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { handleActivity, type ActivityEnv } from "./activities";
+import { handleWidget, type WidgetEnv } from "./widgets";
 import { BART_STOP, bartLines, bartMap, bartStops, handleBart, isBartLine } from "./bart";
 import { ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop, type FerryCity } from "./ferries";
 import { handleNYC } from "./nyc";
@@ -46,9 +47,10 @@ import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY
  *   GET /v1/city                           the supported city nearest the caller ("sf", "seattle", "nyc", "boston", "chicago", "dc" or "la"),
  *                                          from Cloudflare's rough IP location; nothing is stored
  *   POST /v1/activity, /v1/activity/end    push updates for the app's Live Activities (see activities.ts)
+ *   POST /v1/widget, /v1/widget/end        pushes nudging the app's widgets to fetch again (see widgets.ts)
  */
 
-interface Env extends ActivityEnv {
+interface Env extends ActivityEnv, WidgetEnv {
   CACHE: DurableObjectNamespace<TransitCache>;
   API_KEY_511: string;
   HOURLY_BUDGET: string;
@@ -82,6 +84,9 @@ export default {
     if (request.method === "POST" && (pathname === "/v1/activity" || pathname === "/v1/activity/end")) {
       if (pathname === "/v1/activity") await recordWatch(request, env);
       return handleActivity(request, env, pathname);
+    }
+    if (request.method === "POST" && (pathname === "/v1/widget" || pathname === "/v1/widget/end")) {
+      return handleWidget(request, env, pathname);
     }
     if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
     // These pages now live on the website; keep the old addresses (and their /privacy/,
@@ -887,3 +892,4 @@ function json(body: unknown, status = 200, maxAge = 0, headers: Record<string, s
 }
 
 export { LiveActivities } from "./activities";
+export { WidgetPushes } from "./widgets";

@@ -12,6 +12,10 @@ struct Provider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<DeparturesEntry>) -> Void) {
         Task {
             let entries = await load(for: context.family)
+            // Tells the proxy what's showing now, for it to push once that's wrong (iOS 26 on).
+            if let rows = entries.first?.rows, !rows.isEmpty, let until = entries.last?.date {
+                await WidgetPushes.report(rows: rows, until: until.addingTimeInterval(60))
+            }
             // Ask for fresh live data in 5 minutes; iOS may stretch this to save battery. After a failed
             // fetch, try again in a minute. Asleep, there's nothing to fetch: just whether it's time to
             // wake up, every 20 minutes (as often as the place is asked).
@@ -69,13 +73,70 @@ struct WidgetEntryView: View {
 }
 
 struct Bus37Widget: Widget {
+    /// From iOS 26, the widget is `Bus37PushedWidget`, of the same kind; this one, there too as a widget
+    /// bundle can only add widgets for a newer iOS, never leave one out, is then another kind, of no size.
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "Bus37Widget", provider: Provider()) { entry in
+        if #available(iOS 26.0, *) { Self.configuration(kind: "Bus37Widget.beforePushes", families: []) }
+        else { Self.configuration(kind: Self.kind, families: Self.families) }
+    }
+
+    static let kind = "Bus37Widget"
+    static let families: [WidgetFamily] = [.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline]
+
+    static func configuration(kind: String = kind, families: [WidgetFamily] = families) -> some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: Provider()) { entry in
             WidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Favorites")
         .description("Minutes until your favorites show up, in the order you arranged them. Be let down without unlocking.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline])
+        .supportedFamilies(families)
+    }
+}
+
+/// The same widget, fetching again when the proxy pushes that what it shows has gone wrong (iOS 26 on).
+@available(iOS 26.0, *)
+struct Bus37PushedWidget: Widget {
+    var body: some WidgetConfiguration {
+        Bus37Widget.configuration().pushHandler(WidgetPushes.self)
+    }
+}
+
+/// The widgets' push token (one for all of them), and what they show, for the proxy (see
+/// proxy/src/widgets.ts): it pushes when a bus they show has moved, and iOS has them fetch again.
+struct WidgetPushes {
+    private static let tokenKey = "widgetPushToken"
+    private static let rowsKey = "widgetPushRows"
+
+    /// After a fetch: what the widgets show now, kept for when the token changes, and sent with it.
+    static func report(rows: [WidgetRow], until: Date) async {
+        AppGroup.defaults.set(until, forKey: rowsKey)
+        lastRows = rows
+        guard let token = AppGroup.defaults.data(forKey: tokenKey) else { return }
+        try? await TransitService.reportWidgets(token: token, rows: rows, until: until)
+    }
+
+    /// The rows last reported, while the extension's still running (a new token sends them again).
+    nonisolated(unsafe) private static var lastRows: [WidgetRow] = []
+
+    fileprivate static func tokenChanged(_ token: Data, anyWidgets: Bool) async {
+        guard anyWidgets else {
+            AppGroup.defaults.removeObject(forKey: tokenKey)
+            try? await TransitService.forgetWidgets(token: token)
+            return
+        }
+        AppGroup.defaults.set(token, forKey: tokenKey)
+        // The rows as last fetched, if this extension fetched them; else the widgets' next fetch sends them.
+        if let until = AppGroup.defaults.object(forKey: rowsKey) as? Date, until > .now, !lastRows.isEmpty {
+            try? await TransitService.reportWidgets(token: token, rows: lastRows, until: until)
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+extension WidgetPushes: WidgetPushHandler {
+    func pushTokenDidChange(_ pushInfo: WidgetPushInfo, widgets: [WidgetInfo]) {
+        let token = pushInfo.token, any = !widgets.isEmpty
+        Task { await Self.tokenChanged(token, anyWidgets: any) }
     }
 }
 
@@ -137,7 +198,11 @@ struct BusActivityWidget: Widget {
 @main
 struct Bus37WidgetBundle: WidgetBundle {
     var body: some Widget {
+        // The favorites widget, with pushes where there are any (see `Bus37Widget.body`).
         Bus37Widget()
+        if #available(iOS 26.0, *) {
+            Bus37PushedWidget()
+        }
         BusActivityWidget()
     }
 }

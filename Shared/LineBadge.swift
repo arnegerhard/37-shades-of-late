@@ -212,7 +212,8 @@ extension Selection {
     var badgeParts: [BadgePart] {
         guard lineIDs.contains(where: { LineBadge.color(of: $0, in: city) != nil }) else { return [BadgePart(label: lineLabel)] }
         var groups: [(color: (hex: String, darkText: Bool)?, round: Bool, ids: [String])] = []
-        for id in lineIDs {
+        // A line caught at more than one stop is one badge.
+        for id in lineIDs where !groups.contains(where: { $0.ids.contains(id) }) {
             let color = LineBadge.color(of: id, in: city), round = LineBadge.isRound([id], in: city)
             if let i = groups.firstIndex(where: { $0.color?.hex == color?.hex && $0.round == round }) {
                 groups[i].ids.append(id)
