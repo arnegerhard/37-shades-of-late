@@ -138,7 +138,7 @@ export async function handleOBA(parts: string[], url: URL, baseDeps: SeattleDeps
     const codes = new Map((await linesCached(deps)).data.map((l) => [l.routeId, l.id]));
     const [here, around] = await Promise.all([
       deps.cached(`${region.cache}-stop:${stop}`, DEPARTURES_TTL_MS / 1000, () => fetchStop(stop)),
-      deps.cached(`${region.cache}-nearby-v1:${stop}`, deps.staticTTL, () => fetchNearbyStops(stop, deps)),
+      deps.cached(`${region.cache}-nearby-v2:${stop}`, deps.staticTTL, () => fetchNearbyStops(stop, deps)),
     ]);
     const found: NearbyLine[] = linesAtStop(here.data.visits.map((v) => ({ ...v, line: codes.get(v.routeId) ?? "" })))
       .map((l) => ({ ...l, stop, stopName: here.data.name, distance: 0 }));
@@ -146,6 +146,8 @@ export async function handleOBA(parts: string[], url: URL, baseDeps: SeattleDeps
     for (const s of around.data) {
       for (const routeId of s.routeIds) {
         const line = codes.get(routeId);
+        // At the stop itself, those the live times have already (with their way and destination).
+        if (s.code === stop && found.some((l) => l.distance === 0 && l.line === line)) continue;
         if (line) found.push({ line, direction: "", destination: "", stop: s.code, stopName: s.name, distance: s.distance, lat: s.lat, lon: s.lon });
       }
     }
@@ -337,8 +339,12 @@ const HEADINGS: Record<string, number> = { N: 0, NE: 45, E: 90, SE: 135, S: 180,
  */
 async function fetchNearbyStops(stop: string, deps: Deps): Promise<NearbyStop[]> {
   const here = (await callOBA(`stop/${stop}`, {}, deps)).entry;
+  // The stop itself first, with every route that calls there: the live times only know those with a
+  // bus due soon (New York's, only those on the way now).
+  const itself: NearbyStop[] = here ? [{ code: stop, name: deps.region.stopName?.(String(here.name ?? "")) ?? String(here.name ?? ""),
+    lat: Number(here.lat), lon: Number(here.lon), distance: 0, routeIds: (here.routeIds ?? []).map(String) }] : [];
   const heading = HEADINGS[String(here?.direction ?? "")];
-  if (heading === undefined) return [];
+  if (heading === undefined) return itself;
   const list: any[] = (await callOBA("stops-for-location", {
     lat: String(here.lat), lon: String(here.lon), radius: String(NEARBY_METERS),
   }, deps)).list ?? [];
@@ -350,7 +356,7 @@ async function fetchNearbyStops(stop: string, deps: Deps): Promise<NearbyStop[]>
     return turn <= 45 && distance <= NEARBY_METERS
       ? [{ code: String(s.id), name: deps.region.stopName?.(String(s.name ?? "")) ?? String(s.name ?? ""), lat: Number(s.lat), lon: Number(s.lon), distance, routeIds: (s.routeIds ?? []).map(String) }]
       : [];
-  });
+  }).concat(itself);
 }
 
 async function fetchOBAStop(stop: string, deps: Deps): Promise<StopData> {
