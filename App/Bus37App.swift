@@ -44,7 +44,7 @@ struct Bus37App: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if let screen = ScreenshotScreen.current, [.widgets, .lock, .lockwidget].contains(screen) {
+            if let screen = ScreenshotScreen.current, [.widgets, .mapwidgets, .lock, .lockwidget].contains(screen) {
                 WidgetShowcase(screen: screen)
             } else {
                 home
@@ -207,8 +207,11 @@ struct ContentView: View {
         } message: {
             if let incoming { Text("To \(incoming.destination), in \(incoming.city.endingSentence) It joins your favorites there.") }
         }
+        // The map widget's pictures of each favorite, drawn here: the widget hasn't the memory to.
+        .task { WidgetMapPainter.paint(favorites) }
         .onChange(of: favorites) {
             Selection.favorites = favorites
+            WidgetMapPainter.paint(favorites)
             // The widgets list the favorites in order, so any change shows up there right away.
             WidgetCenter.shared.reloadAllTimelines()
         }

@@ -29,7 +29,12 @@ struct Provider: TimelineProvider {
     /// per minute so the minutes count down between refreshes. Far from every city, the Lock Screen
     /// widgets sleep, fetching nothing, and the Home Screen's show home's (the city with the most
     /// favorites).
-    private func load(for family: WidgetFamily) async -> [DeparturesEntry] {
+    private func load(for family: WidgetFamily) async -> [DeparturesEntry] { await loadEntries(for: family) }
+}
+
+/// The favorites of the city you're in, in their saved order (see `Provider.load`). `pinned`: a map
+/// widget's favorite, shown whatever city it's in: the small one shows only it, the others it too.
+func loadEntries(for family: WidgetFamily, pinned: Selection? = nil) async -> [DeparturesEntry] {
         let now = Date.now
         let place = await TransitService.widgetPlace()
         if place.isAway, [.accessoryInline, .accessoryCircular, .accessoryRectangular].contains(family) {
@@ -38,7 +43,11 @@ struct Provider: TimelineProvider {
             return (0..<30).map { DeparturesEntry(date: Date(timeIntervalSinceReferenceDate: minute + Double($0) * 60),
                                                  rows: [], error: nil, awayFrom: Selection.homeCity) }
         }
-        let selections = Array(Selection.widgetSelections(near: place.isAway ? Selection.homeCity : place.city).prefix(4))
+        var selections = Array(Selection.widgetSelections(near: place.isAway ? Selection.homeCity : place.city).prefix(4))
+        if let pinned {
+            if family == .systemSmall { selections = [pinned] }
+            else if !selections.contains(where: { $0.id == pinned.id }) { selections = Array(([pinned] + selections).prefix(4)) }
+        }
         let client: Client = [.accessoryInline, .accessoryCircular, .accessoryRectangular].contains(family) ? .lockscreen : .widget
         let rows = await withTaskGroup(of: (Int, WidgetRow).self) { group in
             for (index, selection) in selections.enumerated() {
@@ -60,8 +69,7 @@ struct Provider: TimelineProvider {
             return rows.sorted { $0.0 < $1.0 }.map(\.1)
         }
         let error = rows.allSatisfy(\.failed) ? "Departures are late too" : nil
-        return (0..<15).map { DeparturesEntry(date: now + Double($0) * 60, rows: rows, error: error) }
-    }
+        return (0..<15).map { DeparturesEntry(date: now + Double($0) * 60, rows: rows, error: error, pinned: pinned?.id) }
 }
 
 /// Reads the family from the widget environment and hands it to the shared views.
@@ -98,6 +106,65 @@ struct Bus37Widget: Widget {
 struct Bus37PushedWidget: Widget {
     var body: some WidgetConfiguration {
         Bus37Widget.configuration().pushHandler(WidgetPushes.self)
+    }
+}
+
+/// The map widget's timelines: as the favorites widget's, with the favorite it's set to show.
+struct MapProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> DeparturesEntry { .sample() }
+
+    func snapshot(for configuration: MapWidgetIntent, in context: Context) async -> DeparturesEntry {
+        if context.isPreview { return .sample() }
+        return await loadEntries(for: context.family, pinned: pinned(configuration)).first ?? .sample()
+    }
+
+    func timeline(for configuration: MapWidgetIntent, in context: Context) async -> Timeline<DeparturesEntry> {
+        let entries = await loadEntries(for: context.family, pinned: pinned(configuration))
+        if let rows = entries.first?.rows, !rows.isEmpty, let until = entries.last?.date {
+            await WidgetPushes.report(rows: rows, until: until.addingTimeInterval(60))
+        }
+        let failed = entries.first?.rows.contains(where: \.stale) ?? false
+        return Timeline(entries: entries, policy: .after(.now + (failed ? 60 : 5 * 60)))
+    }
+
+    private func pinned(_ configuration: MapWidgetIntent) -> Selection? {
+        configuration.favorite.flatMap { chosen in Selection.favorites.first { $0.id == chosen.id } }
+    }
+}
+
+struct MapWidgetEntryView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: DeparturesEntry
+
+    var body: some View { MapWidgetView(entry: entry, family: family) }
+}
+
+/// A favorite's map, with the buses and every favorite's times (see `MapWidgetView`). From iOS 26 it's
+/// `Bus37PushedMapWidget`, as the favorites widget is (see `Bus37Widget.body`).
+struct Bus37MapWidget: Widget {
+    var body: some WidgetConfiguration {
+        if #available(iOS 26.0, *) { Self.configuration(kind: "Bus37MapWidget.beforePushes", families: []) }
+        else { Self.configuration(kind: Self.kind, families: Self.families) }
+    }
+
+    static let kind = "Bus37MapWidget"
+    static let families: [WidgetFamily] = [.systemSmall, .systemMedium, .systemLarge]
+
+    static func configuration(kind: String = kind, families: [WidgetFamily] = families) -> some WidgetConfiguration {
+        AppIntentConfiguration(kind: kind, intent: MapWidgetIntent.self, provider: MapProvider()) { entry in
+            MapWidgetEntryView(entry: entry)
+        }
+        .configurationDisplayName("Favorites map")
+        .description("Your stop's route and its buses, with every favorite's minutes. Tap a favorite to put it on the map.")
+        .supportedFamilies(families)
+        .contentMarginsDisabled()
+    }
+}
+
+@available(iOS 26.0, *)
+struct Bus37PushedMapWidget: Widget {
+    var body: some WidgetConfiguration {
+        Bus37MapWidget.configuration().pushHandler(WidgetPushes.self)
     }
 }
 
@@ -200,8 +267,10 @@ struct Bus37WidgetBundle: WidgetBundle {
     var body: some Widget {
         // The favorites widget, with pushes where there are any (see `Bus37Widget.body`).
         Bus37Widget()
+        Bus37MapWidget()
         if #available(iOS 26.0, *) {
             Bus37PushedWidget()
+            Bus37PushedMapWidget()
         }
         BusActivityWidget()
     }
@@ -224,4 +293,10 @@ struct Bus37WidgetBundle: WidgetBundle {
     Bus37Widget()
 } timeline: {
     DeparturesEntry.sampleAsleep
+}
+
+#Preview(as: .systemMedium) {
+    Bus37MapWidget()
+} timeline: {
+    DeparturesEntry.sample()
 }

@@ -23,6 +23,8 @@ struct DeparturesEntry: TimelineEntry {
     /// Home, when far from it and every other city: the Lock Screen widgets sleep rather than show
     /// times from somewhere you aren't.
     var awayFrom: City? = nil
+    /// The favorite a map widget is set to show first (see `MapWidgetIntent`), by id.
+    var pinned: String? = nil
 
     /// Home's clock, unless it's the one on the Lock Screen already.
     var homeTimeZone: TimeZone? {

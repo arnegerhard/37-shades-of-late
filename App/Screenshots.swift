@@ -7,7 +7,7 @@ import WidgetKit
 /// Home Screen and Lock Screen (iOS doesn't let automation place real widgets); `lockwidget` is a
 /// plain Lock Screen with just the clock and the rectangular widget, no captions.
 enum ScreenshotScreen: String {
-    case lines, stops, widgets, lock, lockwidget, guide, share, cities
+    case lines, stops, widgets, mapwidgets, lock, lockwidget, guide, share, cities
 
     static var current: ScreenshotScreen? {
         UserDefaults.standard.string(forKey: "screen").flatMap(ScreenshotScreen.init)
@@ -56,6 +56,7 @@ struct WidgetShowcase: View {
             switch screen {
             case .lock: lockScreen
             case .lockwidget: plainLockScreen
+            case .mapwidgets: mapWidgets
             default: homeScreen
             }
         }
@@ -97,6 +98,32 @@ struct WidgetShowcase: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LinearGradient(colors: homeWallpaper,
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+
+    /// The map widget in its three sizes, as on a Home Screen.
+    private var mapWidgets: some View {
+        VStack(spacing: 20) {
+            HStack(spacing: 24) {
+                mapCard(.systemSmall, width: 170, height: 170)
+                mapCard(.systemSmall, width: 170, height: 170, pinned: 1)
+            }
+            mapCard(.systemMedium, width: 364, height: 170)
+            mapCard(.systemLarge, width: 364, height: 382)
+            Spacer()
+        }
+        .padding(.top, 60)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LinearGradient(colors: homeWallpaper, startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+
+    private func mapCard(_ family: WidgetFamily, width: CGFloat, height: CGFloat, pinned: Int = 0) -> some View {
+        var shown = entry
+        if family == .systemSmall, entry.rows.indices.contains(pinned) {
+            shown = DeparturesEntry(date: entry.date, rows: [entry.rows[pinned]], error: nil, pinned: entry.rows[pinned].selection.id)
+        }
+        return MapWidgetView(entry: shown, family: family, inApp: true)
+            .frame(width: width, height: height)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var lockScreen: some View {

@@ -42,6 +42,9 @@
 		E88E7C0A1C0B4E37A1B2C3E2 /* WidgetGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */; };
 		E88E7C0A1C0B4E37A1B2C3E4 /* CityMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E7C0A1C0B4E37A1B2C3E3 /* CityMap.swift */; };
 		F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */; };
+		B37A0C0A1C0B4E37A1B2C302 /* WidgetMaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0C0A1C0B4E37A1B2C301 /* WidgetMaps.swift */; };
+		B37A0C0A1C0B4E37A1B2C303 /* WidgetMaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0C0A1C0B4E37A1B2C301 /* WidgetMaps.swift */; };
+		B37A0C0A1C0B4E37A1B2C305 /* WidgetMapPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0C0A1C0B4E37A1B2C304 /* WidgetMapPainter.swift */; };
 		F33E7C0A1C0B4E37A1B2C3F3 /* WidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */; };
 		AA1E7C0A1C0B4E37A1B2C302 /* BusActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */; };
 		AA1E7C0A1C0B4E37A1B2C303 /* BusActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */; };
@@ -112,6 +115,8 @@
 		EB449D2345F5DB25B69A43D1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EF6ADF668367D1EF59DBD90C /* Bus37.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bus37.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetViews.swift; sourceTree = "<group>"; };
+		B37A0C0A1C0B4E37A1B2C301 /* WidgetMaps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetMaps.swift; sourceTree = "<group>"; };
+		B37A0C0A1C0B4E37A1B2C304 /* WidgetMapPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetMapPainter.swift; sourceTree = "<group>"; };
 		AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusActivity.swift; sourceTree = "<group>"; };
 		AA1E7C0A1C0B4E37A1B2C304 /* BusActivities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusActivities.swift; sourceTree = "<group>"; };
 		F33E7C0A1C0B4E37A1B2C3F4 /* Screenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screenshots.swift; sourceTree = "<group>"; };
@@ -125,6 +130,7 @@
 				D11E7C0A1C0B4E37A1B2C3D1 /* LineBadge.swift */,
 				F99E7C0A1C0B4E37A1B2C3F1 /* Journey.swift */,
 				F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */,
+				B37A0C0A1C0B4E37A1B2C301 /* WidgetMaps.swift */,
 				AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */,
 			);
 			path = Shared;
@@ -194,6 +200,7 @@
 				B55E7C0A1C0B4E37A1B2C3B1 /* LineMapPicker.swift */,
 				A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */,
 				A44E7C0A1C0B4E37A1B2C3A3 /* Sharing.swift */,
+				B37A0C0A1C0B4E37A1B2C304 /* WidgetMapPainter.swift */,
 				D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */,
 				E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */,
 				E88E7C0A1C0B4E37A1B2C3E3 /* CityMap.swift */,
@@ -336,6 +343,8 @@
 				E88E7C0A1C0B4E37A1B2C3E4 /* CityMap.swift in Sources */,
 				F99E7C0A1C0B4E37A1B2C3F5 /* JourneyTracking.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */,
+				B37A0C0A1C0B4E37A1B2C302 /* WidgetMaps.swift in Sources */,
+				B37A0C0A1C0B4E37A1B2C305 /* WidgetMapPainter.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C302 /* BusActivity.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C305 /* BusActivities.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F5 /* Screenshots.swift in Sources */,
@@ -351,6 +360,7 @@
 				D11E7C0A1C0B4E37A1B2C3D3 /* LineBadge.swift in Sources */,
 				F99E7C0A1C0B4E37A1B2C3F3 /* Journey.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F3 /* WidgetViews.swift in Sources */,
+				B37A0C0A1C0B4E37A1B2C303 /* WidgetMaps.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C303 /* BusActivity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
