@@ -675,7 +675,7 @@
                     "favorites.grid": "Favorites zoomed out", share: "Share", cities: "City map", guide: "Widget guide" };
   const TAPS = {
     "stop.open": "Opened a stop", "favorite.open": "Favorite circle", "favorite.add": "+ under the favorites", "favorite.added": "Favorite: added",
-    "favorite.hold": "Favorite: held", "favorite.reorder": "Favorite: moved", "favorite.delete": "Favorite: dropped in the bin",
+    "favorite.hold": "Favorite: held", "favorite.edit": "Favorite: pencil", "favorite.edited": "Favorite: changed", "favorite.edit.cancel": "Favorite: change cancelled", "favorite.reorder": "Favorite: moved", "favorite.delete": "Favorite: dropped in the bin",
     "favorite.grid.done": "Zoomed out: Done", "pill": "Pill (island)", "share.open": "Share: open", "share.send": "Share: send",
     "share.done": "Share: done", "city.switch": "Switch city", "cities.edit": "City map: open", "cities.toggle": "City map: city on/off",
     "cities.done": "City map: done", "cities.cancel": "City map: cancel", "guide.open": "Lock Screen guide: open", "guide.next": "Guide: next",
@@ -1337,7 +1337,7 @@
 
     // ---- Picking a stop: from getting to the picker (the +, or a city with no favorites yet) to a chosen
     // stop, in the same session; leaving the picker's screens, or the app, without one is going back.
-    const opens = events.filter((e) => e.kind === "screen" && e.name === "picker.map" && e.detail !== "back");
+    const opens = events.filter((e) => e.kind === "screen" && e.name === "picker.map" && e.detail !== "back" && e.detail !== "edit");
     let chosen = 0, cancelled = 0; const times = [], mapTaps = [];
     for (const open of opens) {
       const list = sessions.get(open.session) ?? [];
@@ -1373,6 +1373,7 @@
       ["Zoomed out the favorites", (e) => e.kind === "screen" && e.name === "favorites.grid"],
       ["Moved a favorite zoomed out", (e) => e.name === "favorite.reorder" && e.detail !== "side"],
       ["Deleted a favorite", (e) => e.name === "favorite.delete"],
+      ["Changed a favorite", (e) => e.name === "favorite.edited"],
       ["Switched city", (e) => e.name === "city.switch"],
       ["Changed their cities", (e) => e.name === "cities.done"],
       ["Shared a stop", (e) => e.name === "share.send"],

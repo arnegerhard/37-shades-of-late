@@ -44,6 +44,8 @@ struct HomeMap: View {
     var gesture: MapGesture? = nil
     /// A tap on the map, while it takes no touches itself (see `MapTouches`).
     var tap: MapTap? = nil
+    /// Picking, the favorite being changed: keeping a stop is saving what's changed, once something has.
+    var editing: Selection? = nil
     /// How far a finger has pulled the full screen map down by its top to close it: the card fades.
     var pulled: CGFloat = 0
     let onPick: (Selection) -> Void
@@ -184,7 +186,7 @@ struct HomeMap: View {
     @State private var openedAt = Date.now
 
     init(city: City, open: Selection? = nil, feed: DepartureFeed? = nil, expanded: Bool = false, picking: Bool = false, opened: Bool = false, topInset: CGFloat = 0,
-         bottomInset: CGFloat = 0, leadingInset: CGFloat = 0, hiddenBottom: CGFloat = 0, cropped: CGFloat = 0, gesture: MapGesture? = nil, tap: MapTap? = nil, pulled: CGFloat = 0,
+         bottomInset: CGFloat = 0, leadingInset: CGFloat = 0, hiddenBottom: CGFloat = 0, cropped: CGFloat = 0, gesture: MapGesture? = nil, tap: MapTap? = nil, editing: Selection? = nil, pulled: CGFloat = 0,
          onPick: @escaping (Selection) -> Void = { _ in }) {
         self.city = city
         self.open = open
@@ -199,6 +201,7 @@ struct HomeMap: View {
         self.cropped = cropped
         self.gesture = gesture
         self.tap = tap
+        self.editing = editing
         self.pulled = pulled
         self.onPick = onPick
         _position = State(initialValue: .region(city.region))
@@ -228,6 +231,19 @@ struct HomeMap: View {
 
     /// What lies over the map's top and left, for `frameRoute`.
     private var overlaid: CGSize { CGSize(width: leadingInset, height: topInset) }
+
+    /// Changing a favorite (see `editing`), out of the way of `body`'s long chain: its own stop picked again,
+    /// going its way, the lines it also counts come back ticked.
+    private var editHooks: some View {
+        Color.clear
+            .onChange(of: otherLines) {
+                guard let editing, let picked, picked.stop.code == editing.stopCode, picked.direction.id == editing.directionID,
+                      selectedID == editing.lineID else { return }
+                alsoIDs = Set(otherLines.filter { other in
+                    editing.also.contains { $0.lineID == other.line && ($0.directionID.isEmpty || $0.directionID == other.direction) }
+                }.map(\.id))
+            }
+    }
 
     /// The layers the map is to show, as it is: the open stop's, the picker's.
     private var wantedLayers: MapLayers { MapLayers(open: open, opened: opened) }
@@ -490,6 +506,7 @@ struct HomeMap: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { fullHeight = $0 }
+        .background { editHooks }
         // What lies over the map has moved: the route framed clear of it again.
         .onChange(of: overlaid) { if !expanded, !picking, open != nil { frameRoute(animated: true) } }
         // The card (or the circle's list), over the map's bottom: changing, it leaves the map be. Above
@@ -796,11 +813,15 @@ struct HomeMap: View {
                 }
                 .animation(.easeInOut(duration: 0.3), value: cornerKey)
                 if let picked {
+                    // Changing a favorite, saving it once something's different; else keeping a new one.
+                    let unchanged = editing != nil && chosen(picked)?.id == editing?.id
                     Button { choose(picked) } label: {
-                        Text("That's my stop").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4)
+                        Text(editing == nil ? "That's my stop" : unchanged ? "Change the stop, way or lines" : "Save changes")
+                            .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(LineBadge.red)
+                    .disabled(unchanged)
                 }
             } else if lines.isEmpty {
                 Label("Asking nicely for the lines…", systemImage: "hand.tap")
@@ -1155,6 +1176,28 @@ struct HomeMap: View {
         }
     }
 
+    /// The lines whose paths pass within a few meters of `coordinate`.
+    private func linesPassing(_ coordinate: CLLocationCoordinate2D) -> [String] {
+        let spot = MKMapPoint(coordinate)
+        let reach = 35 / MKMetersPerMapPointAtLatitude(coordinate.latitude)
+        let box = MKMapRect(x: spot.x - reach, y: spot.y - reach, width: 2 * reach, height: 2 * reach)
+        return paths.compactMap { id, shapes in
+            if let bounds = lineBounds[id], !bounds.intersects(box) { return nil }
+            for shape in shapes {
+                var last: MKMapPoint?
+                for point in shape.lazy.map(MKMapPoint.init) {
+                    defer { last = point }
+                    guard let a = last else { continue }
+                    // How far the stop is from this piece of the path.
+                    let dx = point.x - a.x, dy = point.y - a.y, length = dx * dx + dy * dy
+                    let t = length > 0 ? max(0, min(1, ((spot.x - a.x) * dx + (spot.y - a.y) * dy) / length)) : 0
+                    if hypot(a.x + t * dx - spot.x, a.y + t * dy - spot.y) <= reach { return id }
+                }
+            }
+            return nil
+        }
+    }
+
     /// The lines and directions at each of `codes`, in that order: which lines stop where comes with
     /// the stops, or else from the proxy (Muni's, from the live times); each line's directions that
     /// call there (from the device, or downloaded once) give the way it goes and the stop's name.
@@ -1166,6 +1209,12 @@ struct HomeMap: View {
             for line in found where !(linesAt[line.stop ?? asking[0]] ?? []).contains(line.line) {
                 linesAt[line.stop ?? asking[0], default: []].append(line.line)
             }
+        }
+        // Muni's come from the live times: a stop whose lines have no bus on the way just now (late at
+        // night, between runs) comes back with none. Those lines are still on the map: the ones passing
+        // right by it, each kept below only if the stop is on its way.
+        for stop in stops where (linesAt[stop.code] ?? []).isEmpty {
+            linesAt[stop.code] = linesPassing(stop.coordinate)
         }
         let wanted = Set(linesAt.values.flatMap { $0 })
             .filter { circleDirections[$0] == nil }
@@ -1616,16 +1665,22 @@ struct HomeMap: View {
         picked = nil
     }
 
-    private func choose(_ arrow: StopArrow) {
-        guard let selected else { return }
+    /// The stop `arrow` makes, with the lines ticked as also fine.
+    private func chosen(_ arrow: StopArrow) -> Selection? {
+        guard let selected else { return nil }
         // Only lines still offered for this stop (the chips reset when the arrow changes).
         let also = otherLines.filter { alsoIDs.contains($0.id) }
             .map { Selection.OtherLine(lineID: $0.line, directionID: $0.direction, stopCode: $0.isNearby ? $0.stop : nil) }
-        Journey.shared.tap("picker.choose", also.isEmpty ? "map" : "map with \(also.count) more")
-        onPick(Selection(
+        return Selection(
             lineID: selected.id, lineName: selected.name, directionID: arrow.direction.id,
             destination: arrow.direction.destination, stopCode: arrow.stop.code, stopName: arrow.stop.name,
-            city: city, also: also))
+            city: city, also: also)
+    }
+
+    private func choose(_ arrow: StopArrow) {
+        guard let stop = chosen(arrow) else { return }
+        Journey.shared.tap("picker.choose", (stop.also.isEmpty ? "map" : "map with \(stop.also.count) more") + (editing == nil ? "" : ", edit"))
+        onPick(stop)
     }
 
     /// Adding a line zooms out to show all of it and its stops; removing the last one goes back to
