@@ -619,7 +619,7 @@ export class TransitCache extends DurableObject<Env> {
   /** Which lines are scheduled at each Muni stop (see schedule.ts), from its GTFS feed (one 511 call a day).
    *  Nothing, rather than an error, when the feed can't be read: the live times still say a lot. */
   private async scheduled(): Promise<Record<string, ScheduledLine[]>> {
-    return this.cached("sf-scheduled-v1", this.staticTTL, async () => {
+    return this.cached("sf-scheduled-v2", this.staticTTL, async () => {
       await this.spendBudget();
       const url = `https://api.511.org/transit/datafeeds?api_key=${this.env.API_KEY_511}&operator_id=${AGENCY}`;
       const response = await fetch(url);

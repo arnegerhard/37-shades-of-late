@@ -15,28 +15,41 @@ export interface ScheduledLine {
  * unzipped, a row at a time; only one of each stop, line and direction is kept.
  */
 export async function scheduledLines(zip: ArrayBuffer): Promise<Record<string, ScheduledLine[]>> {
-  const [routesText, tripsText, stopsText, directionsText] = await Promise.all(
-    ["routes.txt", "trips.txt", "stops.txt", "directions.txt"].map((name) => readZipEntry(zip, name)));
-  if (!routesText || !tripsText || !stopsText) throw new Error("GTFS feed without routes, trips or stops");
+  const [routesText, directionsText] = await Promise.all(["routes.txt", "directions.txt"].map((name) => readZipEntry(zip, name)));
+  if (!routesText) throw new Error("GTFS feed without routes");
   const lineOf = new Map(parseCSV(routesText).map((r) => [r.route_id, r.route_short_name || r.route_id]));
   // Muni's direction_id 0 is outbound and 1 inbound; directions.txt says so for each route, where there is one.
   const wayOf = new Map((directionsText ? parseCSV(directionsText) : []).map((d) => [`${d.route_id}|${d.direction_id}`,
     /^in/i.test(d.direction) ? "IB" : /^out/i.test(d.direction) ? "OB" : d.direction]));
   const way = (route: string, id: string) => wayOf.get(`${route}|${id}`) ?? (id === "1" ? "IB" : "OB");
-  const codeOf = new Map(parseCSV(stopsText).map((s) => [s.stop_id, s.stop_code || s.stop_id]));
+  // The big files a row at a time, keeping only the columns needed: a whole feed parsed at once is more
+  // than a Worker's memory has room for.
+  const column = (columns: string[], name: string) => columns.indexOf(name);
+  const codeOf = new Map<string, string>();
+  let stopID = 0, stopCode = -1;
+  const stopsRead = await eachZipRow(zip, "stops.txt", (c) => { stopID = column(c, "stop_id"); stopCode = column(c, "stop_code"); },
+    (f) => { codeOf.set(f[stopID], (stopCode >= 0 && f[stopCode]) || f[stopID]); });
   // Each trip as the line, way and destination it serves: an index into `kinds`.
   const kinds: ScheduledLine[] = [];
   const kindIndex = new Map<string, number>();
   const tripKind = new Map<string, number>();
-  for (const trip of parseCSV(tripsText)) {
-    const line = lineOf.get(trip.route_id);
-    if (!line) continue;
-    const kind: ScheduledLine = { line, direction: way(trip.route_id, trip.direction_id), destination: trip.trip_headsign ?? "" };
-    const key = `${kind.line}|${kind.direction}|${kind.destination}`;
+  let route = 0, trip = 2, direction = 4, headsign = 3;
+  const tripsRead = await eachZipRow(zip, "trips.txt", (c) => {
+    route = column(c, "route_id"); trip = column(c, "trip_id"); direction = column(c, "direction_id"); headsign = column(c, "trip_headsign");
+  }, (f) => {
+    const line = lineOf.get(f[route]);
+    if (!line) return;
+    const destination = (f[headsign] ?? "").replace(/^"|"$/g, "");
+    const key = `${line}|${way(f[route], f[direction])}|${destination}`;
     let index = kindIndex.get(key);
-    if (index === undefined) { index = kinds.length; kinds.push(kind); kindIndex.set(key, index); }
-    tripKind.set(trip.trip_id, index);
-  }
+    if (index === undefined) {
+      index = kinds.length;
+      kinds.push({ line, direction: way(f[route], f[direction]), destination });
+      kindIndex.set(key, index);
+    }
+    tripKind.set(f[trip], index);
+  });
+  if (!stopsRead || !tripsRead) throw new Error("GTFS feed without stops or trips");
   const seen = new Set<string>();
   const atStop: Record<string, ScheduledLine[]> = {};
   let tripColumn = 0, stopColumn = 3;

@@ -92,13 +92,14 @@ function zipEntry(zip: ArrayBuffer, name: string): { bytes: Uint8Array; method: 
   return undefined;
 }
 
-/** Calls `row` with each line of a zipped CSV past its header, split on commas (no quoted fields: stop_times.txt
- *  has none), decompressing as it goes, for files too big to hold whole (Muni's stop_times.txt is over 100 MB).
+/** Calls `row` with each line of a zipped CSV past its header, split on commas (quoted fields aren't unquoted:
+ *  fine for the columns read here, which have no commas), decompressing as it goes, for files too big to hold whole (Muni's stop_times.txt is over 100 MB).
  *  Gives the header's columns first. */
 export async function eachZipRow(zip: ArrayBuffer, name: string, header: (columns: string[]) => void, row: (fields: string[]) => void): Promise<boolean> {
   const found = zipEntry(zip, name);
   if (!found || (found.method !== 0 && found.method !== 8)) return false;
-  let stream: ReadableStream<Uint8Array> = new Blob([found.bytes]).stream();
+  // The compressed bytes as they are in the zip, not copied.
+  let stream: ReadableStream<Uint8Array> = new ReadableStream({ start(controller) { controller.enqueue(found.bytes); controller.close(); } });
   if (found.method === 8) stream = stream.pipeThrough(new DecompressionStream("deflate-raw"));
   const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
   let rest = "", first = true;
