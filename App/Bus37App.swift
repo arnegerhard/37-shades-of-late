@@ -840,6 +840,9 @@ struct ContentView: View {
         var held: String?
         /// Where the finger is, in the window.
         var at: CGPoint = .zero
+        /// Held on its page: where the finger came down, and the favorite's place among them then. The
+        /// zoomed-out favorites are moved so its own place is under the finger, until it's let go.
+        var anchor: (point: CGPoint, index: Int)?
     }
 
     /// A map held, and moved, and let go of: zoomed out to the city's favorites, to move it among them.
@@ -849,8 +852,9 @@ struct ContentView: View {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             Journey.shared.tap("favorite.hold")
             withAnimation(.smooth(duration: 0.35)) {
-                reordering = Reordering(city: favorite.city, order: favorites.filter { $0.city == favorite.city }.map(\.id),
-                                        held: favorite.id, at: at)
+                let order = favorites.filter { $0.city == favorite.city }.map(\.id)
+                reordering = Reordering(city: favorite.city, order: order, held: favorite.id, at: at,
+                                        anchor: (at, order.firstIndex(of: favorite.id) ?? 0))
             }
         case .moved(let at): drag(to: at)
         case .ended: drop()
@@ -861,6 +865,12 @@ struct ContentView: View {
     private func drag(to at: CGPoint) {
         guard var moving = reordering, let held = moving.held else { return }
         moving.at = at
+        // Moving off where it was held: the others glide back to the middle, every one in reach.
+        if let anchor = moving.anchor, hypot(at.x - anchor.point.x, at.y - anchor.point.y) > 30 {
+            moving.anchor = nil
+            withAnimation(.smooth(duration: 0.4)) { reordering = moving }
+            return
+        }
         if let over = moving.order.first(where: { $0 != held && cellFrames[$0]?.contains(at) == true }),
            let from = moving.order.firstIndex(of: held), let to = moving.order.firstIndex(of: over) {
             withAnimation(.snappy(duration: 0.25)) {
@@ -877,6 +887,8 @@ struct ContentView: View {
     private func drop() {
         guard var moving = reordering, let held = moving.held else { return }
         moving.held = nil
+        // Back in the middle, now nothing's held.
+        moving.anchor = nil
         if binFrame.contains(moving.at), let favorite = favorites.first(where: { $0.id == held }) {
             Journey.shared.tap("favorite.delete")
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -925,6 +937,14 @@ struct ContentView: View {
             let rows = (shown.count + columns - 1) / columns
             // In the middle of the room for them.
             let tall = CGFloat(rows) * (width * screen.height / screen.width + gap) - gap
+            let gridTop = max(top, top + (screen.height - top - bottom - tall) / 2)
+            // Held on its page: its own place under the finger, the others around it in their order.
+            let shift: CGSize = moving.anchor.map { anchor in
+                let tallCell = width * screen.height / screen.width
+                let middle = CGPoint(x: gap + CGFloat(anchor.index % columns) * (width + gap) + width / 2,
+                                     y: gridTop + CGFloat(anchor.index / columns) * (tallCell + gap) + tallCell / 2)
+                return CGSize(width: anchor.point.x - middle.x, height: anchor.point.y - middle.y)
+            } ?? .zero
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(0.94)
                     .onTapGesture { closeGrid() }
@@ -945,7 +965,8 @@ struct ContentView: View {
                     }
                 }
                 .padding(.horizontal, gap)
-                .padding(.top, max(top, top + (screen.height - top - bottom - tall) / 2))
+                .padding(.top, gridTop)
+                .offset(shift)
                 // The one held, under the finger, and the bin to drop it on.
                 if let held = moving.held, let favorite = favorites.first(where: { $0.id == held }) {
                     heldCard(favorite, at: moving.at, screen: screen, scale: scale)
