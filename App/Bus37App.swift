@@ -21,6 +21,13 @@ struct Bus37App: App {
         WidgetCenter.shared.reloadAllTimelines()
         #endif
         try? Tips.configure()
+        #if DEBUG
+        // `-reorderTip YES`: as just after a city's second favorite, with the pill's tip out of the way.
+        if UserDefaults.standard.bool(forKey: "reorderTip") {
+            ReorderTip.hasTwo = true
+            StalkTip.hasLetGo = true
+        }
+        #endif
         SystemDiagnostics.shared.start()
     }
 
@@ -78,6 +85,9 @@ struct ContentView: View {
     /// Who shared the incoming stop (see Selection.sharer), for Journey.
     @State private var sharedBy: String?
     @State private var favorites = Selection.favorites
+    /// Commutes, each a page ahead of its city's favorites (see Trips.swift), and the one being set up.
+    @State private var trips = Trip.enabled ? Trip.all : []
+    @State private var editingTrip: Trip?
     /// The widget walkthrough, from the picker's side (and screenshot runs).
     @State private var showingGuide = false
     /// The cities shown, with a page each (see `City.chosen`).
@@ -90,22 +100,32 @@ struct ContentView: View {
     @State private var pickerRounds: [City: Int] = [:]
     /// Two fingers moving a map, as they go, and which page's map (see `MapTouches`).
     @State private var mapGesture: (page: String, gesture: MapGesture)?
-    /// The last tap on a city's picker, and where the buttons along its side are, whose taps aren't the map's.
-    @State private var pickerTaps: [City: MapTap] = [:]
+    /// Where the buttons along the side of a city's picker are.
     @State private var pickerRails: [City: CGRect] = [:]
     /// Where what lies over each city's pages is (the title, the favorites down the side), whose taps
     /// aren't the picker's either.
     @State private var overMaps: [String: CGRect] = [:]
-    /// The city a + has added a picker to, after its favorites. A city without favorites always has one.
-    @State private var addingIn: City?
     /// How far each city's pages are swiped, in pages (1.5: halfway from its second favorite to its third),
     /// for the ring down the side to follow.
     @State private var reelProgress: [City: CGFloat] = [:]
+    /// A stop picked in each city's top page, open there for now: not a favorite until it's added.
+    @State private var browsing: [City: Selection] = [:]
+    /// The city whose picker the + below the favorites opened: a stop picked there is added straight away.
+    @State private var addingIn: City?
     /// The favorite being changed, in the stop picker over its page (the pencil above sharing).
     @State private var editing: Selection?
     /// A favorite held down the side, being moved among the others there, and where each circle is.
     @State private var sideDrag: SideDrag?
     @State private var storyFrames: [String: CGRect] = [:]
+    /// Where the + below each city's favorites is, and their column's scrolling content, in the window: the
+    /// + is a bin while one's moved, and the finger moving it is in the column's own space.
+    @State private var sideBins: [City: CGRect] = [:]
+    @State private var columnOrigins: [City: CGPoint] = [:]
+    /// Bumped to have a city's pages jump to the page showing, where it's moved to (its id stays the same, so
+    /// setting it again wouldn't move them).
+    @State private var pageJumps: [City: Int] = [:]
+    /// The favorite moved down the side is over the bin.
+    @State private var overSideBin = false
     /// How far the cities' pages are swiped, in pages, for the ring along the cities to follow.
     @State private var cityProgress: CGFloat?
     /// Where the city switch under way came from, for Journey, when not a swipe (a dot).
@@ -114,6 +134,8 @@ struct ContentView: View {
     /// then they fade. Each swipe starts the wait again.
     @State private var dotsAwake = true
     @State private var dotsWoken = 0
+    /// A finger on the dots, sliding along them from city to city, as along the Home Screen's page dots.
+    @State private var scrubbingDots = false
     /// The screen's height, for the favorites' share of it.
     @State private var screenHeight: CGFloat = 0
     /// A city's favorites zoomed out to move about, after holding one.
@@ -126,6 +148,8 @@ struct ContentView: View {
     /// The pill hopping toward the island, the first time it's there: it goes up there.
     @State private var pillNudge: CGFloat = 0
     @AppStorage("pillNudged") private var pillNudged = false
+    /// The dots have been slid along once: the hint about them, on an empty city's picker, is no longer needed.
+    @AppStorage("dotsScrubbed") private var dotsScrubbed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
@@ -209,8 +233,21 @@ struct ContentView: View {
         }
         // The map widget's pictures of each favorite, drawn here: the widget hasn't the memory to.
         .task { WidgetMapPainter.paint(favorites) }
+        .onChange(of: trips) { if Trip.enabled { Trip.all = trips } }
+        .sheet(item: $editingTrip) { trip in
+            TripEditor(trip: trip, stops: favorites.filter { $0.city == trip.city }) { saved in
+                if let index = trips.firstIndex(where: { $0.id == saved.id }) { trips[index] = saved } else { trips.append(saved) }
+                Journey.shared.tap("trip.saved", "\(saved.toHome.count + saved.toWork.count) ways")
+                go(to: Self.tripPage(saved), in: saved.city)
+            } onDelete: {
+                Journey.shared.tap("trip.delete")
+                trips.removeAll { $0.id == trip.id }
+            }
+        }
         .onChange(of: favorites) {
             Selection.favorites = favorites
+            // A city's second favorite: they can be put in order now.
+            if Dictionary(grouping: favorites, by: \.city).values.contains(where: { $0.count >= 2 }) { ReorderTip.hasTwo = true }
             WidgetMapPainter.paint(favorites)
             // The widgets list the favorites in order, so any change shows up there right away.
             WidgetCenter.shared.reloadAllTimelines()
@@ -227,10 +264,9 @@ struct ContentView: View {
             case .guide: showingGuide = true
             case .share:
                 Task { try? await Task.sleep(for: .seconds(1.5)); sharingFrom = "map"; sharing = selection }
-            case .lines: addingIn = selection.city; reels[selection.city] = Self.pickerPage
+            case .lines: reels[selection.city] = Self.pickerPage
             case .cities: page = Self.citiesPage
             case .stops:
-                addingIn = selection.city
                 reels[selection.city] = Self.pickerPage
                 searchingLines = true
                 // After the sheet is up: pushed in the same moment, the title draws twice.
@@ -268,36 +304,46 @@ struct ContentView: View {
         let near = min(max(Int(at.rounded()), 0), cities.count)
         let name = near < cities.count ? cities[near].name : "Your cities"
         return HStack(spacing: 10) {
-            HStack(spacing: 7) {
+            HStack(spacing: Self.dotSpacing) {
                 ForEach(Array(cities.enumerated()), id: \.element) { index, city in
                     let close = max(0, 1 - abs(CGFloat(index) - at))
                     Circle()
                         .fill(.white.opacity(0.45 + 0.55 * close))
                         .frame(width: 6 + 4 * close, height: 6 + 4 * close)
-                        .frame(width: 12, height: 22)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            switchingFrom = "dots"
-                            withAnimation(.smooth(duration: 0.4)) { page = city.rawValue }
-                        }
+                        .frame(width: Self.dotWidth, height: 22)
                         .accessibilityElement()
                         .accessibilityLabel(city.name)
+                        .accessibilityAction { scrubDots(to: index) }
                         .accessibilityAddTraits(index == near ? [.isButton, .isSelected] : .isButton)
                 }
                 let close = max(0, 1 - abs(CGFloat(cities.count) - at))
                 Image(systemName: "plus")
                     .font(.system(size: 8 + 3 * close, weight: .heavy))
                     .foregroundStyle(.white.opacity(0.45 + 0.55 * close))
-                    .frame(width: 12, height: 22)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        Journey.shared.tap("cities.edit", "dots")
-                        switchingFrom = "dots"
-                        withAnimation(.smooth(duration: 0.4)) { page = Self.citiesPage }
-                    }
+                    .frame(width: Self.dotWidth, height: 22)
+                    .accessibilityElement()
                     .accessibilityLabel("Choose cities")
+                    .accessibilityAction { scrubDots(to: cities.count) }
                     .accessibilityAddTraits(.isButton)
             }
+            .contentShape(Rectangle())
+            // Touched, they grow, and a finger sliding along them goes from city to city (a tap, to the one
+            // under it): the way across where the pages don't swipe, over a city's stop picker.
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { drag in
+                    if !scrubbingDots {
+                        dotsScrubbed = true
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(.snappy(duration: 0.2)) { scrubbingDots = true }
+                    }
+                    // Kept up (and touchable) while the finger's on them, whatever page it slides to.
+                    wakeDots()
+                    scrubDots(to: Int(drag.location.x / (Self.dotWidth + Self.dotSpacing)))
+                }
+                .onEnded { _ in
+                    withAnimation(.snappy(duration: 0.25)) { scrubbingDots = false }
+                    wakeDots()
+                })
             Text(name)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white)
@@ -310,18 +356,38 @@ struct ContentView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 2)
         .glass(in: Capsule())
+        .scaleEffect(scrubbingDots ? 1.5 : 1, anchor: .bottom)
         // The name fading into the next, and the bubble growing or shrinking to it.
         .animation(.smooth(duration: 0.3), value: name)
         .environment(\.colorScheme, .dark)
         // On the line of Apple's logo, under the caption, clear of the home indicator.
         .padding(.bottom, max(insets.bottom - 22, 6))
-        .opacity(reordering == nil && editing == nil && dotsAwake ? 1 : 0)
-        .allowsHitTesting(dotsAwake)
+        // Kept up over the picker, whose map takes the swipe across: tapped, the way to another city.
+        .opacity(reordering == nil && editing == nil && (dotsAwake || scrubbingDots || onPicker(cityShown)) ? 1 : 0)
+        .allowsHitTesting(dotsAwake || scrubbingDots || onPicker(cityShown))
         .task(id: dotsWoken) {
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.6)) { dotsAwake = false }
         }
+    }
+
+    /// The city whose pages are on screen (not the open stop's, until one's opened there).
+    private var cityShown: City { page.flatMap(City.init(rawValue:)) ?? selection.city }
+
+    private static let dotWidth: CGFloat = 12
+    private static let dotSpacing: CGFloat = 7
+
+    /// To the city at `index` along the dots (past the last, the map of cities), as the finger slides over it.
+    private func scrubDots(to index: Int) {
+        let cities = shownCities
+        let index = min(max(index, 0), cities.count)
+        let target = index < cities.count ? cities[index].rawValue : Self.citiesPage
+        guard target != page else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+        if target == Self.citiesPage { Journey.shared.tap("cities.edit", "dots") }
+        switchingFrom = "dots"
+        withAnimation(.smooth(duration: 0.3)) { page = target }
     }
 
     /// The dots back, for another few seconds.
@@ -361,7 +427,7 @@ struct ContentView: View {
             if let old = cityProgress, abs(old - progress) > 0.001 { wakeDots() }
             cityProgress = progress
         })
-        .scrollDisabled(reordering != nil || editing != nil)
+        .scrollDisabled(reordering != nil || editing != nil || City(rawValue: page ?? "").map(onPicker) == true)
         .onChange(of: page) { old, new in
             // What's in front for Journey: the map of cities, or a city's picker, come and gone with its page.
             if old == Self.citiesPage { Journey.shared.hide("cities") }
@@ -378,29 +444,46 @@ struct ContentView: View {
         }
     }
 
-    /// One city: its favorites one under another, a screen each, and the picker after them. The maps
+    /// One city: the stop picker on top, then its favorites one under another, a screen each. The maps
     /// next to the one showing are made ahead, so they've framed their route by the time they slide in;
     /// those further away are left out until then.
     private func cityPage(_ city: City) -> some View {
         let cityFavorites = favorites.filter { $0.city == city }
         let shown = reel(in: city).wrappedValue
-        let at = cityFavorites.firstIndex { $0.id == shown } ?? cityFavorites.count
+        let tripCount = trips.filter { $0.city == city }.count
+        let at = Int(pageIndex(of: shown, in: city))
         // Where the pages actually are, which a page view just made may not have scrolled to yet.
         let showing = reelProgress[city].map { Int($0.rounded()) }
+        let near = { (page: Int) in abs(page - at) <= 1 || showing.map({ abs(page - $0) <= 1 }) == true }
+        let cityTrips = trips.filter { $0.city == city }
         return ScrollViewReader { scroller in
         ScrollView(.vertical) {
             VStack(spacing: 0) {
+                Group {
+                    if !near(0) {
+                        Color.black
+                    } else if let stop = browsing[city] {
+                        reel(stop, browsed: true).transition(.opacity)
+                    } else {
+                        pickerReel(city, first: cityFavorites.isEmpty).transition(.opacity)
+                    }
+                }
+                .containerRelativeFrame([.horizontal, .vertical])
+                .id(Self.pickerPage)
+                ForEach(cityTrips) { trip in
+                    TripPage(trip: trip, topInset: routeTop(city), bottomInset: insets.bottom, leadingInset: routeLeading(city)) {
+                        Journey.shared.tap("trip.edit")
+                        editingTrip = trip
+                    }
+                    .containerRelativeFrame([.horizontal, .vertical])
+                    .id(Self.tripPage(trip))
+                }
                 ForEach(Array(cityFavorites.enumerated()), id: \.element.id) { index, favorite in
                     Group {
-                        if abs(index - at) <= 1 || showing.map({ abs(index - $0) <= 1 }) == true { reel(favorite) } else { Color.black }
+                        if near(1 + tripCount + index) { reel(favorite) } else { Color.black }
                     }
                     .containerRelativeFrame([.horizontal, .vertical])
                     .id(favorite.id)
-                }
-                if hasPicker(city) {
-                    pickerReel(city, first: cityFavorites.isEmpty)
-                        .containerRelativeFrame([.horizontal, .vertical])
-                        .id(Self.pickerPage)
                 }
             }
             .scrollTargetLayout()
@@ -408,8 +491,12 @@ struct ContentView: View {
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: reel(in: city))
         .scrollIndicators(.hidden)
-        .scrollDisabled(reordering != nil || editing != nil)
+        .scrollDisabled(reordering != nil || editing != nil || onPicker(city))
         .modifier(PageProgress { reelProgress[city] = $0 })
+        .onChange(of: pageJumps[city]) {
+            guard let shown = reel(in: city).wrappedValue else { return }
+            scroller.scrollTo(shown, anchor: .top)
+        }
         // Made, a page view starts at its top whatever its position says: to the one it's to show.
         .onAppear {
             guard let shown else { return }
@@ -435,7 +522,8 @@ struct ContentView: View {
     /// opens, else its picker. Swiping to a favorite makes it the open stop.
     private func reel(in city: City) -> Binding<String?> {
         Binding {
-            if let shown = reels[city], shown == Self.pickerPage && hasPicker(city) || favorites.contains(where: { $0.id == shown }) { return shown }
+            if let shown = reels[city], shown == Self.pickerPage || favorites.contains(where: { $0.id == shown })
+                || trips.contains(where: { $0.city == city && Self.tripPage($0) == shown }) { return shown }
             // The open stop, where it's this city's; else the one switching here opens.
             let opening = city == selection.city && isFavorite(selection) ? selection : opening(city)
             return favorites.contains { $0.id == opening.id } ? opening.id : Self.pickerPage
@@ -446,18 +534,30 @@ struct ContentView: View {
             if new == Self.pickerPage, old != Self.pickerPage { Journey.shared.show("picker.map") }
             if old == Self.pickerPage, new != Self.pickerPage {
                 Journey.shared.hide("picker.map")
-                // Left without picking: the picker goes again, until the next +.
                 if addingIn == city { addingIn = nil }
             }
-            guard city == selection.city, new != selection.id, let favorite = favorites.first(where: { $0.id == new }) else { return }
+            let stop = new == Self.pickerPage ? browsing[city] : favorites.first(where: { $0.id == new })
+            guard city == selection.city, let stop, stop.id != selection.id else { return }
             Journey.shared.tap("stop.open", Journey.from("swipe"))
-            select(favorite)
+            select(stop)
         }
     }
 
-    /// Whether `city` has a picker after its favorites: added with the +, or with none to show yet.
-    private func hasPicker(_ city: City) -> Bool {
-        addingIn == city || !favorites.contains { $0.city == city }
+    /// A trip's page, by its id.
+    static func tripPage(_ trip: Trip) -> String { "trip:\(trip.id)" }
+
+    /// Whether `city` shows its stop picker's map, which takes one finger itself: the pages, up and down and
+    /// across to the other cities, stand still under it.
+    private func onPicker(_ city: City) -> Bool {
+        reel(in: city).wrappedValue == Self.pickerPage && browsing[city] == nil
+    }
+
+    /// Where `page` is in `city`'s pages, top first: the picker, the trips, then the favorites.
+    private func pageIndex(of page: String?, in city: City) -> CGFloat {
+        if page == Self.pickerPage { return 0 }
+        let cityTrips = trips.filter { $0.city == city }
+        if let trip = cityTrips.firstIndex(where: { Self.tripPage($0) == page }) { return CGFloat(1 + trip) }
+        return CGFloat(1 + cityTrips.count + (favorites.filter { $0.city == city }.firstIndex { $0.id == page } ?? 0))
     }
 
     /// The app's name over the top of the pages, as the icon has it.
@@ -504,30 +604,40 @@ struct ContentView: View {
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { overMaps["\(city.rawValue) help"] = $0 }
     }
 
-    /// Down the left, as stories are: the city's favorites to jump to, in up to a share of the screen
-    /// (a slice of the next saying there are more, the rest a scroll away), and below them a + to add
-    /// one, which puts a picker after them (an ✕ while it's there, to leave it).
+    /// Down the left, as stories are: the stop picker, then the city's favorites, to jump to, in up to a
+    /// share of the screen (a slice of the next saying there are more, the rest a scroll away). Changing one
+    /// (the pencil), they fold away and an ✕ leaves it as it was.
     @ViewBuilder private func side(_ city: City) -> some View {
         let cityFavorites = favorites.filter { $0.city == city }
-        if !cityFavorites.isEmpty {
+        if !cityFavorites.isEmpty || trips.contains(where: { $0.city == city }) {
             VStack(spacing: 10) {
                 // While one's moved, in the order it's being moved into.
                 let shown = sideDrag?.city == city
                     ? sideDrag!.order.compactMap { id in cityFavorites.first { $0.id == id } } : cityFavorites
                 let changing = editing?.city == city
-                // Changing one, the others fold away up under the title, pulling the + up with them.
+                // Changing one, the others fold away up under the title, the ✕ taking their place.
                 favoritesColumn(shown, shown: reel(in: city).wrappedValue, in: city)
+                    .modifier(ReorderTipAnchor(shows: !changing && cityFavorites.count >= 2 && city == cityShown))
                     .scaleEffect(x: 1, y: changing ? 0.01 : 1, anchor: .top)
                     .opacity(changing ? 0 : 1)
                     .frame(height: changing ? 0 : nil, alignment: .top)
                     .allowsHitTesting(!changing)
+                // The + adds a favorite: the picker on top, the stop picked there joining the favorites (an ✕
+                // while it's open, to leave it); changing one, the ✕ leaves it as it was.
+                // Moving one, the + is a bin to drop it on.
+                let binning = sideDrag?.city == city
                 sideCircle {
-                    Image(systemName: addingIn == city || changing ? "xmark" : "plus").font(.system(size: 20, weight: .semibold))
+                    Image(systemName: binning ? "trash" : addingIn == city || changing ? "xmark" : "plus")
+                        .font(.system(size: 20, weight: .semibold))
                         .contentTransition(.symbolEffect(.replace))
                 } action: {
                     if changing { stopEditing(saved: false) } else { toggleAdding(in: city) }
                 }
-                .accessibilityLabel(changing ? "Leave it as it was" : addingIn == city ? "Stop adding a favorite" : "Add favorite")
+                .background(Circle().fill(LineBadge.red).opacity(binning && overSideBin ? 1 : 0))
+                .scaleEffect(binning && overSideBin ? 1.15 : 1)
+                .animation(.snappy(duration: 0.2), value: overSideBin)
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { sideBins[city] = $0 }
+                .accessibilityLabel(changing ? "Leave it as it was" : addingIn == city ? "Stop adding a favorite" : "Add a favorite")
             }
             .padding(.leading, 12)
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { overMaps["\(city.rawValue) side"] = $0 }
@@ -564,28 +674,6 @@ struct ContentView: View {
         stopEditing(saved: true)
     }
 
-    /// The +: a picker after the favorites, and there; again (the ✕), back to the favorite.
-    private func toggleAdding(in city: City) {
-        if addingIn == city {
-            Journey.shared.tap("picker.close", "side")
-            let back = isFavorite(selection) && selection.city == city ? selection.id : favorites.last { $0.city == city }?.id
-            if let back { go(to: back, in: city) }
-            // Once it's out of sight.
-            Task {
-                try? await Task.sleep(for: .seconds(0.5))
-                if reels[city] != Self.pickerPage { addingIn = nil }
-            }
-        } else {
-            Journey.shared.tap("favorite.add", Journey.from("side"))
-            addingIn = city
-            // Once it's there to scroll to.
-            Task {
-                try? await Task.sleep(for: .milliseconds(50))
-                go(to: Self.pickerPage, in: city)
-            }
-        }
-    }
-
     /// A round button down the side, dark glass as the favorites' column is.
     private func sideCircle(@ViewBuilder _ label: () -> some View, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -606,52 +694,121 @@ struct ContentView: View {
     /// How much of the screen's height the favorites may take, at most.
     private static let sideShare: CGFloat = 0.45
 
-    /// Where the ring down the side is, in circles: following the pages as they're swiped (from iOS 18),
-    /// else on the one showing.
-    private func progress(in city: City, shown: String?, of cityFavorites: [Selection]) -> CGFloat {
+    /// The favorites column's scrolling content, where its circles are and a finger moving one is.
+    static let columnSpace = "favorites column"
+
+    /// How much bigger the circle showing is than the others, standing out past the column's edges.
+    private static let shownScale: CGFloat = 0.28
+    /// How far (in circles) the magnifying reaches either side of the one showing, as along the Mac's Dock.
+    private static let dockReach: CGFloat = 1.6
+
+    /// Where the ring down the side is, in circles (the picker's first): following the pages as they're
+    /// swiped (from iOS 18), else on the one showing.
+    private func progress(in city: City, shown: String?) -> CGFloat {
         if let swiped = reelProgress[city] { return max(swiped, 0) }
-        return CGFloat(cityFavorites.firstIndex { $0.id == shown } ?? 0)
+        return pageIndex(of: shown, in: city)
     }
 
-    /// The city's favorites, a circle each, the one showing ringed. As many as fit in their share
-    /// of the screen; past that, a slice of the next shows, and the column scrolls.
+    /// How big the circle at `index` is, as on the Mac's Dock: the one showing biggest, its neighbours a little
+    /// bigger too, all of it moving along as the pages are swiped. Not while one's being moved.
+    private func storyScale(_ index: Int, at: CGFloat) -> CGFloat {
+        guard sideDrag == nil else { return 1 }
+        let near = max(0, 1 - pow(abs(CGFloat(index) - at) / Self.dockReach, 2))
+        return 1 + Self.shownScale * near
+    }
+
+    /// A circle in the column at its size, taking up its room so the others make way, as on the Dock.
+    private func docked(_ story: some View, _ index: Int, at: CGFloat) -> some View {
+        let scale = storyScale(index, at: at)
+        return story
+            .scaleEffect(scale)
+            .frame(width: Self.storySize * scale, height: Self.storySize * scale)
+    }
+
+    /// The middle of the circle at `index`, from the top of the column, with every circle at its size.
+    private func storyCenter(_ index: Int, at: CGFloat) -> CGFloat {
+        var y = Self.storyGap
+        for before in 0..<index { y += Self.storySize * storyScale(before, at: at) + Self.storyGap }
+        return y + Self.storySize * storyScale(index, at: at) / 2
+    }
+
+    /// The city's favorites, a circle each, the one showing ringed and magnified. As many as fit in their
+    /// share of the screen; past that, a slice of the next shows, and the column scrolls.
     private func favoritesColumn(_ cityFavorites: [Selection], shown: String?, in city: City) -> some View {
         let step = Self.storySize + Self.storyGap
         let room = max(screenHeight * Self.sideShare, step)
         let fit = max(Int((room - Self.storyGap) / step), 1)
-        let height = cityFavorites.count <= fit
-            ? CGFloat(cityFavorites.count) * step + Self.storyGap
+        // The picker, the trips, then the favorites: a circle each.
+        let cityTrips = trips.filter { $0.city == city }
+        let count = 1 + cityTrips.count + cityFavorites.count
+        let at = progress(in: city, shown: shown)
+        // Room for the magnified ones too: the one showing and its neighbours, at most.
+        let magnified = Self.storySize * Self.shownScale * (1 + 2 * (1 - pow(1 / Self.dockReach, 2)))
+        let height = count <= fit
+            ? CGFloat(count) * step + Self.storyGap + magnified
             : CGFloat(fit) * step + Self.storyGap + Self.storySize * 0.4
         return ScrollViewReader { scroller in
             ScrollView(.vertical) {
                 VStack(spacing: Self.storyGap) {
-                    ForEach(cityFavorites) { favorite in
-                        story(favorite, in: city)
+                    docked(pickerStory(in: city), 0, at: at)
+                    ForEach(Array(cityTrips.enumerated()), id: \.element.id) { index, trip in
+                        docked(TripStory(home: Trip.homeByDefault)
+                            .frame(width: Self.storySize, height: Self.storySize)
+                            .contentShape(Circle())
+                            .onTapGesture { go(to: Self.tripPage(trip), in: city) }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel("Trip \(Trip.homeByDefault ? "home" : "to work")"), 1 + index, at: at)
+                            .id(Self.tripPage(trip))
+                    }
+                    ForEach(Array(cityFavorites.enumerated()), id: \.element.id) { index, favorite in
+                        docked(story(favorite, in: city), 1 + cityTrips.count + index, at: at)
+                            // The held one under the finger: its slot and its offset change together, unanimated, so
+                            // it stays put as the others slide round it.
+                            .offset(y: heldOffset(favorite.id, slot: 1 + cityTrips.count + index, in: city))
+                            .animation(sideDrag?.held == favorite.id ? nil : .snappy(duration: 0.25), value: sideDrag?.order)
+                            .id(favorite.id)
                     }
                 }
                 .padding(.vertical, Self.storyGap)
-                // The one showing, ringed: the ring slides along under the circles as the pages are swiped.
-                .background(alignment: .top) {
-                    let at = progress(in: city, shown: shown, of: cityFavorites)
+                .coordinateSpace(.named(Self.columnSpace))
+                .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .global).origin }) { columnOrigins[city] = $0 }
+                // The ring over the one showing, sliding from circle to circle as the pages are swiped.
+                .overlay(alignment: .top) {
+                    let ringAt = min(at, CGFloat(count - 1))
+                    let below = Int(ringAt.rounded(.down)), above = min(below + 1, count - 1)
+                    let between = ringAt - CGFloat(below)
+                    let size = Self.storySize * ((1 - between) * storyScale(below, at: at) + between * storyScale(above, at: at))
+                    let center = (1 - between) * storyCenter(below, at: at) + between * storyCenter(above, at: at)
                     Circle()
                         .strokeBorder(LineBadge.red, lineWidth: 3)
-                        // In the room around each circle's dark middle, where its own faint ring is.
-                        .frame(width: Self.storySize, height: Self.storySize)
-                        .offset(y: Self.storyGap + min(at, CGFloat(cityFavorites.count - 1)) * step)
-                        // Fading out on the way to the picker after the last.
-                        .opacity(sideDrag?.city == city ? 0 : 1 - min(max(at - CGFloat(cityFavorites.count - 1), 0) * 2, 1))
-                        .animation(.smooth(duration: 0.25), value: shown)
+                        .frame(width: size, height: size)
+                        .offset(y: center - size / 2)
+                        .opacity(sideDrag?.city == city ? 0 : 1)
+                        .allowsHitTesting(false)
                 }
+                .animation(.smooth(duration: 0.3), value: shown)
             }
             .scrollIndicators(.hidden)
+            .scrollDisabled(sideDrag != nil)
+            // The one showing stands out past the column's sides; above and below, the circles scrolling out
+            // of it are cut off at its ends.
+            .scrollClipDisabled()
             .frame(width: Self.sideWidth, height: height)
             .glass(in: Capsule())
-            .clipShape(Capsule())
+            .mask { Rectangle().padding(.horizontal, -12) }
             .environment(\.colorScheme, .dark)
-            // The one showing kept in view as the pages are swiped.
+            // The one showing kept in view as the pages are swiped, and from the start.
             .onChange(of: shown) {
-                guard let shown, cityFavorites.contains(where: { $0.id == shown }) else { return }
+                guard let shown else { return }
                 withAnimation(.smooth(duration: 0.3)) { scroller.scrollTo(shown) }
+            }
+            .onAppear {
+                guard let shown else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    scroller.scrollTo(shown)
+                }
             }
         }
     }
@@ -665,45 +822,106 @@ struct ContentView: View {
             .scaleEffect(held ? 1.15 : 1)
             .shadow(color: .black.opacity(held ? 0.5 : 0), radius: 6, y: 2)
             .zIndex(held ? 1 : 0)
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { storyFrames[favorite.id] = $0 }
+            // In the column's own scrolled space, as the finger moving one is: wherever it's scrolled to.
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.columnSpace)) }) { storyFrames[favorite.id] = $0 }
             .onTapGesture {
                 Journey.shared.tap("favorite.open", "side")
                 go(to: favorite.id, in: city)
             }
-            .gesture(LongPressGesture(minimumDuration: 0.4)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-                .onChanged { value in
-                    guard case .second(true, let drag) = value else { return }
-                    if sideDrag == nil { pickUp(favorite, in: city) }
-                    if let drag { moveHeld(to: drag.location) }
+            .modifier(ColumnHold { hold in
+                switch hold {
+                case .began(let at): if sideDrag == nil { pickUp(favorite, in: city, at: at) }
+                case .moved(let at): moveHeld(to: at)
+                case .ended: dropHeld()
                 }
-                .onEnded { _ in dropHeld() })
-            .id(favorite.id)
+            })
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel("\(favorite.lineLabel) at \(favorite.stopName)")
             .accessibilityAction { go(to: favorite.id, in: city) }
     }
 
+    /// The top page's circle, first down the side: a magnifying glass for the stop picker, or the stop
+    /// opened from it for now (not a favorite: a dashed ring).
+    private func pickerStory(in city: City) -> some View {
+        Group {
+            if let stop = browsing[city] {
+                FavoriteStory(favorite: stop, departures: times(for: stop))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
+            } else {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: Self.storySize, height: Self.storySize)
+                    .background(Circle().fill(.black.opacity(0.55)).padding(4))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])).padding(1.5))
+            }
+        }
+        .frame(width: Self.storySize, height: Self.storySize)
+        .contentShape(Circle())
+        .onTapGesture {
+            Journey.shared.tap("picker.open", "side")
+            go(to: Self.pickerPage, in: city)
+        }
+        .id(Self.pickerPage)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(browsing[city].map { "\($0.lineLabel) at \($0.stopName), not a favorite" } ?? "Find a stop")
+    }
+
     struct SideDrag {
         let city: City
         var order: [String]
         let held: String
+        /// Where the finger is, down the column's content, and how far below the held circle's middle it took
+        /// hold: the circle follows it, kept that far above.
+        var y: CGFloat
+        let grab: CGFloat
     }
 
-    private func pickUp(_ favorite: Selection, in city: City) {
+    /// The middle of the circle at `slot` down the column (the picker's is 0), all at their own size, as while
+    /// one's moved.
+    private static func slotCenter(_ slot: Int) -> CGFloat {
+        storyGap + CGFloat(slot) * (storySize + storyGap) + storySize / 2
+    }
+
+    /// How far the held circle is drawn from its slot: under the finger, wherever that is.
+    private func heldOffset(_ id: String, slot: Int, in city: City) -> CGFloat {
+        guard let drag = sideDrag, drag.city == city, drag.held == id else { return 0 }
+        return drag.y - drag.grab - Self.slotCenter(slot)
+    }
+
+    private func pickUp(_ favorite: Selection, in city: City, at: CGPoint) {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         Journey.shared.tap("favorite.hold", "side")
         withAnimation(.snappy(duration: 0.2)) {
-            sideDrag = SideDrag(city: city, order: favorites.filter { $0.city == city }.map(\.id), held: favorite.id)
+            let order = favorites.filter { $0.city == city }.map(\.id)
+            let slot = 1 + trips.filter { $0.city == city }.count + (order.firstIndex(of: favorite.id) ?? 0)
+            sideDrag = SideDrag(city: city, order: order, held: favorite.id, y: at.y, grab: at.y - Self.slotCenter(slot))
         }
     }
 
     /// The held favorite takes the place of the one the finger is over, the others making way.
     private func moveHeld(to at: CGPoint) {
-        guard var moving = sideDrag,
-              let over = moving.order.first(where: { $0 != moving.held && storyFrames[$0].map { ($0.minY...$0.maxY).contains(at.y) } == true }),
-              let from = moving.order.firstIndex(of: moving.held), let to = moving.order.firstIndex(of: over) else { return }
+        // Over the bin below them (where it is in the column's space, as the finger is).
+        if let moving = sideDrag, let bin = sideBins[moving.city], let origin = columnOrigins[moving.city] {
+            let over = bin.offsetBy(dx: -origin.x, dy: -origin.y).insetBy(dx: -6, dy: -6).contains(at)
+            if over != overSideBin {
+                if over { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
+                overSideBin = over
+            }
+            if over { return }
+        }
+        guard var moving = sideDrag, let from = moving.order.firstIndex(of: moving.held) else { return }
+        // Kept within the column, from the first favorite's slot to the last's.
+        let first = 1 + trips.filter { $0.city == moving.city }.count
+        let lowest = Self.slotCenter(first) + moving.grab, highest = Self.slotCenter(first + moving.order.count - 1) + moving.grab
+        moving.y = min(max(at.y, lowest), highest)
+        // Its place: the slot its middle is nearest, from where the slots are, not where the circles are just now
+        // (still sliding, they'd have it swap back and forth).
+        let middle = moving.y - moving.grab
+        let to = min(max(Int(((middle - Self.slotCenter(0)) / (Self.storySize + Self.storyGap)).rounded()) - first, 0), moving.order.count - 1)
+        guard to != from else { return sideDrag = moving }
         moving.order.move(fromOffsets: [from], toOffset: to > from ? to + 1 : to)
         UISelectionFeedbackGenerator().selectionChanged()
         withAnimation(.snappy(duration: 0.25)) { sideDrag = moving }
@@ -712,17 +930,39 @@ struct ContentView: View {
     /// Let go of: the city's favorites in their new order (the others' as they were).
     private func dropHeld() {
         guard let moving = sideDrag else { return }
+        if overSideBin, let favorite = favorites.first(where: { $0.id == moving.held }) {
+            overSideBin = false
+            Journey.shared.tap("favorite.delete", "side")
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            let rest = moving.order.filter { $0 != moving.held }
+            withAnimation(.smooth(duration: 0.3)) {
+                favorites.removeAll { $0.id == moving.held }
+                sideDrag = nil
+            }
+            Selection.remember(favorite)
+            // Watching it on the island, no more.
+            if BusActivities.shared.isWatching(favorite) { BusActivities.shared.toggle(favorite, departures: [], fetchedAt: .now) }
+            // It was showing: the next one, or the picker when it was the last.
+            if reels[moving.city] == favorite.id {
+                reelProgress[moving.city] = nil
+                go(to: rest.first ?? Self.pickerPage, in: moving.city)
+            }
+            if favorite.id == selection.id, let next = rest.first.flatMap({ id in favorites.first { $0.id == id } }) { select(next) }
+            return
+        }
+        overSideBin = false
         if favorites.filter({ $0.city == moving.city }).map(\.id) != moving.order {
             Journey.shared.tap("favorite.reorder", "side")
+            ReorderTip().invalidate(reason: .actionPerformed)
             // The page showing stays, wherever it's moved to: the pages would otherwise stay where they
             // are, on whichever favorite took its place.
-            let keep = reel(in: moving.city).wrappedValue
             favorites = favorites.filter { $0.city != moving.city } + moving.order.compactMap { id in favorites.first { $0.id == id } }
-            if let keep {
-                Task {
-                    try? await Task.sleep(for: .milliseconds(50))
-                    reel(in: moving.city).wrappedValue = keep
-                }
+            // The ring goes by the page showing, not where the pages were scrolled to before they moved; and the
+            // pages, laid out again in the new order, to that page.
+            reelProgress[moving.city] = nil
+            Task {
+                try? await Task.sleep(for: .milliseconds(30))
+                pageJumps[moving.city, default: 0] += 1
             }
         }
         withAnimation(.snappy(duration: 0.25)) { sideDrag = nil }
@@ -745,13 +985,20 @@ struct ContentView: View {
 
     /// Opens `page` (a favorite, or the picker) in `city`, as a swipe to it would.
     private func go(to page: String, in city: City) {
+        // Already the one it's to show, but not where the pages are (they were scrolled from under it):
+        // let go of it first, else setting it again moves nothing.
+        if reels[city] == page, let swiped = reelProgress[city], Int(swiped.rounded()) != Int(pageIndex(of: page, in: city)) {
+            reels[city] = nil
+            Task { withAnimation(.smooth(duration: 0.4)) { reel(in: city).wrappedValue = page } }
+            return
+        }
         withAnimation(.smooth(duration: 0.4)) { reel(in: city).wrappedValue = page }
     }
 
     /// A favorite, over the whole screen: its route and buses, and over the bottom, what and when, with
     /// what to do with it along the right.
-    private func reel(_ favorite: Selection) -> some View {
-        let id = favorite.id
+    private func reel(_ favorite: Selection, browsed: Bool = false) -> some View {
+        let id = browsed ? "\(favorite.city.rawValue) \(Self.pickerPage)" : favorite.id
         // Changing it (the pencil), this same map turns into the stop picker, just where it is: the city's
         // lines blend in over the route, and the map is the fingers' own.
         let changing = editing?.id == id
@@ -762,11 +1009,11 @@ struct ContentView: View {
             .overlay {
                 if !changing {
                     MapTouches(onGesture: { gesture in mapGesture = gesture.map { (id, $0) } },
-                               onHold: { hold($0, favorite) }, ignores: { isOverMap($0, in: favorite.city) })
+                               onHold: browsed ? nil : { hold($0, favorite) }, ignores: { isOverMap($0, in: favorite.city) })
                 }
             }
             .overlay(alignment: .bottom) {
-                if !changing { caption(favorite).transition(.opacity) }
+                if !changing { caption(favorite, browsed: browsed).transition(.opacity) }
             }
             .overlay(alignment: .trailing) {
                 if changing {
@@ -787,24 +1034,37 @@ struct ContentView: View {
     /// The city's stop picker, after its favorites (or alone, before there are any): a stop picked there
     /// joins them, and opens.
     private func pickerReel(_ city: City, first: Bool) -> some View {
-        let id = "\(city.rawValue) \(Self.pickerPage)"
-        return HomeMap(city: city, picking: true, opened: true, topInset: insets.top + 120, bottomInset: insets.bottom,
-                       gesture: mapGesture?.page == id ? mapGesture?.gesture : nil, tap: pickerTaps[city], onPick: picked)
+        // The map is the fingers' own here, one finger moving it as on any map: the pages stand still under
+        // it (see `onPicker`), the column down the side the way to the others.
+        return HomeMap(city: city, expanded: true, picking: true, opened: true, topInset: insets.top + 120, bottomInset: insets.bottom,
+                       onPick: picked)
             .id(pickerRounds[city] ?? 0)
-            .overlay {
-                MapTouches(onGesture: { gesture in mapGesture = gesture.map { (id, $0) } }, ignores: { isOverMap($0, in: city) }, onTap: { spot in
-                    guard pickerRails[city]?.contains(spot) != true,
-                          !overMaps.contains(where: { $0.key.hasPrefix(city.rawValue) && $0.value.contains(spot) }) else { return }
-                    pickerTaps[city] = MapTap(location: spot)
-                })
-            }
             .overlay(alignment: .top) {
+                if addingIn == city && !first {
+                    Text("Pick a stop to add to your favorites")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                        .frame(maxWidth: .infinity)
+                        .padding(.leading, routeLeading(city))
+                        .padding(.trailing, 16)
+                        .padding(.top, insets.top + 64)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
                 if first {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Where do you wait?").font(.headline)
-                        Text("Tap a line, then your stop, and watch the \(city.vehicles) not come, live. Your stops land here, one after another, and on your widgets.")
+                        Text("Tap a line, then your stop, and watch the \(city.vehicles) not come, live. Add the ones you wait at to your favorites: they line up down the side, and on your widgets.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        // Here the map takes the swipe across: until they've been used, how to get to another city.
+                        if !dotsScrubbed, shownCities.count > 1 {
+                            Label("To change cities, slide along the dots at the bottom.", systemImage: "hand.point.up.left.and.text")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.top, 4)
+                        }
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -830,7 +1090,7 @@ struct ContentView: View {
     /// A favorite's caption, as a post's: the pill (which puts it up on the island), where it goes and
     /// the next ones after, and a comment on the wait. Along the right, sharing it. Below, the bar
     /// counting down to its next update.
-    private func caption(_ favorite: Selection) -> some View {
+    private func caption(_ favorite: Selection, browsed: Bool = false) -> some View {
         VStack(spacing: 0) {
             HStack(alignment: .bottom, spacing: 8) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -838,13 +1098,28 @@ struct ContentView: View {
                         openFavoriteCard(favorite)
                             .offset(y: favorite.id == selection.id ? pillNudge : 0)
                             .task { if favorite.id == selection.id { await nudgePill() } }
+                        if browsed {
+                            // Only open for now: a + by its pill keeps it.
+                            // The same + as the one below the favorites: both add one.
+                            sideCircle {
+                                Image(systemName: "plus").font(.system(size: 20, weight: .semibold))
+                            } action: { addFavorite(favorite) }
+                            .padding(.leading, 8)
+                            .accessibilityLabel("Add to favorites")
+                            .transition(.scale.combined(with: .opacity))
+                        }
                         Spacer(minLength: 0)
                     }
                     details(favorite)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(spacing: 6) {
-                    railButton("pencil", label: "Change this favorite") { startEditing(favorite) }
+                    if browsed {
+                        // Only open for now: back to the map for another.
+                        railButton("magnifyingglass", label: "Find another stop") { stopBrowsing(in: favorite.city) }
+                    } else {
+                        railButton("pencil", label: "Change this favorite") { startEditing(favorite) }
+                    }
                     railButton("paperplane", label: "Share this stop") {
                         Journey.shared.tap("share.open", Journey.from("map"))
                         sharingFrom = "map"
@@ -990,6 +1265,7 @@ struct ContentView: View {
         let before = favorites.filter { $0.city == moving.city }.map(\.id)
         if before != moving.order {
             Journey.shared.tap("favorite.reorder")
+            ReorderTip().invalidate(reason: .actionPerformed)
             // Only this city's order changes; each city keeps its own list.
             favorites = favorites.filter { $0.city != moving.city } + moving.order.compactMap { id in favorites.first { $0.id == id } }
         }
@@ -1118,14 +1394,19 @@ struct ContentView: View {
 
     /// A favorite's page, zoomed out: its map as it shows on the screen, `scale` as big, and its pill.
     private func card(_ favorite: Selection, screen: CGSize, scale: CGFloat) -> some View {
-        HomeMap(city: favorite.city, open: favorite, topInset: insets.top + 120, bottomInset: insets.bottom + 60)
-            .frame(width: screen.width, height: screen.height)
-            .scaleEffect(scale, anchor: .topLeading)
+        // A picture of its map, drawn ahead of time with the widgets' (see WidgetMapPainter): a live map each
+        // would load at once as the grid zooms out, and make it stutter.
+        PagePicture(favorite: favorite, dark: colorScheme == .dark) {
+            HomeMap(city: favorite.city, open: favorite, topInset: insets.top + 120, bottomInset: insets.bottom + 60)
+                .frame(width: screen.width, height: screen.height)
+                .scaleEffect(scale, anchor: .topLeading)
+                .environment(\.colorScheme, colorScheme)
+        }
             .frame(width: screen.width * scale, height: screen.height * scale, alignment: .topLeading)
+            .clipped()
             .allowsHitTesting(false)
-            // As on its page, though the grid around it is dark.
-            .environment(\.colorScheme, colorScheme)
-            .overlay(alignment: .bottomLeading) {
+            // Along the top: Apple's mark and its legal link are on the picture's bottom, and stay in sight.
+            .overlay(alignment: .topLeading) {
                 HStack(spacing: 5) {
                     LineBadges(parts: favorite.badgeParts, font: .system(.caption2, design: .rounded).weight(.heavy), round: favorite.roundBadge)
                         .lineLimit(1)
@@ -1137,7 +1418,7 @@ struct ContentView: View {
                 }
                 .padding(6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom))
+                .background(LinearGradient(colors: [.black.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom))
             }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(favorite.id == selection.id ? 0.7 : 0.15), lineWidth: 1.5))
@@ -1209,21 +1490,56 @@ struct ContentView: View {
 
     // MARK: - Opening stops
 
-    /// A stop picked, on the map or from the lines by number: it joins the favorites (at the end) and opens.
+    /// A stop picked, on the map or from the lines by number: it opens on the top page, for now, to be
+    /// added to the favorites or not. One that's a favorite already just opens.
     private func picked(_ picked: Selection) {
-        if !favorites.contains(where: { $0.id == picked.id }) {
-            favorites.append(picked)
-            Journey.shared.tap("favorite.added", Journey.from("picker"))
-        }
         Journey.shared.tap("stop.open", Journey.from("picker"))
         searchingLines = false
-        show(picked)
-        // A fresh picker for next time, once it's out of sight.
-        Task {
-            try? await Task.sleep(for: .seconds(0.8))
-            pickerRounds[picked.city, default: 0] += 1
-            if addingIn == picked.city { addingIn = nil }
+        if isFavorite(picked) { addingIn = nil; return show(picked) }
+        if addingIn == picked.city {
+            addingIn = nil
+            return addFavorite(picked, from: "side")
         }
+        withAnimation(.smooth(duration: 0.35)) { browsing[picked.city] = picked }
+        select(picked)
+        withAnimation(.smooth(duration: 0.4)) { page = picked.city.rawValue }
+        go(to: Self.pickerPage, in: picked.city)
+    }
+
+    /// The stop open on the top page, kept: it joins the favorites (at the end) and opens there, the top
+    /// page going back to the map for the next.
+    private func addFavorite(_ stop: Selection, from place: String = "pill") {
+        Journey.shared.tap("favorite.added", Journey.from(place))
+        if !isFavorite(stop) { favorites.append(stop) }
+        show(stop)
+        Task {
+            try? await Task.sleep(for: .seconds(0.6))
+            browsing[stop.city] = nil
+            pickerRounds[stop.city, default: 0] += 1
+        }
+    }
+
+    /// The + below the favorites: the picker on top, to add a favorite from; again (the ✕), back to the
+    /// favorite that was open.
+    private func toggleAdding(in city: City) {
+        if addingIn == city {
+            Journey.shared.tap("picker.close", "side")
+            addingIn = nil
+            let back = isFavorite(selection) && selection.city == city ? selection.id : favorites.last { $0.city == city }?.id
+            if let back { go(to: back, in: city) }
+        } else {
+            Journey.shared.tap("favorite.add", Journey.from("side"))
+            addingIn = city
+            withAnimation(.smooth(duration: 0.35)) { browsing[city] = nil }
+            go(to: Self.pickerPage, in: city)
+        }
+    }
+
+    /// Back to the map on the top page, for another stop.
+    private func stopBrowsing(in city: City) {
+        Journey.shared.tap("picker.again")
+        pickerRounds[city, default: 0] += 1
+        withAnimation(.smooth(duration: 0.35)) { browsing[city] = nil }
     }
 
     /// Opens `stop`: its city's page, and its own in it, if it's a favorite.
@@ -1486,6 +1802,99 @@ struct MapTouches: UIViewRepresentable {
 
         deinit {
             for recognizer in [pinch, pan, hold, tap] as [UIGestureRecognizer] { recognizer.view?.removeGestureRecognizer(recognizer) }
+        }
+    }
+}
+
+/// Held, a favorite down the side is picked up to move. From iOS 18 by UIKit's own long press, as SwiftUI's
+/// there stops the column from scrolling at all; a finger that moves first scrolls it instead, and once one's
+/// held the column stands still (`scrollDisabled`).
+private struct ColumnHold: ViewModifier {
+    let onHold: (MapTouches.Hold) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.gesture(Recognizer(onHold: onHold))
+        } else {
+            content.gesture(LongPressGesture(minimumDuration: 0.4)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(ContentView.columnSpace)))
+                .onChanged { value in
+                    guard case .second(true, let drag) = value else { return }
+                    onHold(.began(drag?.location ?? .zero))
+                    if let drag { onHold(.moved(drag.location)) }
+                }
+                .onEnded { _ in onHold(.ended) })
+        }
+    }
+
+    @available(iOS 18.0, *)
+    struct Recognizer: UIGestureRecognizerRepresentable {
+        let onHold: (MapTouches.Hold) -> Void
+
+        func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+            let hold = UILongPressGestureRecognizer()
+            hold.minimumPressDuration = 0.4
+            hold.delegate = context.coordinator
+            return hold
+        }
+
+        func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+        func handleUIGestureRecognizerAction(_ hold: UILongPressGestureRecognizer, context: Context) {
+            let at = context.converter.location(in: .named(ContentView.columnSpace))
+            switch hold.state {
+            case .began: onHold(.began(at))
+            case .changed: onHold(.moved(at))
+            case .ended, .cancelled, .failed: onHold(.ended)
+            default: break
+            }
+        }
+
+        final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+            func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+        }
+    }
+}
+
+/// A favorite's page as a picture (WidgetMapShape.page), read once and kept; until there is one, `fallback`.
+private struct PagePicture<Fallback: View>: View {
+    let favorite: Selection
+    let dark: Bool
+    @ViewBuilder let fallback: () -> Fallback
+
+    var body: some View {
+        if let image = Self.image(favorite, dark: dark) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            fallback()
+        }
+    }
+
+    private static func image(_ favorite: Selection, dark: Bool) -> UIImage? {
+        let key = favorite.id + (dark ? "-dark" : "")
+        if let kept = pagePictures[key] { return kept }
+        guard let url = WidgetMaps.imageURL(favorite, .page, dark: dark),
+              let image = UIImage(contentsOfFile: url.path(percentEncoded: false)) else { return nil }
+        pagePictures[key] = image
+        return image
+    }
+}
+
+/// The pictures PagePicture has read, by favorite and appearance.
+@MainActor private var pagePictures: [String: UIImage] = [:]
+
+/// The tip about putting favorites in order, pointing at the column of them.
+private struct ReorderTipAnchor: ViewModifier {
+    let shows: Bool
+
+    func body(content: Content) -> some View {
+        // One tip at a time: the pill's first, while it's up.
+        if shows, !StalkTip(island: Island.frame != nil).shouldDisplay {
+            content.popoverTip(ReorderTip(), arrowEdge: .leading)
+        } else {
+            content
         }
     }
 }

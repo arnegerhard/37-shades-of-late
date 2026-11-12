@@ -8,15 +8,17 @@ import WidgetKit
 // the widget itself would take more memory than iOS gives a widget; showing a picture takes a little.
 
 /// The pictures' shapes, one per layout, in points: the small widget's whole face, the medium's left
-/// third, the large's top half.
+/// third, the large's top half; and, for the app itself, a whole page as the zoomed-out favorites show it.
 enum WidgetMapShape: String, CaseIterable, Codable {
-    case square, tall, wide
+    case square, tall, wide, page
 
     var size: CGSize {
         switch self {
         case .square: CGSize(width: 170, height: 170)
         case .tall: CGSize(width: 128, height: 142)
         case .wide: CGSize(width: 340, height: 204)
+        // A phone's screen, a little under half size: the zoomed-out favorites are two or three across.
+        case .page: CGSize(width: 184, height: 400)
         }
     }
 
@@ -27,6 +29,8 @@ enum WidgetMapShape: String, CaseIterable, Codable {
         case .square: CGRect(x: 0.08, y: 0.06, width: 0.84, height: 0.56)
         // Over the large widget's bottom left: the stop's name.
         case .wide: CGRect(x: 0.06, y: 0.07, width: 0.88, height: 0.76)
+        // As on its page: clear of the title and the favorites down the side, above the caption.
+        case .page: CGRect(x: 0.19, y: 0.13, width: 0.77, height: 0.65)
         default: CGRect(x: 0.07, y: 0.08, width: 0.86, height: 0.84)
         }
     }

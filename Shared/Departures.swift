@@ -797,6 +797,32 @@ enum TransitService {
         return response.lines
     }
 
+    /// The ways between two places, as the proxy's trip search has them (Muni's only, so far); nil when it
+    /// can't say (another city, still building its network, offline), for the app to look itself.
+    static func tripWays(from: (Double, Double), to: (Double, Double), in city: City) async -> [FoundWay]? {
+        guard city == .sf else { return nil }
+        struct Response: Decodable { let ways: [FoundWay] }
+        var components = URLComponents(url: url(city, "trip"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "from", value: "\(from.0),\(from.1)"), URLQueryItem(name: "to", value: "\(to.0),\(to.1)")]
+        let found: Response? = try? await get(components.url!, client: .app)
+        return found?.ways
+    }
+
+    /// Meters above sea level at each point (latitude, longitude), in order; nil where unknown. For trips'
+    /// walks, uphill or down (see the proxy's elevation.ts). Asked a hundred at a time.
+    static func elevations(of points: [(Double, Double)]) async -> [Double?] {
+        struct Response: Decodable { let elevations: [Double?] }
+        var heights: [Double?] = []
+        for start in stride(from: 0, to: points.count, by: 100) {
+            let chunk = points[start..<min(start + 100, points.count)]
+            var components = URLComponents(url: baseURL.appending(path: "elevation"), resolvingAgainstBaseURL: false)!
+            components.queryItems = [URLQueryItem(name: "points", value: chunk.map { "\($0.0),\($0.1)" }.joined(separator: "|"))]
+            let found: Response? = try? await get(components.url!, client: .app)
+            heights += found?.elevations ?? Array(repeating: nil, count: chunk.count)
+        }
+        return heights
+    }
+
     /// Like `directions`, but only what's already on the device, for showing stops without waiting.
     static func cachedDirections(for line: Line, in city: City) -> [Direction]? {
         LineData.load("directions-\(city.rawValue)-\(line.id)", as: DirectionsResponse.self)?.directions
@@ -949,4 +975,26 @@ private enum LineData {
         json["complete"] = nil
         return try? JSONSerialization.data(withJSONObject: json, options: .sortedKeys)
     }
+}
+
+/// A way between two places, as the proxy's trip search finds it: a walk, one ride or two (a walk between
+/// them), a walk; each ride with the other lines from the same platform to the same place.
+struct FoundWay: Decodable {
+    struct Walk: Decodable { let minutes: Int; let climb: Double? }
+    struct Place: Decodable { let code: String; let name: String }
+    struct Other: Decodable { let line: String; let direction: String; let destination: String; let board: Place; let alight: Place }
+    struct Leg: Decodable {
+        let line: String
+        let direction: String
+        let destination: String
+        let board: Place
+        let alight: Place
+        let also: [Other]
+        let minutes: Int
+    }
+    let legs: [Leg]
+    let walkBefore: Walk
+    let change: Walk?
+    let walkAfter: Walk
+    let felt: Int
 }

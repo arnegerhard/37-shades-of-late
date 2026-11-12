@@ -1254,6 +1254,26 @@ struct HomeMap: View {
                 }
             }
         }
+        // A station's other platforms, for the lines found at it: the same name a little way off, outside
+        // the circle (Seattle's Pioneer Square has its northbound platform 125 m north of the southbound).
+        for at in byName.indices {
+            let here = byName[at]
+            for line in Set(here.ways.map(\.line.id)).compactMap({ id in lines.first { $0.id == id } }) {
+                for direction in directions[line.id] ?? [] {
+                    guard let i = direction.stops.firstIndex(where: { $0.name == here.name }), i < direction.stops.count - 1,
+                          let lat = direction.stops[i].lat, let lon = direction.stops[i].lon else { continue }
+                    let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                    let near = here.ways.contains {
+                        CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude)
+                            .distance(from: CLLocation(latitude: lat, longitude: lon)) < 400
+                    }
+                    let way = CircleWay(line: line, direction: direction, stop: direction.stops[i].code, stopName: here.name, coordinate: coordinate)
+                    if near, !byName[at].ways.contains(where: { $0.line.id == line.id && $0.direction.id == direction.id }) {
+                        byName[at].ways.append(way)
+                    }
+                }
+            }
+        }
         return byName.map { name, ways in
             CircleStop(name: name, codes: Set(ways.map(\.stop)), ways: ways.sorted {
                 $0.line.id != $1.line.id ? $0.line.id.localizedStandardCompare($1.line.id) == .orderedAscending

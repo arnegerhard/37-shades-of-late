@@ -45,6 +45,7 @@
 		B37A0C0A1C0B4E37A1B2C302 /* WidgetMaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0C0A1C0B4E37A1B2C301 /* WidgetMaps.swift */; };
 		B37A0C0A1C0B4E37A1B2C303 /* WidgetMaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0C0A1C0B4E37A1B2C301 /* WidgetMaps.swift */; };
 		B37A0C0A1C0B4E37A1B2C305 /* WidgetMapPainter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0C0A1C0B4E37A1B2C304 /* WidgetMapPainter.swift */; };
+		B37A0C0A1C0B4E37A1B2C307 /* Trips.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0C0A1C0B4E37A1B2C306 /* Trips.swift */; };
 		F33E7C0A1C0B4E37A1B2C3F3 /* WidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */; };
 		AA1E7C0A1C0B4E37A1B2C302 /* BusActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */; };
 		AA1E7C0A1C0B4E37A1B2C303 /* BusActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */; };
@@ -117,6 +118,7 @@
 		F33E7C0A1C0B4E37A1B2C3F1 /* WidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetViews.swift; sourceTree = "<group>"; };
 		B37A0C0A1C0B4E37A1B2C301 /* WidgetMaps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetMaps.swift; sourceTree = "<group>"; };
 		B37A0C0A1C0B4E37A1B2C304 /* WidgetMapPainter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetMapPainter.swift; sourceTree = "<group>"; };
+		B37A0C0A1C0B4E37A1B2C306 /* Trips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Trips.swift; sourceTree = "<group>"; };
 		AA1E7C0A1C0B4E37A1B2C301 /* BusActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusActivity.swift; sourceTree = "<group>"; };
 		AA1E7C0A1C0B4E37A1B2C304 /* BusActivities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BusActivities.swift; sourceTree = "<group>"; };
 		F33E7C0A1C0B4E37A1B2C3F4 /* Screenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screenshots.swift; sourceTree = "<group>"; };
@@ -201,6 +203,7 @@
 				A44E7C0A1C0B4E37A1B2C3A1 /* RouteMap.swift */,
 				A44E7C0A1C0B4E37A1B2C3A3 /* Sharing.swift */,
 				B37A0C0A1C0B4E37A1B2C304 /* WidgetMapPainter.swift */,
+				B37A0C0A1C0B4E37A1B2C306 /* Trips.swift */,
 				D11E7C0A1C0B4E37A1B2C3D4 /* StopPicker.swift */,
 				E88E7C0A1C0B4E37A1B2C3E1 /* WidgetGuide.swift */,
 				E88E7C0A1C0B4E37A1B2C3E3 /* CityMap.swift */,
@@ -345,6 +348,7 @@
 				F33E7C0A1C0B4E37A1B2C3F2 /* WidgetViews.swift in Sources */,
 				B37A0C0A1C0B4E37A1B2C302 /* WidgetMaps.swift in Sources */,
 				B37A0C0A1C0B4E37A1B2C305 /* WidgetMapPainter.swift in Sources */,
+				B37A0C0A1C0B4E37A1B2C307 /* Trips.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C302 /* BusActivity.swift in Sources */,
 				AA1E7C0A1C0B4E37A1B2C305 /* BusActivities.swift in Sources */,
 				F33E7C0A1C0B4E37A1B2C3F5 /* Screenshots.swift in Sources */,

@@ -297,3 +297,19 @@ struct StalkTip: Tip {
         #Rule(Self.homeWithFavorite) { $0.donations.count >= 2 }
     }
 }
+
+/// Once a city first has two favorites: they can be put in order, which is the widgets' order too.
+struct ReorderTip: Tip {
+    /// Whether any city has had two favorites yet.
+    @Parameter static var hasTwo: Bool = false
+
+    var title: Text { Text("Put them in order") }
+    var message: Text? {
+        Text("Hold a favorite here, or its map, and drag it to its place. Your widgets show them in this order too.")
+    }
+    var image: Image? { Image(systemName: "hand.draw") }
+
+    var rules: [Rule] {
+        #Rule(Self.$hasTwo) { $0 == true }
+    }
+}
