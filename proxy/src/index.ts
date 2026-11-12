@@ -9,6 +9,8 @@ import { handleBoston } from "./boston";
 import { handleChicago } from "./chicago";
 import { handleDC } from "./dc";
 import { handleLA } from "./la";
+import { elevations, handleElevation } from "./elevation";
+import { buildNetwork, searchTrips, type Network } from "./trips";
 import { scheduledLines, type ScheduledLine } from "./schedule";
 import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY_METERS, parseCSV, readZipEntry, simplify, type NearbyLine, type Polyline } from "./geo";
 
@@ -45,6 +47,8 @@ import { closestPerLine, hexColor, linePairs, linesAtStop, metersBetween, NEARBY
  *                                          (from DataSF's Muni Simple Routes; no 511 calls)
  *   GET /v1/stops                          every Muni stop and BART platform (BART's with their lines), for
  *                                          the map's stop dots (/v1/seattle/stops and /v1/nyc/stops list lines too)
+ *   GET /v1/trip?from=lat,lon&to=lat,lon     the ways between two places by Muni, one ride or two, walks weighed by hills (trips.ts)
+ *   GET /v1/elevation?points=lat,lon|…      meters above sea level for each point, for trips' walks (see elevation.ts)
  *   GET /v1/city                           the supported city nearest the caller ("sf", "seattle", "nyc", "boston", "chicago", "dc" or "la"),
  *                                          from Cloudflare's rough IP location; nothing is stored
  *   POST /v1/activity, /v1/activity/end    push updates for the app's Live Activities (see activities.ts)
@@ -103,6 +107,7 @@ export default {
     if (pathname === "/v1/journey") return json({}, 200, 0);
     recordUsage(request, env);
     if (pathname === "/v1/city") return json(whereabouts(request));
+    if (pathname === "/v1/elevation") return handleElevation(new URL(request.url));
     // BART lives in San Francisco next to Muni (see bart.ts) but needs nothing from the shared
     // cache, so it's served right here, where a deploy takes effect at once: its lines and its
     // platforms' stops ("M16-1"), and added to Muni's line list and map.
@@ -298,6 +303,20 @@ export class TransitCache extends DurableObject<Env> {
       if (parts[1] === "map") {
         const { data, fetchedAt } = await this.cached("sf-map-v2", this.staticTTL, () => this.fetchMap());
         return json({ lines: data, fetchedAt: iso(fetchedAt) }, 200, 3600);
+      }
+
+      if (parts[1] === "trip") {
+        const point = (name: string) => {
+          const [lat, lon] = (url.searchParams.get(name) ?? "").split(",").map(Number);
+          return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? [lat, lon] as [number, number] : null;
+        };
+        const from = point("from"), to = point("to");
+        if (!from || !to) return json({ error: "from and to (lat,lon) are required" }, 400);
+        // The network takes a few minutes to build the first time (every stop's height): meanwhile, ask again.
+        const network = await Promise.race([this.network(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000))]);
+        if (!network) return json({ error: "building the network, ask again in a minute" }, 503);
+        const [fromHeight, toHeight] = await elevations([from, to]).catch(() => [null, null]);
+        return json({ ways: searchTrips(network, from, to, fromHeight, toHeight) }, 200, 0);
       }
 
       if (parts[1] === "stops") {
@@ -629,6 +648,17 @@ export class TransitCache extends DurableObject<Env> {
       console.error(`scheduled lines: ${(error as Error)?.message ?? error}`);
       return {};
     });
+  }
+
+  /** Muni's network for trips (see trips.ts), from its GTFS feed (one 511 call a day) and every stop's height. */
+  private network(): Promise<Network> {
+    return this.cached("sf-network-v1", this.staticTTL, async () => {
+      await this.spendBudget();
+      const url = `https://api.511.org/transit/datafeeds?api_key=${this.env.API_KEY_511}&operator_id=${AGENCY}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new UpstreamError(response.status);
+      return buildNetwork(await response.arrayBuffer(), elevations);
+    }).then((entry) => entry.data);
   }
 
   /** Where every Muni stop is, from stops.txt in its GTFS feed (one 511 call a day). */
