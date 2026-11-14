@@ -263,14 +263,19 @@ struct Selection: Codable, Hashable, Identifiable {
     /// becomes a favorite leaves it.
     static var recent: [Selection] {
         get {
-            guard let data = UserDefaults.standard.data(forKey: "recentStops"),
-                  let recent = try? JSONDecoder().decode([Selection].self, from: data)
-            else { return [] }
-            let kept = Set(favorites.map(\.id))
-            return recent.filter { !kept.contains($0.id) }
+            // Decoded once per change of what's stored: views ask on every redraw.
+            let data = UserDefaults.standard.data(forKey: "recentStops")
+            let favorites = defaults.data(forKey: favoritesKey)
+            if let kept = recentDecoded, kept.recent == data, kept.favorites == favorites { return kept.value }
+            let recent = data.flatMap { try? JSONDecoder().decode([Selection].self, from: $0) } ?? []
+            let saved = Set(Self.favorites.map(\.id))
+            let value = recent.filter { !saved.contains($0.id) }
+            recentDecoded = (data, favorites, value)
+            return value
         }
         set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: "recentStops") }
     }
+    nonisolated(unsafe) private static var recentDecoded: (recent: Data?, favorites: Data?, value: [Selection])?
 
     /// Puts `stop` at the top of the recent stops.
     static func remember(_ stop: Selection) {
@@ -736,6 +741,15 @@ enum TransitService {
     }
 
     /// Every line in `city` with its route shape and colors, from the device without waiting.
+    /// Each line's published colors from the line map kept on the device, without its shapes.
+    static func cachedLineMapColors(in city: City) -> [(id: String, color: String?, textColor: String?)] {
+        struct Colors: Decodable {
+            struct Line: Decodable { let id: String; let color: String?; let textColor: String? }
+            let lines: [Line]
+        }
+        return (LineData.load("linemap-\(city.rawValue)", as: Colors.self))?.lines.map { ($0.id, $0.color, $0.textColor) } ?? []
+    }
+
     static func cachedLineMap(in city: City) -> [MapLine] {
         (LineData.load("linemap-\(city.rawValue)", as: MapResponse.self))?.lines ?? []
     }
@@ -745,7 +759,10 @@ enum TransitService {
         // `v` matches the map format the app understands.
         var components = URLComponents(url: url(city, "map"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "v", value: "2")]
-        return await LineData.refresh("linemap-\(city.rawValue)", from: components.url!, as: MapResponse.self)?.lines
+        let lines = await LineData.refresh("linemap-\(city.rawValue)", from: components.url!, as: MapResponse.self)?.lines
+        // Its colors, for the badges and routes, here and on the widgets.
+        if let lines { PublishedColors.update(lines.map { ($0.id, $0.color, $0.textColor) }, in: city) }
+        return lines
     }
 
     /// Every stop in `city`, from the device without waiting (none before the first download).

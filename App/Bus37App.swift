@@ -173,8 +173,15 @@ struct ContentView: View {
             pages
                 .ignoresSafeArea()
                 .overlay(alignment: .bottom) { cityDots }
-                .onAppear { insets = geometry.safeAreaInsets; screenHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom }
-                .onChange(of: geometry.safeAreaInsets) { insets = geometry.safeAreaInsets }
+                .onAppear {
+                    insets = geometry.safeAreaInsets
+                    screenHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
+                    Island.note(width: geometry.size.width, safeTop: geometry.safeAreaInsets.top)
+                }
+                .onChange(of: geometry.safeAreaInsets) {
+                    insets = geometry.safeAreaInsets
+                    Island.note(width: geometry.size.width, safeTop: geometry.safeAreaInsets.top)
+                }
                 .onChange(of: geometry.size.height) { screenHeight = geometry.size.height + insets.top + insets.bottom }
         }
         .background(.black)

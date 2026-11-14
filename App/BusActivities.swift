@@ -131,10 +131,23 @@ final class BusActivities {
 /// Where the Dynamic Island is, in the window: the same size on every iPhone that has one (those with
 /// a safe area this tall); nil on the others.
 enum Island {
+    /// The window's width and its safe area's top, as the app's views last laid out (see `note`). Not read
+    /// from the window as views are drawn: asking UIKit for its safe area mid-layout has it lay out again,
+    /// under SwiftUI's own layout, which SwiftUI sees as a cycle, and keeps going round.
+    @MainActor private static var window: (width: CGFloat, top: CGFloat)?
+
+    @MainActor static func note(width: CGFloat, safeTop: CGFloat) {
+        window = (width, safeTop)
+    }
+
     @MainActor static var frame: CGRect? {
-        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-        guard UIDevice.current.userInterfaceIdiom == .phone, let window, window.safeAreaInsets.top >= 51 else { return nil }
-        return CGRect(x: window.bounds.width / 2 - 62.5, y: 11, width: 125, height: 37)
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
+        // Before the views have laid out: from the screen, which needs no layout (every iPhone this tall
+        // since the 15 has the island).
+        let screen = UIScreen.main.bounds.size
+        let window = window ?? (width: screen.width, top: max(screen.width, screen.height) >= 852 ? 59 : 0)
+        guard window.top >= 51 else { return nil }
+        return CGRect(x: window.width / 2 - 62.5, y: 11, width: 125, height: 37)
     }
 }
 

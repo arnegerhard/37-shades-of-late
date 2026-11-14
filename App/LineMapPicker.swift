@@ -58,6 +58,9 @@ struct HomeMap: View {
     @State private var lineKinds: [String: LineKind] = [:]
     /// The stops' names on the map as it last came to rest (see `placeNames`), shown as it moves.
     @State private var stopNames: [StopName] = []
+    /// A stop's name tapped: the circle's list is just its lines (its stops on either side, by name or code),
+    /// until the map's moved away; with only one line there, it's picked at once.
+    @State private var focus: (name: String, codes: Set<String>, at: Date)?
     /// Stop dots blending in or out (see `StopDotsLayer.DotFade`).
     @State private var dotFades: [String: StopDotsLayer.DotFade] = [:]
     /// Where those buttons are on screen: a tap on them isn't the map's.
@@ -480,6 +483,8 @@ struct HomeMap: View {
                 if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
                 relabel(proxy)
                 placeNames(proxy)
+                // Moved by hand, not by the tap on the name: all the circle's stops again.
+                if let focus, Date.now.timeIntervalSince(focus.at) > 1.2 { self.focus = nil }
             }
             // Once the list is up, the circle's middle moves up with it.
             .onChange(of: circleSpot) {
@@ -710,6 +715,7 @@ struct HomeMap: View {
             let found = await lookUpCircle(circleCodes)
             guard !Task.isCancelled else { return }
             withAnimation(.snappy(duration: 0.2)) { circleStops = found }
+            resolveFocus()
         }
         .task(id: alsoLineIDs) {
             // The stops of each added line, in the direction it goes from the picked stop.
@@ -777,7 +783,7 @@ struct HomeMap: View {
 
     private var tuckedTitle: String {
         if let selected { return corner.first?.stop.name ?? selected.name }
-        if isCircling { return circleCodes.isEmpty ? "Slide the circle over where you wait" : "What stops around here" }
+        if isCircling { return focus.map { "Lines at \($0.name)" } ?? (circleCodes.isEmpty ? "Slide the circle over where you wait" : "What stops around here") }
         return recent.isEmpty ? "Tap where you wait" : "Looked at before"
     }
 
@@ -1087,6 +1093,18 @@ struct HomeMap: View {
             withAnimation(.snappy(duration: 0.2)) { picked = hit }
             return
         }
+        // A stop's name: the circle to it, and its lines, or its one line picked (see `resolveFocus`).
+        if let name = nameHit(at: point, proxy: proxy) {
+            Journey.shared.tap("picker.name")
+            let here = MKMapPoint(name.coordinate)
+            let codes = Set(allStops.filter { $0.name == name.name && here.distance(to: MKMapPoint($0.coordinate)) < 150 }.map(\.code))
+            focus = (name.name, codes.union([name.code]), .now)
+            tapCoordinate = name.coordinate
+            circle(on: name.coordinate, proxy: proxy)
+            resolveFocus()
+            return
+        }
+        focus = nil
         // A stop dot: the selected line's own moves its stop there; any other takes the circle there.
         if let stop = shownStops
             .compactMap({ stop -> (MapStop, CGFloat)? in
@@ -1329,7 +1347,7 @@ struct HomeMap: View {
     private var circleList: some View {
         let lines = circleLines
         return VStack(alignment: .leading, spacing: 8) {
-            Text(circleCodes.isEmpty ? "Slide the circle over where you wait." : "What stops around here")
+            Text(focus.map { "Lines at \($0.name)" } ?? (circleCodes.isEmpty ? "Slide the circle over where you wait." : "What stops around here"))
                 .font(.subheadline).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
@@ -1374,6 +1392,7 @@ struct HomeMap: View {
     /// The ways from the stops in the circle, a group per line, in the order of their nearest stop.
     private var circleLines: [[CircleWay]] {
         circleStops.filter { !$0.codes.isDisjoint(with: circleCodes) }.flatMap(\.ways).filter { kindShows($0.line.id) }
+            .filter { way in focus.map { $0.codes.contains(way.stop) || way.stopName == $0.name } ?? true }
             .reduce(into: [[CircleWay]]()) { groups, way in
                 if let i = groups.firstIndex(where: { $0[0].line.id == way.line.id }) { groups[i].append(way) } else { groups.append([way]) }
             }
@@ -1499,6 +1518,25 @@ struct HomeMap: View {
             }
         }
         if names != stopNames { stopNames = names }
+    }
+
+    /// The stop name under `point`, if one's there.
+    private func nameHit(at point: CGPoint, proxy: MapProxy) -> StopName? {
+        stopNames.first { name in
+            guard let spot = proxy.convert(name.coordinate, to: .local) else { return false }
+            let measured = (name.name as NSString).size(withAttributes: [.font: Self.nameFont])
+            let rect = StopName.rect(name.side, at: spot, size: CGSize(width: measured.width + 8, height: measured.height + 2))
+            return rect.insetBy(dx: -6, dy: -8).contains(point)
+        }
+    }
+
+    /// A tapped name's stop with one line there: that line, at that stop (going one way, that way too).
+    private func resolveFocus() {
+        guard focus != nil, selectedID == nil else { return }
+        let lines = circleLines
+        guard lines.count == 1 else { return }
+        focus = nil
+        pick(lines[0])
     }
 
     /// Where the map shows `coordinate` in `rect` (mid-pinch, MapKit may not say).

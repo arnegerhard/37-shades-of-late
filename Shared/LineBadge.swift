@@ -124,7 +124,13 @@ extension LineBadge {
     /// The colors of the lines with badges of their own, as the agencies publish them (the line
     /// map's GTFS colors): "#RRGGBB", and whether the letters on it are black (New York's yellow
     /// lines). Those with round badges, BART's lines, and Seattle's RapidRide, in its dark red.
+    /// A line's colors: those picked here (for trains and named lines, as on their signs), else those its
+    /// agency publishes (Muni's buses navy, Seattle's Metro yellow), else none: the app's red.
     static func color(of id: String, in city: City) -> (hex: String, darkText: Bool)? {
+        chosenColor(of: id, in: city) ?? PublishedColors.color(of: id, in: city)
+    }
+
+    private static func chosenColor(of id: String, in city: City) -> (hex: String, darkText: Bool)? {
         switch city {
         case .nyc:
             switch id {
@@ -220,6 +226,14 @@ extension Selection {
             } else {
                 groups.append((color, round, [id]))
             }
+        }
+        // The lines in rectangles (buses, mostly) share one, in the color most of them have (the 14 and 49 in
+        // Muni's navy, the 14R with them): split by color, they'd be too small to read.
+        let plain = groups.filter { !$0.round }
+        if plain.count > 1 {
+            let main = plain.max { $0.ids.count < $1.ids.count }!.color
+            let ids = lineIDs.filter { id in plain.contains { $0.ids.contains(id) } }
+            groups = groups.filter(\.round) + [(main, false, ids.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } })]
         }
         return groups.flatMap { color, round, ids in
             round
@@ -318,5 +332,66 @@ struct WaitsLabel: View {
     private func wait(_ departure: Departure, last: Bool) -> String {
         let minutes = max(0, Int(departure.time.timeIntervalSince(date) / 60))
         return minutes == 0 ? "now" : "\(minutes)" + (unit && last ? " min" : "")
+    }
+}
+
+/// The colors each city's agencies publish for their lines (GTFS route colors), from the line map the
+/// app keeps (see `TransitService.cachedLineMap`), read once. The app copies them to the App Group for
+/// the widgets, which haven't the line map.
+enum PublishedColors {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var loaded: [City: [String: (hex: String, darkText: Bool)]] = [:]
+
+    static func color(of id: String, in city: City) -> (hex: String, darkText: Bool)? {
+        lock.lock()
+        defer { lock.unlock() }
+        if loaded[city] == nil { loaded[city] = read(city) }
+        return loaded[city]?[id]
+    }
+
+    /// New colors for `city` (a newer line map): kept, and copied for the widgets.
+    static func update(_ lines: [(id: String, color: String?, textColor: String?)], in city: City) {
+        let colors = table(lines)
+        lock.lock()
+        loaded[city] = colors
+        lock.unlock()
+        let stored = colors.mapValues { [$0.hex, $0.darkText ? "1" : "0"] }
+        if let url = shared(city), let data = try? JSONEncoder().encode(stored) { try? data.write(to: url, options: .atomic) }
+    }
+
+    private static func read(_ city: City) -> [String: (hex: String, darkText: Bool)] {
+        if let url = shared(city), let data = try? Data(contentsOf: url),
+           let stored = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            return stored.compactMapValues { $0.count == 2 ? ($0[0], $0[1] == "1") : nil }
+        }
+        // In the app, from its line map, and copied for the widgets; a widget has none, and its red.
+        let colors = table(TransitService.cachedLineMapColors(in: city))
+        if !colors.isEmpty, let url = shared(city),
+           let data = try? JSONEncoder().encode(colors.mapValues { [$0.hex, $0.darkText ? "1" : "0"] }) {
+            try? data.write(to: url, options: .atomic)
+        }
+        return colors
+    }
+
+    /// Lines with a color worth showing: not none, nor white (a blank on the map).
+    private static func table(_ lines: [(id: String, color: String?, textColor: String?)]) -> [String: (hex: String, darkText: Bool)] {
+        var colors: [String: (hex: String, darkText: Bool)] = [:]
+        for line in lines {
+            guard let hex = line.color?.uppercased(), hex.count == 7, hex.hasPrefix("#"), hex != "#FFFFFF" else { continue }
+            let dark = line.textColor.map { luminance($0) < 0.5 } ?? (luminance(hex) > 0.6)
+            colors[line.id] = (hex, dark)
+        }
+        return colors
+    }
+
+    private static func luminance(_ hex: String) -> Double {
+        guard let value = UInt32(hex.dropFirst(), radix: 16) else { return 0 }
+        let r = Double((value >> 16) & 0xFF) / 255, g = Double((value >> 8) & 0xFF) / 255, b = Double(value & 0xFF) / 255
+        return 0.299 * r + 0.587 * g + 0.114 * b
+    }
+
+    private static func shared(_ city: City) -> URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.info.jetsons.bus37")?
+            .appending(path: "LineColors-\(city.rawValue).json")
     }
 }
