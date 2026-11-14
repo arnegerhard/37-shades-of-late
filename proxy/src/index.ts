@@ -155,6 +155,9 @@ export default {
 
 // MARK: - Response shapes
 
+/** Where a Muni stop is, and its name. */
+type StopPlace = [lat: number, lon: number, name?: string];
+
 interface Line {
   id: string;
   name: string;
@@ -321,8 +324,15 @@ export class TransitCache extends DurableObject<Env> {
 
       if (parts[1] === "stops") {
         // Where each stop is; which lines stop there the app asks /stop, from the live snapshot.
-        const { data, fetchedAt } = await this.cached("sf-stops-v1", this.staticTTL, () => this.fetchStopPlaces());
-        const stops = Object.entries(data).map(([code, [lat, lon]]) => ({ code, lat: Math.round(lat * 1e5) / 1e5, lon: Math.round(lon * 1e5) / 1e5 }));
+        const [{ data, fetchedAt }, scheduled] = await Promise.all([
+          this.cached("sf-stops-v2", this.staticTTL, () => this.fetchStopPlaces()),
+          this.scheduled(),
+        ]);
+        // With the lines its schedule has stopping at each, so the app can leave off a kind of line's stops.
+        const stops = Object.entries(data).map(([code, [lat, lon, name]]) => {
+          const lines = [...new Set((scheduled[code] ?? []).map((l) => l.line))];
+          return { code, lat: Math.round(lat * 1e5) / 1e5, lon: Math.round(lon * 1e5) / 1e5, ...(name ? { name } : {}), ...(lines.length ? { lines } : {}) };
+        });
         return json({ stops, fetchedAt: iso(fetchedAt) }, 200, 3600);
       }
 
@@ -344,7 +354,7 @@ export class TransitCache extends DurableObject<Env> {
         const direction = url.searchParams.get("direction") ?? "";
         const [snapshot, places, scheduled] = await Promise.all([
           this.currentSnapshot(),
-          this.cached("sf-stops-v1", this.staticTTL, () => this.fetchStopPlaces()),
+          this.cached("sf-stops-v2", this.staticTTL, () => this.fetchStopPlaces()),
           this.scheduled(),
         ]);
         return json({ stop: { code: stop }, lines: this.nearby(stop, direction, snapshot, places.data, scheduled) });
@@ -615,7 +625,7 @@ export class TransitCache extends DurableObject<Env> {
    * "Also fine with". Muni's IB/OB (toward or away from downtown) is the same for every line, so
    * the same direction is a good stand-in for the same way; it also leaves out the stop across the street.
    */
-  private nearby(stop: string, direction: string, snapshot: Snapshot, places: Record<string, [number, number]>,
+  private nearby(stop: string, direction: string, snapshot: Snapshot, places: Record<string, StopPlace>,
                  scheduled: Record<string, ScheduledLine[]>): NearbyLine[] {
     const here = places[stop];
     const found: NearbyLine[] = withScheduled(linesAtStop(snapshot.stops.get(stop)?.visits ?? []), scheduled[stop])
@@ -662,18 +672,18 @@ export class TransitCache extends DurableObject<Env> {
   }
 
   /** Where every Muni stop is, from stops.txt in its GTFS feed (one 511 call a day). */
-  private async fetchStopPlaces(): Promise<Record<string, [number, number]>> {
+  private async fetchStopPlaces(): Promise<Record<string, StopPlace>> {
     await this.spendBudget();
     const url = `https://api.511.org/transit/datafeeds?api_key=${this.env.API_KEY_511}&operator_id=${AGENCY}`;
     const response = await fetch(url);
     if (!response.ok) throw new UpstreamError(response.status);
     const stops = await readZipEntry(await response.arrayBuffer(), "stops.txt");
     if (!stops) throw new UpstreamError(422);
-    const places: Record<string, [number, number]> = {};
+    const places: Record<string, StopPlace> = {};
     for (const stop of parseCSV(stops)) {
       const code = stop.stop_code || stop.stop_id;
       const lat = Number(stop.stop_lat), lon = Number(stop.stop_lon);
-      if (code && Number.isFinite(lat) && Number.isFinite(lon)) places[code] = [lat, lon];
+      if (code && Number.isFinite(lat) && Number.isFinite(lon)) places[code] = [lat, lon, stop.stop_name || undefined];
     }
     return places;
   }

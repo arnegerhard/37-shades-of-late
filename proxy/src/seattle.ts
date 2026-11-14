@@ -116,9 +116,9 @@ export async function handleOBA(parts: string[], url: URL, baseDeps: SeattleDeps
 
   if (parts[0] === "stops") {
     // Like the map: partial until every line's stops are cached, and then only kept briefly.
-    let entry = await deps.cached(`${region.cache}-stops-v1`, deps.staticTTL, () => fetchStops(deps));
+    let entry = await deps.cached(`${region.cache}-stops-v2`, deps.staticTTL, () => fetchStops(deps));
     if (!entry.data.complete && Date.now() - entry.fetchedAt > 20_000) {
-      entry = await deps.cached(`${region.cache}-stops-v1`, 20, () => fetchStops(deps));
+      entry = await deps.cached(`${region.cache}-stops-v2`, 20, () => fetchStops(deps));
     }
     return { body: { stops: entry.data.stops, complete: entry.data.complete, fetchedAt: iso(entry.fetchedAt) }, maxAge: entry.data.complete ? 3600 : 0 };
   }

@@ -256,16 +256,19 @@ export interface MapStop {
   code: string;
   lat: number;
   lon: number;
+  /** As riders know it, for the map's names (where the feed has one). */
+  name?: string;
   lines?: string[];
 }
 
 /** Every stop on `lines` once, with the lines that stop there. */
-export function stopsOfLines(lines: { id: string; directions: { stops: { code: string; lat?: number; lon?: number }[] }[] }[]): MapStop[] {
+export function stopsOfLines(lines: { id: string; directions: { stops: { code: string; name?: string; lat?: number; lon?: number }[] }[] }[]): MapStop[] {
   const stops = new Map<string, MapStop & { lines: string[] }>();
   for (const line of lines) {
     for (const stop of line.directions.flatMap((d) => d.stops)) {
       if (!Number.isFinite(stop.lat) || !Number.isFinite(stop.lon)) continue;
-      const entry = stops.get(stop.code) ?? { code: stop.code, lat: Math.round(stop.lat! * 1e5) / 1e5, lon: Math.round(stop.lon! * 1e5) / 1e5, lines: [] };
+      const entry = stops.get(stop.code) ?? { code: stop.code, lat: Math.round(stop.lat! * 1e5) / 1e5, lon: Math.round(stop.lon! * 1e5) / 1e5,
+                                              ...(stop.name ? { name: stop.name } : {}), lines: [] };
       if (!entry.lines.includes(line.id)) entry.lines.push(line.id);
       stops.set(stop.code, entry);
     }
