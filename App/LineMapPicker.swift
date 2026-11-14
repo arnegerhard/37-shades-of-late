@@ -48,7 +48,20 @@ struct HomeMap: View {
     var editing: Selection? = nil
     /// How far a finger has pulled the full screen map down by its top to close it: the card fades.
     var pulled: CGFloat = 0
+    /// Picking, where the buttons choosing which kinds of lines show go: from the top, under the ?. None, no buttons.
+    var kindsTop: CGFloat? = nil
     let onPick: (Selection) -> Void
+
+    /// The kinds of lines left off the map (see `LineKind`), kept per city.
+    @State private var hiddenKinds: Set<LineKind> = []
+    /// Each line's kind, by id.
+    @State private var lineKinds: [String: LineKind] = [:]
+    /// The stops' names on the map as it last came to rest (see `placeNames`), shown as it moves.
+    @State private var stopNames: [StopName] = []
+    /// Stop dots blending in or out (see `StopDotsLayer.DotFade`).
+    @State private var dotFades: [String: StopDotsLayer.DotFade] = [:]
+    /// Where those buttons are on screen: a tap on them isn't the map's.
+    @State private var kindsFrame: CGRect = .null
 
     @State private var lines: [MapLine] = []
     @State private var paths: [String: [[CLLocationCoordinate2D]]] = [:]
@@ -187,7 +200,7 @@ struct HomeMap: View {
 
     init(city: City, open: Selection? = nil, feed: DepartureFeed? = nil, expanded: Bool = false, picking: Bool = false, opened: Bool = false, topInset: CGFloat = 0,
          bottomInset: CGFloat = 0, leadingInset: CGFloat = 0, hiddenBottom: CGFloat = 0, cropped: CGFloat = 0, gesture: MapGesture? = nil, tap: MapTap? = nil, editing: Selection? = nil, pulled: CGFloat = 0,
-         onPick: @escaping (Selection) -> Void = { _ in }) {
+         kindsTop: CGFloat? = nil, onPick: @escaping (Selection) -> Void = { _ in }) {
         self.city = city
         self.open = open
         self.feed = feed
@@ -203,9 +216,16 @@ struct HomeMap: View {
         self.tap = tap
         self.editing = editing
         self.pulled = pulled
+        self.kindsTop = kindsTop
         self.onPick = onPick
+        _hiddenKinds = State(initialValue: LineKind.hidden(in: city))
         _position = State(initialValue: .region(city.region))
         _layers = State(initialValue: MapLayers(open: open, opened: opened))
+    }
+
+    /// Whether the line `id` is of a kind that shows (all of them, but in the picker).
+    private func kindShows(_ id: String) -> Bool {
+        !picking || hiddenKinds.isEmpty || !hiddenKinds.contains(lineKinds[id] ?? .bus)
     }
 
     /// The departures the feed has for the open stop.
@@ -251,7 +271,7 @@ struct HomeMap: View {
     /// The lines drawn: those `cull` leaves, and any the picker has brought up.
     private var visibleLineIDs: Set<String> {
         guard layers.lines else { return [] }
-        return culledIDs.union(alsoLineIDs).union(candidates.map(\.id)).union(drawnCircleLineIDs).union([selectedID].compactMap { $0 })
+        return culledIDs.union(alsoLineIDs).union(candidates.map(\.id)).union(drawnCircleLineIDs.filter(kindShows)).union([selectedID].compactMap { $0 })
     }
 
     private var selected: MapLine? { candidates.first { $0.id == selectedID } }
@@ -391,9 +411,22 @@ struct HomeMap: View {
                 if layers.picking {
                     StopDotsLayer(stops: shownStops, inside: isCircling ? Set(circleCodes) : [],
                                   lineDots: stopDots.map(\.coordinate), lineDotsBelow: Self.dotsBelowMetersPerPoint,
-                                  lineColor: (selected?.mapColor ?? LineBadge.red).legible(on: colorScheme), proxy: proxy, motion: motion, mapSize: mapSize)
+                                  lineColor: (selected?.mapColor ?? LineBadge.red).legible(on: colorScheme), fades: dotFades,
+                                  proxy: proxy, motion: motion, mapSize: mapSize)
+                    StopNamesLayer(names: stopNames, proxy: proxy, motion: motion, mapSize: mapSize)
                 }
             }
+            // Under the ?: which kinds of lines show.
+            .overlay(alignment: .topTrailing) {
+                if layers.picking, let kindsTop {
+                    KindButtons(kinds: kindLooks, hidden: $hiddenKinds)
+                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { kindsFrame = $0 }
+                        .padding(.top, kindsTop)
+                        .padding(.trailing, 10)
+                        .transition(.opacity)
+                }
+            }
+            .onChange(of: hiddenKinds) { kindsChanged(proxy) }
             .overlay {
                 if layers.route {
                     BusLayer(live: live, departures: departures, proxy: proxy, motion: motion, mapSize: mapSize)
@@ -430,6 +463,11 @@ struct HomeMap: View {
                 guard Date.now.timeIntervalSince(liveRelabelAt) > 0.15 else { return }
                 liveRelabelAt = .now
                 measure(context.rect, settled: false)
+                // The names too, as the map goes in to where they have room: those already up keep their place.
+                if mapSize.width > 0 {
+                    let zoom = context.rect.width * MKMetersPerMapPointAtLatitude(context.rect.origin.coordinate.latitude) / mapSize.width
+                    placeNames(proxy, showing: context.rect, metersPerPoint: zoom)
+                }
             }
             .onMapCameraChange(frequency: .onEnd) {
                 spaceRoute($0.rect)
@@ -441,6 +479,7 @@ struct HomeMap: View {
                 cull($0.rect)
                 if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
                 relabel(proxy)
+                placeNames(proxy)
             }
             // Once the list is up, the circle's middle moves up with it.
             .onChange(of: circleSpot) {
@@ -1334,7 +1373,7 @@ struct HomeMap: View {
 
     /// The ways from the stops in the circle, a group per line, in the order of their nearest stop.
     private var circleLines: [[CircleWay]] {
-        circleStops.filter { !$0.codes.isDisjoint(with: circleCodes) }.flatMap(\.ways)
+        circleStops.filter { !$0.codes.isDisjoint(with: circleCodes) }.flatMap(\.ways).filter { kindShows($0.line.id) }
             .reduce(into: [[CircleWay]]()) { groups, way in
                 if let i = groups.firstIndex(where: { $0[0].line.id == way.line.id }) { groups[i].append(way) } else { groups.append([way]) }
             }
@@ -1359,7 +1398,9 @@ struct HomeMap: View {
         let metersPerPoint = metersPerPoint ?? self.metersPerPoint
         let area = rect.insetBy(dx: -rect.width * 0.15, dy: -rect.height * 0.15)
         let nearby = picking && mapSize.width > 0 && metersPerPoint < Self.stopsConsideredBelowMetersPerPoint
-            ? allStops.filter { area.contains(MKMapPoint($0.coordinate)) } : []
+            ? allStops.filter { stop in
+                area.contains(MKMapPoint(stop.coordinate)) && (hiddenKinds.isEmpty || stop.lines?.contains(where: kindShows) ?? true)
+            } : []
         let inView = nearby.lazy.filter { rect.contains(MKMapPoint($0.coordinate)) }.count
         let around = inView <= Self.mostStopsInView ? nearby : []
         if around.map(\.code) != stopsAround.map(\.code) { stopsAround = around }
@@ -1390,11 +1431,117 @@ struct HomeMap: View {
         }
         // Too many even so: looked at again as it moves, until there are few enough.
         if shown.isEmpty { dotsArea = nil }
-        if shown.map(\.code) != shownStops.map(\.code) { shownStops = shown }
+        if shown.map(\.code) != shownStops.map(\.code) {
+            // Those coming blend in, those going blend out.
+            let now = Date.now
+            var fades = dotFades.filter { now.timeIntervalSince($0.value.at) < StopDotsLayer.DotFade.seconds }
+            let old = Set(shownStops.map(\.code)), new = Set(shown.map(\.code))
+            for stop in shown where !old.contains(stop.code) { fades[stop.code] = .init(stop: stop, at: now, leaving: false) }
+            for stop in shownStops where !new.contains(stop.code) { fades[stop.code] = .init(stop: stop, at: now, leaving: true) }
+            dotFades = fades
+            shownStops = shown
+        }
     }
 
     /// Every stop around shows, for the circle, once no more than this many are in view.
     private static let mostStopsInView = 120
+    /// Closer in than this, the stops' names show, as many as have room.
+    private static let namesBelowMetersPerPoint = 4.5
+    private static let mostNames = 40
+    private static let nameFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+
+    /// Names for the stop dots, where they have room: placed only as the map comes to rest, so they don't
+    /// come and go as it moves (they go along with it, and fade if it's zoomed far from where they were
+    /// placed). Those already shown first, each on the side it was, then those in the circle, then the
+    /// nearest the middle; one per name around a corner (its stops on each side share it).
+    private func placeNames(_ proxy: MapProxy, showing rect: MKMapRect? = nil, metersPerPoint zoom: Double? = nil) {
+        let zoom = zoom ?? metersPerPoint
+        guard picking, zoom < Self.namesBelowMetersPerPoint, !shownStops.isEmpty else {
+            if !stopNames.isEmpty { stopNames = [] }
+            return
+        }
+        let before = Dictionary(stopNames.map { ($0.code, $0.side) }, uniquingKeysWith: { a, _ in a })
+        let middle = circleSpot
+        let inCircle = Set(circleCodes)
+        // Above the card or the circle's list as it is now, not the most it can take up.
+        let listTop = cardFrame.isNull ? clearBottom : cardFrame.minY - mapFrame.minY - 6
+        let band = (cropped + topInset)...max(listTop, cropped + topInset + 1)
+        let spots = shownStops.compactMap { stop -> (stop: MapStop, name: String, spot: CGPoint)? in
+            guard let name = stop.name?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
+                  let spot = proxy.convert(stop.coordinate, to: .local) ?? place(stop.coordinate, in: rect ?? motion.shown),
+                  band.contains(spot.y), spot.x > 0, spot.x < mapSize.width else { return nil }
+            return (stop, name, spot)
+        }
+        let dots = spots.map { CGRect(x: $0.spot.x - 5, y: $0.spot.y - 5, width: 10, height: 10) }
+        let ordered = spots.sorted { a, b in
+            let rank = { (s: (stop: MapStop, name: String, spot: CGPoint)) in
+                before[s.stop.code] != nil ? 0 : inCircle.contains(s.stop.code) ? 1 : 2
+            }
+            if rank(a) != rank(b) { return rank(a) < rank(b) }
+            return hypot(a.spot.x - middle.x, a.spot.y - middle.y) < hypot(b.spot.x - middle.x, b.spot.y - middle.y)
+        }
+        var placed: [(rect: CGRect, name: String, at: CGPoint)] = []
+        var names: [StopName] = []
+        for (stop, name, spot) in ordered where names.count < Self.mostNames {
+            // Both sides of a corner share a name: once, unless they're well apart (a station's platforms).
+            if placed.contains(where: { $0.name == name && hypot($0.at.x - spot.x, $0.at.y - spot.y) < 30 }) { continue }
+            let measured = (name as NSString).size(withAttributes: [.font: Self.nameFont])
+            let size = CGSize(width: measured.width + 8, height: measured.height + 2)
+            let sides = (before[stop.code].map { [$0] } ?? []) + StopName.Side.allCases.filter { $0 != before[stop.code] }
+            for side in sides {
+                let rect = StopName.rect(side, at: spot, size: size)
+                guard rect.minX > 0, rect.maxX < mapSize.width, band.contains(rect.minY), band.contains(rect.maxY),
+                      !placed.contains(where: { $0.rect.insetBy(dx: -3, dy: -2).intersects(rect) }),
+                      !dots.contains(where: { $0.intersects(rect) }) else { continue }
+                placed.append((rect, name, spot))
+                names.append(StopName(code: stop.code, name: name, coordinate: stop.coordinate, side: side))
+                break
+            }
+        }
+        if names != stopNames { stopNames = names }
+    }
+
+    /// Where the map shows `coordinate` in `rect` (mid-pinch, MapKit may not say).
+    private func place(_ coordinate: CLLocationCoordinate2D, in rect: MKMapRect?) -> CGPoint? {
+        guard let rect, rect.width > 0, rect.height > 0 else { return nil }
+        let spot = MKMapPoint(coordinate)
+        return CGPoint(x: (spot.x - rect.minX) / rect.width * mapSize.width, y: (spot.y - rect.minY) / rect.height * mapSize.height)
+    }
+
+    /// The kinds of lines the city has, each with the colors of its lines on the map now (all of them, for a
+    /// kind left off), most used first (see `KindButtons`).
+    private var kindLooks: [KindButtons.Look] {
+        let shown = culledIDs
+        return LineKind.allCases.compactMap { kind in
+            let all = lines.filter { lineKinds[$0.id] == kind }
+            guard !all.isEmpty else { return nil }
+            let onMap = all.filter { shown.contains($0.id) }
+            let ofKind = onMap.isEmpty ? all : onMap
+            var counts: [String: (color: Color, count: Int)] = [:]
+            for line in ofKind {
+                let key = line.color ?? "-"
+                counts[key] = (line.mapColor.legible(on: colorScheme), (counts[key]?.count ?? 0) + 1)
+            }
+            let shares = counts.values.sorted { $0.count > $1.count }
+            return KindButtons.Look(kind: kind, colors: shares.map(\.color), shares: shares.map { Double($0.count) / Double(ofKind.count) })
+        }
+    }
+
+    /// Kinds of lines shown or left off: kept, and the map's lines, dots, names and circle gone over again.
+    private func kindsChanged(_ proxy: MapProxy) {
+        LineKind.save(hiddenKinds, in: city)
+        Journey.shared.tap("picker.kinds", LineKind.allCases.filter { !hiddenKinds.contains($0) }.map(\.rawValue).joined(separator: "+"))
+        if let selectedID, !kindShows(selectedID) { deselect() }
+        culledFor = (nil, -1, 0)
+        dotsArea = nil
+        if let rect = visibleRect {
+            cull(rect)
+            showStops(in: rect)
+        }
+        drawnCircleLineIDs = circleLineIDs
+        relabel(proxy)
+        placeNames(proxy)
+    }
     /// Stops closer together on screen than this (in points, up to twice as far) show as one dot.
     private static let dotSpacing = 12.0
     /// The most dots in and just around the map's view (about 1.7 times its area), and the sizes of
@@ -1512,6 +1659,12 @@ struct HomeMap: View {
         lineTiers = loaded.tiers
         pathsVersion += 1
         lines = loaded.lines
+        var kinds = Dictionary(loaded.lines.map { ($0.id, LineKind.of($0)) }, uniquingKeysWith: { a, _ in a })
+        // Muni's stand-in buses for its trains (KBUS, NOWL) go with the train they stand in for.
+        for id in kinds.keys {
+            if let base = id.wholeMatch(of: /(.+?)(BUS|OWL)/)?.1, let kind = kinds[String(base)] { kinds[id] = kind }
+        }
+        lineKinds = kinds
         // A refresh may have dropped the selected line (a service change); let go of it then.
         if let selectedID, !loaded.lines.contains(where: { $0.id == selectedID }) { deselect() }
         cull(visibleRect ?? {
@@ -1536,7 +1689,7 @@ struct HomeMap: View {
         if tier == culledFor.tier, culledFor.lines == lines.count, let area = culledFor.area, area.contains(rect) { return }
         let around = rect.insetBy(dx: -rect.width * 0.75, dy: -rect.height * 0.75)
         culledFor = (around, tier, lines.count)
-        let culled = Set(lines.lazy.map(\.id).filter { (lineTiers[$0] ?? 1) <= tier && lineBounds[$0]?.intersects(around) == true })
+        let culled = Set(lines.lazy.map(\.id).filter { (lineTiers[$0] ?? 1) <= tier && lineBounds[$0]?.intersects(around) == true && kindShows($0) })
         // The ferries' dashes: the longer ones but closest in; only those around the view, but for the city as a whole.
         let far = tier < 2, area: MKMapRect? = tier == 0 ? nil : around
         guard culled != culledIDs || far != farFerries || !LineLayer.same(area, ferryArea) else { return }
@@ -1634,7 +1787,8 @@ struct HomeMap: View {
         let now = Date.now
         defer { tappedAt = now }
         guard picking, opened, now.timeIntervalSince(openedAt) > 0.4, now.timeIntervalSince(tappedAt) > 0.35,
-              !cardFrame.contains(location), location.y > mapFrame.minY + cropped + topInset,
+              !cardFrame.contains(location), !kindsFrame.insetBy(dx: -8, dy: -8).contains(location),
+              location.y > mapFrame.minY + cropped + topInset,
               location.y < mapFrame.minY + shownHeight
         else { return }
         Journey.shared.tap("picker.map.tap", selectedID == nil ? nil : "with a line")
@@ -2539,6 +2693,200 @@ extension MapStop {
 /// in the circle marked), and over them the selected line's own. On the map, each change (and they
 /// change as it zooms, and as the circle moves) has MapKit build every line on it again, half a second
 /// in New York. Drawn where the map shows them on every frame, so they stay put on it.
+/// A stop's name on the map, on the side of its dot it was placed on.
+struct StopName: Equatable, Identifiable {
+    enum Side: Int, CaseIterable { case right, left, below, above }
+
+    let code: String
+    let name: String
+    let coordinate: CLLocationCoordinate2D
+    let side: Side
+
+    /// A name moved to another side is another label: the old one blends out as it blends in.
+    var id: String { "\(code)|\(side.rawValue)" }
+
+    static func == (a: StopName, b: StopName) -> Bool { a.code == b.code && a.side == b.side && a.name == b.name }
+
+    /// Where its label goes for a dot at `spot`, `size` big.
+    static func rect(_ side: Side, at spot: CGPoint, size: CGSize) -> CGRect {
+        switch side {
+        case .right: CGRect(x: spot.x + 7, y: spot.y - size.height / 2, width: size.width, height: size.height)
+        case .left: CGRect(x: spot.x - 7 - size.width, y: spot.y - size.height / 2, width: size.width, height: size.height)
+        case .below: CGRect(x: spot.x - size.width / 2, y: spot.y + 7, width: size.width, height: size.height)
+        case .above: CGRect(x: spot.x - size.width / 2, y: spot.y - 7 - size.height, width: size.width, height: size.height)
+        }
+    }
+}
+
+/// The stops' names over the map, each beside its dot, going along with the map as it moves (and zooms).
+/// Names coming or going blend in and out; none go just because the map moves.
+struct StopNamesLayer: View {
+    let names: [StopName]
+    let proxy: MapProxy
+    let motion: MapMotion
+    let mapSize: CGSize
+
+    private func place(_ coordinate: CLLocationCoordinate2D, in shown: MKMapRect?) -> CGPoint? {
+        if let spot = proxy.convert(coordinate, to: .local) { return spot }
+        guard let shown, shown.width > 0, shown.height > 0 else { return nil }
+        let spot = MKMapPoint(coordinate)
+        return CGPoint(x: (spot.x - shown.minX) / shown.width * mapSize.width,
+                       y: (spot.y - shown.minY) / shown.height * mapSize.height)
+    }
+
+    var body: some View {
+        let shown = motion.shown
+        ZStack(alignment: .topLeading) {
+            ForEach(names) { name in
+                if let spot = place(name.coordinate, in: shown) {
+                    Color.clear
+                        .frame(width: 0, height: 0)
+                        .overlay(alignment: Self.alignment(name.side)) {
+                            Text(name.name)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color(uiColor: .systemBackground).opacity(0.82), in: RoundedRectangle(cornerRadius: 5))
+                                .offset(Self.offset(name.side))
+                        }
+                        .position(spot)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .frame(width: mapSize.width, height: mapSize.height, alignment: .topLeading)
+        .animation(.easeInOut(duration: 0.35), value: names.map(\.id))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private static func alignment(_ side: StopName.Side) -> Alignment {
+        switch side {
+        case .right: .leading
+        case .left: .trailing
+        case .below: .top
+        case .above: .bottom
+        }
+    }
+
+    private static func offset(_ side: StopName.Side) -> CGSize {
+        switch side {
+        case .right: CGSize(width: 7, height: 0)
+        case .left: CGSize(width: -7, height: 0)
+        case .below: CGSize(width: 0, height: 7)
+        case .above: CGSize(width: 0, height: -7)
+        }
+    }
+}
+
+/// What a line is, for choosing which show in the picker: buses; trains (subways, light rail, streetcars,
+/// commuter rail); and the rest (ferries, cable cars).
+enum LineKind: String, CaseIterable {
+    case bus, train, other
+
+    static func of(_ line: MapLine) -> LineKind {
+        switch line.mode {
+        case "bus": .bus
+        case "ferry", "cableway": .other
+        case _ where line.name.hasPrefix("Water Taxi"): .other
+        default: .train
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .bus: "bus.fill"
+        case .train: "tram.fill"
+        case .other: "ferry.fill"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .bus: "Buses"
+        case .train: "Trains"
+        case .other: "Ferries and cable cars"
+        }
+    }
+
+    static func hidden(in city: City) -> Set<LineKind> {
+        Set((UserDefaults.standard.stringArray(forKey: "hiddenLineKinds-\(city.rawValue)") ?? []).compactMap(LineKind.init(rawValue:)))
+    }
+
+    static func save(_ hidden: Set<LineKind>, in city: City) {
+        UserDefaults.standard.set(hidden.map(\.rawValue).sorted(), forKey: "hiddenLineKinds-\(city.rawValue)")
+    }
+}
+
+/// Under the ?, in the picker: a round button per kind of line the city has, on or off, filled with its
+/// lines' colors in the shares they're drawn in (Seattle's buses mostly Metro's yellow). One stays on.
+struct KindButtons: View {
+    struct Look {
+        let kind: LineKind
+        let colors: [Color]
+        let shares: [Double]
+    }
+
+    let kinds: [Look]
+    @Binding var hidden: Set<LineKind>
+
+    var body: some View {
+        if kinds.count > 1 {
+            VStack(spacing: 8) {
+                ForEach(kinds, id: \.kind) { look in
+                    let on = !hidden.contains(look.kind)
+                    Button {
+                        // Not the last one on: a map with no lines picks nothing.
+                        guard !on || kinds.filter({ !hidden.contains($0.kind) }).count > 1 else {
+                            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                            return
+                        }
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        withAnimation(.snappy(duration: 0.2)) {
+                            if on { hidden.insert(look.kind) } else { hidden.remove(look.kind) }
+                        }
+                    } label: {
+                        Image(systemName: look.kind.symbol)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(on ? .white : .white.opacity(0.55))
+                            .shadow(color: .black.opacity(on ? 0.45 : 0), radius: 1.5, y: 0.5)
+                            .frame(width: 34, height: 34)
+                            .background {
+                                ZStack {
+                                    Circle().fill(.black.opacity(0.3))
+                                    Circle().fill(.ultraThinMaterial).opacity(0.75)
+                                    if on { Circle().fill(Self.mix(look)) }
+                                }
+                            }
+                            .overlay(Circle().strokeBorder(.white.opacity(on ? 0.9 : 0.35), lineWidth: on ? 1.5 : 1))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(look.kind.label)
+                    .accessibilityAddTraits(on ? .isSelected : [])
+                }
+            }
+            .environment(\.colorScheme, .dark)
+        }
+    }
+
+    /// The kind's colors around the circle, each in its share, as a pie: the most used from the top.
+    private static func mix(_ look: Look) -> AngularGradient {
+        var stops: [Gradient.Stop] = []
+        var at = 0.0
+        for (color, share) in zip(look.colors, look.shares) {
+            stops.append(.init(color: color, location: at))
+            at += share
+            stops.append(.init(color: color, location: min(at, 1)))
+        }
+        return AngularGradient(stops: stops, center: .center, startAngle: .degrees(-90), endAngle: .degrees(270))
+    }
+}
+
 struct StopDotsLayer: View {
     let stops: [MapStop]
     let inside: Set<String>
@@ -2546,10 +2894,24 @@ struct StopDotsLayer: View {
     let lineDots: [CLLocationCoordinate2D]
     let lineDotsBelow: Double
     let lineColor: Color
+    /// Dots coming (blending in) or going (blending out, and drawn till then): when, by stop.
+    var fades: [String: DotFade] = [:]
     let proxy: MapProxy
     /// What the map shows as it moves: read, so the dots are drawn again as it does.
     let motion: MapMotion
     let mapSize: CGSize
+
+    struct DotFade {
+        let stop: MapStop
+        let at: Date
+        let leaving: Bool
+        static let seconds = 0.3
+
+        func opacity(at now: Date) -> Double {
+            let done = min(max(now.timeIntervalSince(at) / Self.seconds, 0), 1)
+            return leaving ? 1 - done : done
+        }
+    }
 
     /// Where the map shows `coordinate`: as MapKit says, or while it can't (in the middle of a pinch),
     /// worked out from the area it shows, as for the buses.
@@ -2565,17 +2927,24 @@ struct StopDotsLayer: View {
         // Placed here rather than in the drawing, reading where the map is: so they're placed again, and
         // drawn again, as it moves.
         let shown = motion.shown
-        let dots = stops.compactMap { stop in
-            place(stop.coordinate, in: shown).map { (spot: $0, inside: inside.contains(stop.code)) }
+        let leaving = fades.values.filter(\.leaving).map(\.stop)
+        let dots = (stops + leaving).compactMap { stop in
+            place(stop.coordinate, in: shown).map { (code: stop.code, spot: $0, inside: inside.contains(stop.code)) }
         }
         let zoom = shown.map { $0.width * MKMetersPerMapPointAtLatitude($0.origin.coordinate.latitude) / max(mapSize.width, 1) } ?? .infinity
         let line = zoom < lineDotsBelow ? lineDots.compactMap { place($0, in: shown) } : []
-        Canvas { context, _ in
-            for dot in dots {
-                self.dot(at: dot.spot, size: dot.inside ? 10 : 8, stroke: dot.inside ? .primary : .gray, width: dot.inside ? 2 : 1.5, in: context)
-            }
-            for spot in line {
-                self.dot(at: spot, size: 9, stroke: lineColor, width: 2, in: context)
+        let fadingUntil = fades.values.map { $0.at.addingTimeInterval(DotFade.seconds) }.max() ?? .distantPast
+        // Redrawn every frame only while some are blending.
+        TimelineView(.animation(paused: fadingUntil < .now)) { timeline in
+            Canvas { context, _ in
+                for dot in dots {
+                    var context = context
+                    context.opacity = fades[dot.code]?.opacity(at: timeline.date) ?? 1
+                    self.dot(at: dot.spot, size: dot.inside ? 10 : 8, stroke: dot.inside ? .primary : .gray, width: dot.inside ? 2 : 1.5, in: context)
+                }
+                for spot in line {
+                    self.dot(at: spot, size: 9, stroke: lineColor, width: 2, in: context)
+                }
             }
         }
         .allowsHitTesting(false)

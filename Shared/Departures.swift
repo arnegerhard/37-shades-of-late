@@ -519,6 +519,8 @@ struct MapStop: Hashable, Decodable, Identifiable {
     let code: String
     let lat: Double
     let lon: Double
+    /// As riders know it, for the picker's map; not in copies from before names were sent.
+    let name: String?
     /// The lines that stop here, where the proxy knows without asking (not for Muni: see `linesAtStop`).
     let lines: [String]?
     var id: String { code }
@@ -748,12 +750,15 @@ enum TransitService {
 
     /// Every stop in `city`, from the device without waiting (none before the first download).
     static func cachedStops(in city: City) -> [MapStop] {
-        (LineData.load("stops-\(city.rawValue)", as: StopsResponse.self))?.stops ?? []
+        (LineData.load("stops-v2-\(city.rawValue)", as: StopsResponse.self))?.stops ?? []
     }
 
     /// Newer stops from the proxy, or nil when the last check was recent or nothing changed.
     static func refreshedStops(in city: City) async -> [MapStop]? {
-        await LineData.refresh("stops-\(city.rawValue)", from: url(city, "stops"), as: StopsResponse.self)?.stops
+        // `v=2`: with names, and with their lines in San Francisco too; not a copy of the older answer kept a while.
+        var components = URLComponents(url: url(city, "stops"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "v", value: "2")]
+        return await LineData.refresh("stops-v2-\(city.rawValue)", from: components.url!, as: StopsResponse.self)?.stops
     }
 
     /// A line's directions and stops: from the device if they were loaded before (and are under a

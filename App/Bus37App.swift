@@ -136,12 +136,16 @@ struct ContentView: View {
     @State private var dotsWoken = 0
     /// A finger on the dots, sliding along them from city to city, as along the Home Screen's page dots.
     @State private var scrubbingDots = false
+    /// When a finger came down on the dots, and the page then.
+    @State private var dotsTouch: (at: Date, page: String?)?
     /// The screen's height, for the favorites' share of it.
     @State private var screenHeight: CGFloat = 0
     /// A city's favorites zoomed out to move about, after holding one.
     @State private var reordering: Reordering?
     /// Where each zoomed-out favorite is, and the bin, in the window.
     @State private var cellFrames: [String: CGRect] = [:]
+    /// The size of the zoomed-out favorites' screen, to place the held one in it.
+    @State private var gridScreen: CGSize = .zero
     @State private var binFrame: CGRect = .null
     /// The screen's safe area: the pages go under it, what's over them stays clear of it.
     @State private var insets = EdgeInsets()
@@ -182,9 +186,9 @@ struct ContentView: View {
         }
         .journeyScreen("home")
         .onAppear { Journey.shared.setCity(selection.city.rawValue) }
-        // Only a favorite's times are followed live.
-        .task(id: isFavorite(selection) ? selection : nil) {
-            if isFavorite(selection) { await feed.follow(selection) }
+        // Only the times of a favorite, or of a stop open for now on the top page, are followed live.
+        .task(id: followsLive(selection) ? selection : nil) {
+            if followsLive(selection) { await feed.follow(selection) }
         }
         .task(id: favorites) { await favoritesFeed.follow(favorites) }
         .task { await startInNearestCity() }
@@ -326,24 +330,6 @@ struct ContentView: View {
                     .accessibilityAction { scrubDots(to: cities.count) }
                     .accessibilityAddTraits(.isButton)
             }
-            .contentShape(Rectangle())
-            // Touched, they grow, and a finger sliding along them goes from city to city (a tap, to the one
-            // under it): the way across where the pages don't swipe, over a city's stop picker.
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { drag in
-                    if !scrubbingDots {
-                        dotsScrubbed = true
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(.snappy(duration: 0.2)) { scrubbingDots = true }
-                    }
-                    // Kept up (and touchable) while the finger's on them, whatever page it slides to.
-                    wakeDots()
-                    scrubDots(to: Int(drag.location.x / (Self.dotWidth + Self.dotSpacing)))
-                }
-                .onEnded { _ in
-                    withAnimation(.snappy(duration: 0.25)) { scrubbingDots = false }
-                    wakeDots()
-                })
             Text(name)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white)
@@ -353,6 +339,43 @@ struct ContentView: View {
                 .transition(.opacity)
                 .accessibilityHidden(true)
         }
+        .contentShape(Rectangle())
+        // The way across where the pages don't swipe, over a city's stop picker. Held and slid along, the dots
+        // grow and go from city to city under the finger; swiped (dots or name), one city over, as the pages
+        // go; tapped, the city of the dot.
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { drag in
+                let start = dotsTouch ?? (drag.time, page)
+                if dotsTouch == nil { dotsTouch = start }
+                // Kept up (and touchable) while the finger's on them, whatever page it slides to.
+                wakeDots()
+                // A quick swipe isn't a slide along them: only once the finger's been down a moment.
+                guard scrubbingDots || drag.time.timeIntervalSince(start.at) > Self.holdToScrub else { return }
+                if !scrubbingDots {
+                    dotsScrubbed = true
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.snappy(duration: 0.2)) { scrubbingDots = true }
+                }
+                scrubDots(to: Int(drag.location.x / (Self.dotWidth + Self.dotSpacing)))
+            }
+            .onEnded { drag in
+                defer {
+                    dotsTouch = nil
+                    withAnimation(.snappy(duration: 0.25)) { scrubbingDots = false }
+                    wakeDots()
+                }
+                guard !scrubbingDots else { return }
+                let across = drag.predictedEndTranslation.width
+                if abs(across) > 30 || abs(drag.translation.width) > 20 {
+                    // Right to left, the next city, as a page swiped that way.
+                    dotsScrubbed = true
+                    let cities = shownCities
+                    let now = cities.firstIndex { $0.rawValue == page } ?? (page == Self.citiesPage ? cities.count : 0)
+                    scrubDots(to: now + (across < 0 ? 1 : -1))
+                } else if drag.location.x < CGFloat(shownCities.count + 1) * (Self.dotWidth + Self.dotSpacing) {
+                    scrubDots(to: Int(drag.location.x / (Self.dotWidth + Self.dotSpacing)))
+                }
+            })
         .padding(.horizontal, 12)
         .padding(.vertical, 2)
         .glass(in: Capsule())
@@ -375,6 +398,8 @@ struct ContentView: View {
     /// The city whose pages are on screen (not the open stop's, until one's opened there).
     private var cityShown: City { page.flatMap(City.init(rawValue:)) ?? selection.city }
 
+    /// Held this long, a finger on the dots slides along them; quicker, it's a swipe or a tap.
+    private static let holdToScrub = 0.18
     private static let dotWidth: CGFloat = 12
     private static let dotSpacing: CGFloat = 7
 
@@ -581,6 +606,9 @@ struct ContentView: View {
         .padding(.trailing, 16)
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { overMaps["\(city.rawValue) header"] = $0 }
     }
+
+    /// Where the picker's buttons for the kinds of lines go: just under the ?.
+    static func kindsTop(_ insets: EdgeInsets) -> CGFloat { insets.top + 44 }
 
     /// The ?, across from the title: how to put the stops on the Lock Screen, and watch one from the island.
     private func helpButton(_ city: City) -> some View {
@@ -1005,11 +1033,13 @@ struct ContentView: View {
         return HomeMap(city: favorite.city, open: favorite, feed: feed, expanded: changing, picking: changing, opened: changing,
                        topInset: routeTop(favorite.city), bottomInset: (changing ? 0 : Self.captionRoom) + insets.bottom,
                        leadingInset: routeLeading(favorite.city), gesture: mapGesture?.page == id ? mapGesture?.gesture : nil,
-                       editing: changing ? favorite : nil) { edited(favorite, to: $0) }
+                       editing: changing ? favorite : nil, kindsTop: changing ? Self.kindsTop(insets) : nil) { edited(favorite, to: $0) }
             .overlay {
                 if !changing {
                     MapTouches(onGesture: { gesture in mapGesture = gesture.map { (id, $0) } },
-                               onHold: browsed ? nil : { hold($0, favorite) }, ignores: { isOverMap($0, in: favorite.city) })
+                               onHold: browsed ? nil : { hold($0, favorite) },
+                               // Not with the favorites zoomed out over it: a hold there is on one of theirs.
+                               ignores: { reordering != nil || isOverMap($0, in: favorite.city) })
                 }
             }
             .overlay(alignment: .bottom) {
@@ -1037,7 +1067,7 @@ struct ContentView: View {
         // The map is the fingers' own here, one finger moving it as on any map: the pages stand still under
         // it (see `onPicker`), the column down the side the way to the others.
         return HomeMap(city: city, expanded: true, picking: true, opened: true, topInset: insets.top + 120, bottomInset: insets.bottom,
-                       onPick: picked)
+                       kindsTop: Self.kindsTop(insets), onPick: picked)
             .id(pickerRounds[city] ?? 0)
             .overlay(alignment: .top) {
                 if addingIn == city && !first {
@@ -1231,8 +1261,10 @@ struct ContentView: View {
             withAnimation(.smooth(duration: 0.4)) { reordering = moving }
             return
         }
-        if let over = moving.order.first(where: { $0 != held && cellFrames[$0]?.contains(at) == true }),
-           let from = moving.order.firstIndex(of: held), let to = moving.order.firstIndex(of: over) {
+        // Its place: the one nearest the finger, wherever that is, but not while it's over the bin.
+        let layout = gridLayout(count: moving.order.count, screen: gridScreen)
+        if gridScreen != .zero, !binFrame.contains(at), let from = moving.order.firstIndex(of: held),
+           case let to = layout.place(at: at), to != from {
             withAnimation(.snappy(duration: 0.25)) {
                 moving.order.move(fromOffsets: [from], toOffset: to > from ? to + 1 : to)
                 reordering = moving
@@ -1281,29 +1313,61 @@ struct ContentView: View {
 
     /// The zoomed-out favorites, as many to a row as fit them all on the screen, and the bin below them
     /// while one is held.
+    /// Where the zoomed-out favorites are laid out: how many across, each one's size, and where the grid
+    /// starts, `count` of them on a `screen`.
+    struct GridLayout {
+        let columns: Int
+        let width: CGFloat
+        let cellHeight: CGFloat
+        let gap: CGFloat
+        let top: CGFloat
+        let count: Int
+
+        /// The middle of the place at `index`.
+        func middle(_ index: Int) -> CGPoint {
+            CGPoint(x: gap + CGFloat(index % columns) * (width + gap) + width / 2,
+                    y: top + CGFloat(index / columns) * (cellHeight + gap) + cellHeight / 2)
+        }
+
+        /// The place nearest `point`: from the grid's layout, not where the cards are just now (still sliding,
+        /// they'd have the held one swap back and forth). Above the first row, the first; past the last one
+        /// (the rest of its row, below it), the last.
+        func place(at point: CGPoint) -> Int {
+            let column = min(max(Int((point.x - gap / 2) / (width + gap)), 0), columns - 1)
+            let row = max(Int(floor((point.y - top + gap / 2) / (cellHeight + gap))), 0)
+            return min(row * columns + column, count - 1)
+        }
+    }
+
+    private func gridLayout(count: Int, screen: CGSize) -> GridLayout {
+        let gap: CGFloat = 12
+        let top = insets.top + 56, bottom = insets.bottom + 110
+        // Two to a row if they fit, else more.
+        let columns = (2...4).first { columns in
+            let width = (screen.width - gap * CGFloat(columns + 1)) / CGFloat(columns)
+            let rows = (count + columns - 1) / columns
+            return CGFloat(rows) * (width * screen.height / screen.width + gap) <= screen.height - top - bottom
+        } ?? 4
+        let width = (screen.width - gap * CGFloat(columns + 1)) / CGFloat(columns)
+        let cellHeight = width * screen.height / screen.width
+        let rows = (count + columns - 1) / columns
+        // In the middle of the room for them.
+        let tall = CGFloat(rows) * (cellHeight + gap) - gap
+        return GridLayout(columns: columns, width: width, cellHeight: cellHeight, gap: gap,
+                          top: max(top, top + (screen.height - top - bottom - tall) / 2), count: count)
+    }
+
     private func grid(_ moving: Reordering) -> some View {
         GeometryReader { geometry in
             let screen = geometry.size
-            let gap: CGFloat = 12
-            let top = insets.top + 56, bottom = insets.bottom + 110
             let shown = moving.order.compactMap { id in favorites.first { $0.id == id } }
-            // Two to a row if they fit, else more.
-            let columns = (2...4).first { columns in
-                let width = (screen.width - gap * CGFloat(columns + 1)) / CGFloat(columns)
-                let rows = (shown.count + columns - 1) / columns
-                return CGFloat(rows) * (width * screen.height / screen.width + gap) <= screen.height - top - bottom
-            } ?? 4
-            let width = (screen.width - gap * CGFloat(columns + 1)) / CGFloat(columns)
+            let layout = gridLayout(count: shown.count, screen: screen)
+            let gap = layout.gap, columns = layout.columns, width = layout.width
             let scale = width / screen.width
-            let rows = (shown.count + columns - 1) / columns
-            // In the middle of the room for them.
-            let tall = CGFloat(rows) * (width * screen.height / screen.width + gap) - gap
-            let gridTop = max(top, top + (screen.height - top - bottom - tall) / 2)
+            let gridTop = layout.top
             // Held on its page: its own place under the finger, the others around it in their order.
             let shift: CGSize = moving.anchor.map { anchor in
-                let tallCell = width * screen.height / screen.width
-                let middle = CGPoint(x: gap + CGFloat(anchor.index % columns) * (width + gap) + width / 2,
-                                     y: gridTop + CGFloat(anchor.index / columns) * (tallCell + gap) + tallCell / 2)
+                let middle = layout.middle(anchor.index)
                 return CGSize(width: anchor.point.x - middle.x, height: anchor.point.y - middle.y)
             } ?? .zero
             ZStack(alignment: .topLeading) {
@@ -1336,6 +1400,7 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea()
+        .onGeometryChange(for: CGSize.self, of: \.size) { gridScreen = $0 }
         .environment(\.colorScheme, .dark)
     }
 
@@ -1554,6 +1619,11 @@ struct ContentView: View {
     /// Back from the map of cities to the open one's page.
     private func backFromCities() {
         withAnimation(.smooth(duration: 0.4)) { page = selection.city.rawValue }
+    }
+
+    /// Whether `stop`'s times are followed live: a favorite, or the stop open for now in its city.
+    private func followsLive(_ stop: Selection) -> Bool {
+        isFavorite(stop) || browsing[stop.city]?.id == stop.id
     }
 
     private func isFavorite(_ stop: Selection) -> Bool {
