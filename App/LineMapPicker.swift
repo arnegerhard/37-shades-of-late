@@ -1998,8 +1998,10 @@ struct HomeMap: View {
                 // The same area set again wouldn't move the map: as a region the next time.
                 position = attempt % 2 == 0 ? .rect(rect) : .region(MKCoordinateRegion(rect))
                 try? await Task.sleep(for: .milliseconds(80))
-                guard let now = proxy.convert(corners.0, from: .local) else { break }
-                let off = hypot(MKMapPoint(now).x - start.x, MKMapPoint(now).y - start.y)
+                // Where the top corner is now, as the camera last told: not asked of the map, which may be
+                // gone by now (asking a gone map's proxy brings the app down).
+                guard !Task.isCancelled, let shown = motion.shown, !shown.isNull else { break }
+                let off = hypot(shown.origin.x - start.x, shown.origin.y - start.y)
                 if off < perPoint * 0.5 { break }
             }
             fader.release(held)

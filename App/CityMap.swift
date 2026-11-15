@@ -317,7 +317,7 @@ struct CityChooser: View {
                 .font(.largeTitle.bold())
                 .padding(.horizontal, 24)
                 .padding(.top, isWelcome ? 28 : 12)
-            Text(isWelcome ? "Tap the cities you wait in. Only those show up in the app. Change them anytime with the pencil next to the cities."
+            Text(isWelcome ? "Tap the cities you wait in. Only those show up in the app. Change them anytime with the city button under the ?."
                            : "Tap the cities you wait in. Only those show up in the app.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

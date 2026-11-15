@@ -26,7 +26,7 @@ Daily regulars: people who ride the same few lines every day in San Francisco, S
 ## Operating Context
 
 - Used on the move, one-handed, often while walking or standing at a stop, and in passing from the Home Screen or Lock Screen.
-- Favorites are full-screen maps you swipe through vertically; cities are swiped horizontally. A favorites column on the left, help and edit controls on the right.
+- Favorites are full-screen maps you swipe through vertically. A favorites column on the left; on the right the ? and, under it, a city button (its code, a menu of your cities and "Choose Cities…"), which says "You're in <city>" when the IP guess puts you in another city.
 - Trips: a home and a work place, with ways between them (one or two rides) found by the proxy's network search. Live re-checking on the train (where to get off or change, with a Live Activity alert) is planned.
 - The app picks the nearer city from a rough IP guess; it asks for no location permission.
 

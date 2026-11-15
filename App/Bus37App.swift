@@ -131,18 +131,17 @@ struct ContentView: View {
     @State private var pageJumps: [City: Int] = [:]
     /// The favorite moved down the side is over the bin.
     @State private var overSideBin = false
-    /// How far the cities' pages are swiped, in pages, for the ring along the cities to follow.
-    @State private var cityProgress: CGFloat?
-    /// Where the city switch under way came from, for Journey, when not a swipe (a dot).
+    /// Where the city switch under way came from, for Journey ("button", "travel", "cities", ...).
     @State private var switchingFrom: String?
-    /// Whether the cities' dots show: for a few seconds after the app opens or the cities are swiped,
-    /// then they fade. Each swipe starts the wait again.
-    @State private var dotsAwake = true
-    @State private var dotsWoken = 0
-    /// A finger on the dots, sliding along them from city to city, as along the Home Screen's page dots.
-    @State private var scrubbingDots = false
-    /// When a finger came down on the dots, and the page then.
-    @State private var dotsTouch: (at: Date, page: String?)?
+    /// The supported city the proxy's rough IP guess puts this device in, when it's near one.
+    @State private var here: City?
+    /// When `here` was last asked, so coming back to the app asks again only now and then.
+    @State private var hereAsked: Date?
+    /// The cities out of the city button, to go to one.
+    @State private var citiesOpen = false
+    /// The last city the "You're in" prompt was answered for (or that was already showing): it asks once
+    /// per arrival, not each time the app opens.
+    @AppStorage("travelAnswered") private var travelAnswered = ""
     /// The screen's height, for the favorites' share of it.
     @State private var screenHeight: CGFloat = 0
     /// A city's favorites zoomed out to move about, after holding one.
@@ -157,8 +156,6 @@ struct ContentView: View {
     /// The pill hopping toward the island, the first time it's there: it goes up there.
     @State private var pillNudge: CGFloat = 0
     @AppStorage("pillNudged") private var pillNudged = false
-    /// The dots have been slid along once: the hint about them, on an empty city's picker, is no longer needed.
-    @AppStorage("dotsScrubbed") private var dotsScrubbed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
@@ -166,7 +163,7 @@ struct ContentView: View {
     private static let pickerPage = "picker"
     /// What lies over the bottom of a favorite's map: its caption and Apple's logo below it.
     private static let captionRoom: CGFloat = 150
-    /// The room under the caption for the Apple Maps logo and Legal link, and the cities' dots beside them.
+    /// The room under the caption for the Apple Maps logo and Legal link.
     private static let logoRoom: CGFloat = 46
 
     private var departures: [Departure] { feed.departures }
@@ -177,7 +174,6 @@ struct ContentView: View {
         GeometryReader { geometry in
             pages
                 .ignoresSafeArea()
-                .overlay(alignment: .bottom) { cityDots }
                 .onAppear {
                     insets = geometry.safeAreaInsets
                     screenHeight = geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
@@ -216,6 +212,8 @@ struct ContentView: View {
         .onChange(of: scenePhase) {
             guard scenePhase == .active else { return }
             takeWidgetTap()
+            // Back after a while: maybe somewhere else now.
+            if hereAsked.map({ Date.now.timeIntervalSince($0) > 20 * 60 }) ?? false { Task { await askWhere() } }
             // Live Activities can't end themselves once their bus is gone.
             BusActivities.shared.endFinished()
         }
@@ -312,129 +310,11 @@ struct ContentView: View {
 
     // MARK: - Pages
 
-    /// Along the bottom, staying put as the cities' pages slide under it: a dot per city, growing as its
-    /// page comes in, then the map of cities' +, and beside them the city's name, fading into the next.
-    private var cityDots: some View {
-        let cities = shownCities
-        let at = cityProgress ?? CGFloat(cities.firstIndex(of: selection.city) ?? 0)
-        let near = min(max(Int(at.rounded()), 0), cities.count)
-        let name = near < cities.count ? cities[near].name : "Your cities"
-        return HStack(spacing: 10) {
-            HStack(spacing: Self.dotSpacing) {
-                ForEach(Array(cities.enumerated()), id: \.element) { index, city in
-                    let close = max(0, 1 - abs(CGFloat(index) - at))
-                    Circle()
-                        .fill(.white.opacity(0.45 + 0.55 * close))
-                        .frame(width: 6 + 4 * close, height: 6 + 4 * close)
-                        .frame(width: Self.dotWidth, height: 22)
-                        .accessibilityElement()
-                        .accessibilityLabel(city.name)
-                        .accessibilityAction { scrubDots(to: index) }
-                        .accessibilityAddTraits(index == near ? [.isButton, .isSelected] : .isButton)
-                }
-                let close = max(0, 1 - abs(CGFloat(cities.count) - at))
-                Image(systemName: "plus")
-                    .font(.system(size: 8 + 3 * close, weight: .heavy))
-                    .foregroundStyle(.white.opacity(0.45 + 0.55 * close))
-                    .frame(width: Self.dotWidth, height: 22)
-                    .accessibilityElement()
-                    .accessibilityLabel("Choose cities")
-                    .accessibilityAction { scrubDots(to: cities.count) }
-                    .accessibilityAddTraits(.isButton)
-            }
-            Text(name)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .fixedSize()
-                .id(name)
-                .transition(.opacity)
-                .accessibilityHidden(true)
-        }
-        .contentShape(Rectangle())
-        // The way across where the pages don't swipe, over a city's stop picker. Held and slid along, the dots
-        // grow and go from city to city under the finger; swiped (dots or name), one city over, as the pages
-        // go; tapped, the city of the dot.
-        .gesture(DragGesture(minimumDistance: 0)
-            .onChanged { drag in
-                let start = dotsTouch ?? (drag.time, page)
-                if dotsTouch == nil { dotsTouch = start }
-                // Kept up (and touchable) while the finger's on them, whatever page it slides to.
-                wakeDots()
-                // A quick swipe isn't a slide along them: only once the finger's been down a moment.
-                guard scrubbingDots || drag.time.timeIntervalSince(start.at) > Self.holdToScrub else { return }
-                if !scrubbingDots {
-                    dotsScrubbed = true
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.snappy(duration: 0.2)) { scrubbingDots = true }
-                }
-                scrubDots(to: Int(drag.location.x / (Self.dotWidth + Self.dotSpacing)))
-            }
-            .onEnded { drag in
-                defer {
-                    dotsTouch = nil
-                    withAnimation(.snappy(duration: 0.25)) { scrubbingDots = false }
-                    wakeDots()
-                }
-                guard !scrubbingDots else { return }
-                let across = drag.predictedEndTranslation.width
-                if abs(across) > 30 || abs(drag.translation.width) > 20 {
-                    // Right to left, the next city, as a page swiped that way.
-                    dotsScrubbed = true
-                    let cities = shownCities
-                    let now = cities.firstIndex { $0.rawValue == page } ?? (page == Self.citiesPage ? cities.count : 0)
-                    scrubDots(to: now + (across < 0 ? 1 : -1))
-                } else if drag.location.x < CGFloat(shownCities.count + 1) * (Self.dotWidth + Self.dotSpacing) {
-                    scrubDots(to: Int(drag.location.x / (Self.dotWidth + Self.dotSpacing)))
-                }
-            })
-        .padding(.horizontal, 12)
-        .padding(.vertical, 2)
-        .glass(in: Capsule())
-        .scaleEffect(scrubbingDots ? 1.5 : 1, anchor: .bottom)
-        // The name fading into the next, and the bubble growing or shrinking to it.
-        .animation(.smooth(duration: 0.3), value: name)
-        .environment(\.colorScheme, .dark)
-        // On the line of Apple's logo, under the caption, clear of the home indicator.
-        .padding(.bottom, max(insets.bottom - 22, 6))
-        // Kept up over the picker, whose map takes the swipe across: tapped, the way to another city.
-        .opacity(reordering == nil && editing == nil && (dotsAwake || scrubbingDots || onPicker(cityShown)) ? 1 : 0)
-        .allowsHitTesting(dotsAwake || scrubbingDots || onPicker(cityShown))
-        .task(id: dotsWoken) {
-            try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.6)) { dotsAwake = false }
-        }
-    }
-
     /// The city whose pages are on screen (not the open stop's, until one's opened there).
     private var cityShown: City { page.flatMap(City.init(rawValue:)) ?? selection.city }
 
-    /// Held this long, a finger on the dots slides along them; quicker, it's a swipe or a tap.
-    private static let holdToScrub = 0.18
-    private static let dotWidth: CGFloat = 12
-    private static let dotSpacing: CGFloat = 7
-
-    /// To the city at `index` along the dots (past the last, the map of cities), as the finger slides over it.
-    private func scrubDots(to index: Int) {
-        let cities = shownCities
-        let index = min(max(index, 0), cities.count)
-        let target = index < cities.count ? cities[index].rawValue : Self.citiesPage
-        guard target != page else { return }
-        UISelectionFeedbackGenerator().selectionChanged()
-        if target == Self.citiesPage { Journey.shared.tap("cities.edit", "dots") }
-        switchingFrom = "dots"
-        withAnimation(.smooth(duration: 0.3)) { page = target }
-    }
-
-    /// The dots back, for another few seconds.
-    private func wakeDots() {
-        if !dotsAwake { withAnimation(.easeInOut(duration: 0.2)) { dotsAwake = true } }
-        dotsWoken += 1
-    }
-
-    /// The cities side by side, a page each, and the map of cities past the last. A swipe moves one
-    /// page and no further, as reels do.
+    /// The cities side by side, a page each, and the map of cities past the last. They don't swipe: one
+    /// city is the usual, and the city button under the ? goes to the others.
     private var pages: some View {
         ScrollView(.horizontal) {
             LazyHStack(spacing: 0) {
@@ -461,20 +341,19 @@ struct ContentView: View {
         .scrollIndicators(.hidden)
         // A stop opened on the picker's page takes swipes again; dropped, the picker's map has them.
         .onChange(of: browsing.mapValues(\.id)) { relockPickers() }
-        .modifier(PageProgress(axis: .horizontal) { progress in
-            // Moved sideways (not just made): the dots come back.
-            if let old = cityProgress, abs(old - progress) > 0.001 { wakeDots() }
-            cityProgress = progress
-        })
-        .scrollDisabled(reordering != nil || editing != nil || City(rawValue: page ?? "").map { pickerLocked.contains($0) } == true)
+        .scrollDisabled(true)
         .onChange(of: page) { old, new in
+            citiesOpen = false
             // What's in front for Journey: the map of cities, or a city's picker, come and gone with its page.
             if old == Self.citiesPage { Journey.shared.hide("cities") }
             if let left = old.flatMap(City.init(rawValue:)), reels[left] == Self.pickerPage { Journey.shared.hide("picker.map") }
             if new == Self.citiesPage { Journey.shared.show("cities", detail: "edit") }
             if let city = new.flatMap(City.init(rawValue:)), reel(in: city).wrappedValue == Self.pickerPage { Journey.shared.show("picker.map") }
-            if let city = new.flatMap(City.init(rawValue:)) { switchCity(to: city, from: switchingFrom ?? "swipe") }
-            else if new == Self.citiesPage, switchingFrom == nil { Journey.shared.tap("cities.edit", "swipe") }
+            if let city = new.flatMap(City.init(rawValue:)) {
+                switchCity(to: city, from: switchingFrom ?? "cities")
+                // Arrived where the device is: nothing more to point out about it.
+                if city == here { travelAnswered = city.rawValue }
+            }
             switchingFrom = nil
         }
         // The favorites zoomed out, as a screen of their own.
@@ -558,7 +437,29 @@ struct ContentView: View {
             }
             .padding(.top, insets.top + 2)
         }
-        .overlay(alignment: .topTrailing) { helpButton(city) }
+        .overlay {
+            // The cities out: a touch anywhere else, tap or swipe, puts them away (and does nothing more).
+            if citiesOpen {
+                Color.black.opacity(0.25)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { _ in
+                        withAnimation(.snappy(duration: 0.25)) { citiesOpen = false }
+                    })
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            VStack(alignment: .trailing, spacing: 0) {
+                helpButton(city)
+                cityButton(city)
+                cityChoices(city)
+            }
+            .padding(.trailing, 10)
+            .padding(.top, insets.top - 6)
+            .environment(\.colorScheme, .dark)
+        }
     }
 
     /// Which page `city` shows: the one it was left on, else the open stop or the favorite switching there
@@ -639,8 +540,8 @@ struct ContentView: View {
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { overMaps["\(city.rawValue) header"] = $0 }
     }
 
-    /// Where the picker's buttons for the kinds of lines go: just under the ?.
-    static func kindsTop(_ insets: EdgeInsets) -> CGFloat { insets.top + 44 }
+    /// Where the picker's buttons for the kinds of lines go: under the ? and the city button.
+    static func kindsTop(_ insets: EdgeInsets) -> CGFloat { insets.top + 86 }
 
     /// The ?, across from the title: how to put the stops on the Lock Screen, and watch one from the island.
     private func helpButton(_ city: City) -> some View {
@@ -657,11 +558,131 @@ struct ContentView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .environment(\.colorScheme, .dark)
         .accessibilityLabel("How it works")
-        .padding(.trailing, 10)
-        .padding(.top, insets.top - 6)
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { overMaps["\(city.rawValue) help"] = $0 }
+    }
+
+    /// The city traveled to, when the IP guess has the device near a city other than the one showing, and
+    /// that hasn't been answered yet.
+    private var travelingTo: City? {
+        guard let here, here != cityShown, here.rawValue != travelAnswered,
+              reordering == nil, editing == nil else { return nil }
+        return here
+    }
+
+    /// Under the ?, quietly: the city's code, a menu of the cities to go to and, past them, the map of cities
+    /// to add some or leave some out. Somewhere else, it grows to say so ("You're in Seattle"), and goes there.
+    @ViewBuilder private func cityButton(_ city: City) -> some View {
+        Group {
+            if let traveling = travelingTo {
+                Button {
+                    Journey.shared.tap("city.travel", traveling.rawValue)
+                    travelAnswered = traveling.rawValue
+                    // A city left out comes back.
+                    if !cities.contains(traveling) { setCities(cities + [traveling]) }
+                    go(toCity: traveling, from: "travel")
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("You're in \(traveling.shortName)")
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 36)
+                    .background(Capsule().fill(LineBadge.red))
+                    .phaseAnimator([false, true]) { label, up in
+                        label.scaleEffect(up ? 1.06 : 1)
+                    } animation: { _ in .easeInOut(duration: 0.9) }
+                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("You're in \(traveling.name). Go there")
+                // Not taken up for a while: it goes quiet, the menu still a tap away.
+                .task(id: traveling) {
+                    try? await Task.sleep(for: .seconds(15))
+                    if !Task.isCancelled { travelAnswered = traveling.rawValue }
+                }
+                .transition(.scale(scale: 0.6, anchor: .trailing).combined(with: .opacity))
+            } else {
+                Button {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    if !citiesOpen { Journey.shared.tap("cities.open", "button") }
+                    withAnimation(.snappy(duration: 0.3)) { citiesOpen.toggle() }
+                } label: {
+                    cityChip(city.code, current: citiesOpen)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Cities, \(city.name) showing")
+                .accessibilityHint(citiesOpen ? "Closes the cities" : "Shows your other cities")
+                .transition(.opacity)
+            }
+        }
+        .animation(.snappy(duration: 0.3), value: travelingTo)
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { overMaps["\(city.rawValue) city"] = $0 }
+    }
+
+    /// A city's code in a glass capsule, as the city button has it; the open city ringed while they're out.
+    private func cityChip(_ code: String, current: Bool = false) -> some View {
+        Text(code)
+            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(minWidth: 34, minHeight: 34)
+            .glass(in: Capsule())
+            .overlay(Capsule().strokeBorder(LineBadge.red, lineWidth: 2).opacity(current ? 1 : 0))
+            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+            .contentShape(Rectangle())
+    }
+
+    /// Out of the city button, down: the other cities to go to, then a pencil to change which (a + while
+    /// there's only the one), all as the button looks.
+    @ViewBuilder private func cityChoices(_ city: City) -> some View {
+        if citiesOpen, travelingTo == nil {
+            let others = shownCities.filter { $0 != city }
+            VStack(alignment: .trailing, spacing: 0) {
+                ForEach(Array(others.enumerated()), id: \.element) { index, other in
+                    Button {
+                        withAnimation(.snappy(duration: 0.25)) { citiesOpen = false }
+                        go(toCity: other, from: "button")
+                    } label: {
+                        cityChip(other.code)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(other.name)
+                    .transition(.scale(scale: 0.3, anchor: .top).combined(with: .opacity)
+                        .animation(.snappy(duration: 0.3).delay(0.03 * Double(index))))
+                }
+                Button {
+                    Journey.shared.tap("cities.edit", "button")
+                    withAnimation(.snappy(duration: 0.25)) { citiesOpen = false }
+                    switchingFrom = "button"
+                    withAnimation(.smooth(duration: 0.4)) { page = Self.citiesPage }
+                } label: {
+                    Image(systemName: others.isEmpty ? "plus" : "pencil")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .glass(in: Circle())
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(others.isEmpty ? "Add a city" : "Change your cities")
+                .transition(.scale(scale: 0.3, anchor: .top).combined(with: .opacity)
+                    .animation(.snappy(duration: 0.3).delay(0.03 * Double(others.count))))
+            }
+        }
+    }
+
+    /// Across to `other`'s pages.
+    private func go(toCity other: City, from: String) {
+        guard page != other.rawValue else { return }
+        switchingFrom = from
+        withAnimation(.smooth(duration: 0.4)) { page = other.rawValue }
     }
 
     /// Down the left, as stories are: the stop picker, then the city's favorites, to jump to, in up to a
@@ -1065,7 +1086,7 @@ struct ContentView: View {
         return HomeMap(city: favorite.city, open: favorite, feed: feed, expanded: changing, picking: changing, opened: changing,
                        topInset: routeTop(favorite.city), bottomInset: (changing ? 0 : Self.captionRoom) + insets.bottom,
                        leadingInset: routeLeading(favorite.city), gesture: mapGesture?.page == id ? mapGesture?.gesture : nil,
-                       editing: changing ? favorite : nil, kindsTop: changing ? Self.kindsTop(insets) : nil) { edited(favorite, to: $0) }
+                       editing: changing ? favorite : nil, kindsTop: changing && !citiesOpen ? Self.kindsTop(insets) : nil) { edited(favorite, to: $0) }
             .overlay {
                 if !changing {
                     MapTouches(onGesture: { gesture in mapGesture = gesture.map { (id, $0) } },
@@ -1099,7 +1120,7 @@ struct ContentView: View {
         // The map is the fingers' own here, one finger moving it as on any map: the pages stand still under
         // it (see `onPicker`), the column down the side the way to the others.
         return HomeMap(city: city, expanded: true, picking: true, opened: true, topInset: insets.top + 120, bottomInset: insets.bottom,
-                       kindsTop: Self.kindsTop(insets), onPick: picked)
+                       kindsTop: citiesOpen ? nil : Self.kindsTop(insets), onPick: picked)
             .id(pickerRounds[city] ?? 0)
             .overlay(alignment: .top) {
                 if addingIn == city && !first {
@@ -1121,17 +1142,13 @@ struct ContentView: View {
                         Text("Tap a line, then your stop, and watch the \(city.vehicles) not come, live. Add the ones you wait at to your favorites: they line up down the side, and on your widgets.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        // Here the map takes the swipe across: until they've been used, how to get to another city.
-                        if !dotsScrubbed, shownCities.count > 1 {
-                            Label("To change cities, slide along the dots at the bottom.", systemImage: "hand.point.up.left.and.text")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.top, 4)
-                        }
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding(.horizontal, 12)
+                    // Clear of the kinds of lines down the right.
+                    .padding(.leading, 12)
+                    .padding(.trailing, 60)
                     .padding(.top, insets.top + 120)
                     .allowsHitTesting(false)
                 }
@@ -1713,11 +1730,31 @@ struct ContentView: View {
 
     /// On a fresh install, start with the default stop of whichever supported city the proxy
     /// thinks we're in (a rough IP-based guess: no location permission, nothing stored).
+    /// Also notes where the device is (`here`), for the city button's "You're in".
     private func startInNearestCity() async {
+        let guess = await askWhere()
         guard !Selection.hasSavedChoice else { return }
-        let start = (await TransitService.nearestCity() ?? .sf).defaultSelection
+        let start = (guess ?? .sf).defaultSelection
         Selection.current = start
         if start.id != selection.id { selection = start }
+    }
+
+    /// The supported city the proxy's IP guess is near (within `WidgetPlace.awayKm`), kept in `here`. The city
+    /// already showing then counts as answered: arriving there isn't news.
+    @discardableResult private func askWhere() async -> City? {
+        hereAsked = .now
+        #if DEBUG
+        // `-here seattle`: as if the IP guess put the device there, for the "You're in" prompt.
+        if let faked = UserDefaults.standard.string(forKey: "here").flatMap(City.init(rawValue:)) {
+            here = faked
+            return faked
+        }
+        #endif
+        guard let whereabouts = await TransitService.whereabouts(client: .app) else { return nil }
+        let near = whereabouts.km?[whereabouts.city.rawValue].map { $0 <= WidgetPlace.awayKm } ?? true
+        here = near ? whereabouts.city : nil
+        if let here, here == cityShown { travelAnswered = here.rawValue }
+        return whereabouts.city
     }
 
     /// Opens the line a widget row showed, over whatever was on screen.
