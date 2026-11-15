@@ -110,6 +110,11 @@ struct ContentView: View {
     @State private var reelProgress: [City: CGFloat] = [:]
     /// A stop picked in each city's top page, open there for now: not a favorite until it's added.
     @State private var browsing: [City: Selection] = [:]
+    /// The cities whose pages stand still under their picker's map, which takes one finger: only once they've come
+    /// to rest on it. Stopping them on their way there leaves them halfway, which sends them there again, for good.
+    @State private var pickerLocked: Set<City> = []
+    /// The other lines offered with the stop open for now (those at its stop going its way), on or off.
+    @State private var browsingOffered: [City: [Selection.OtherLine]] = [:]
     /// The city whose picker the + below the favorites opened: a stop picked there is added straight away.
     @State private var addingIn: City?
     /// The favorite being changed, in the stop picker over its page (the pencil above sharing).
@@ -454,12 +459,14 @@ struct ContentView: View {
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $page)
         .scrollIndicators(.hidden)
+        // A stop opened on the picker's page takes swipes again; dropped, the picker's map has them.
+        .onChange(of: browsing.mapValues(\.id)) { relockPickers() }
         .modifier(PageProgress(axis: .horizontal) { progress in
             // Moved sideways (not just made): the dots come back.
             if let old = cityProgress, abs(old - progress) > 0.001 { wakeDots() }
             cityProgress = progress
         })
-        .scrollDisabled(reordering != nil || editing != nil || City(rawValue: page ?? "").map(onPicker) == true)
+        .scrollDisabled(reordering != nil || editing != nil || City(rawValue: page ?? "").map { pickerLocked.contains($0) } == true)
         .onChange(of: page) { old, new in
             // What's in front for Journey: the map of cities, or a city's picker, come and gone with its page.
             if old == Self.citiesPage { Journey.shared.hide("cities") }
@@ -523,8 +530,12 @@ struct ContentView: View {
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: reel(in: city))
         .scrollIndicators(.hidden)
-        .scrollDisabled(reordering != nil || editing != nil || onPicker(city))
-        .modifier(PageProgress { reelProgress[city] = $0 })
+        .scrollDisabled(reordering != nil || editing != nil || pickerLocked.contains(city))
+        .modifier(PageProgress { progress in
+            reelProgress[city] = progress
+            // Come to rest on the picker: its map takes the finger from here (see `pickerLocked`).
+            if abs(progress) < 0.01, onPicker(city), !pickerLocked.contains(city) { pickerLocked.insert(city) }
+        })
         .onChange(of: pageJumps[city]) {
             guard let shown = reel(in: city).wrappedValue else { return }
             scroller.scrollTo(shown, anchor: .top)
@@ -562,6 +573,8 @@ struct ContentView: View {
         } set: { new in
             guard let new else { return }
             let old = reels[city]
+            // Off the picker (or on its way off): the pages scroll again, before they're asked to.
+            if new != Self.pickerPage { pickerLocked.remove(city) }
             reels[city] = new
             if new == Self.pickerPage, old != Self.pickerPage { Journey.shared.show("picker.map") }
             if old == Self.pickerPage, new != Self.pickerPage {
@@ -580,6 +593,18 @@ struct ContentView: View {
 
     /// Whether `city` shows its stop picker's map, which takes one finger itself: the pages, up and down and
     /// across to the other cities, stand still under it.
+    /// `arrived`: and the pages are there, not on their way. Turning the pages' scrolling off as they scroll to
+    /// the picker stops them halfway, back on the page they came from, which sends them to the picker again,
+    /// and round, for good.
+
+    /// The pickers' locks again, as the stops open on them come and go (see `pickerLocked`).
+    private func relockPickers() {
+        for city in City.allCases {
+            let resting = reelProgress[city].map { abs($0) < 0.01 } ?? false
+            if onPicker(city), resting { pickerLocked.insert(city) } else if !onPicker(city) { pickerLocked.remove(city) }
+        }
+    }
+
     private func onPicker(_ city: City) -> Bool {
         reel(in: city).wrappedValue == Self.pickerPage && browsing[city] == nil
     }
@@ -1020,11 +1045,11 @@ struct ContentView: View {
 
     /// Opens `page` (a favorite, or the picker) in `city`, as a swipe to it would.
     private func go(to page: String, in city: City) {
-        // Already the one it's to show, but not where the pages are (they were scrolled from under it):
-        // let go of it first, else setting it again moves nothing.
+        // Already the one it's to show, but not where the pages are (they were scrolled from under it, or are on
+        // their way): scrolled there directly, as setting it again moves nothing. Not by letting go of it and
+        // setting it again: under a scroll on its way, that has the two take turns at the pages, for good.
         if reels[city] == page, let swiped = reelProgress[city], Int(swiped.rounded()) != Int(pageIndex(of: page, in: city)) {
-            reels[city] = nil
-            Task { withAnimation(.smooth(duration: 0.4)) { reel(in: city).wrappedValue = page } }
+            pageJumps[city, default: 0] += 1
             return
         }
         withAnimation(.smooth(duration: 0.4)) { reel(in: city).wrappedValue = page }
@@ -1148,6 +1173,7 @@ struct ContentView: View {
                         Spacer(minLength: 0)
                     }
                     details(favorite)
+                    if browsed { alsoChips(favorite) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(spacing: 6) {
@@ -1209,6 +1235,52 @@ struct ContentView: View {
             }
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.6), radius: 3, y: 1)
+        }
+    }
+
+    /// Under a stop open for now, the other lines at its stop going its way: each on (counted with it, on the
+    /// favorite once kept) or off, a tap each.
+    @ViewBuilder private func alsoChips(_ stop: Selection) -> some View {
+        let offered = browsingOffered[stop.city] ?? []
+        if !offered.isEmpty {
+            HStack(spacing: 6) {
+                Text("Also fine with").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                ForEach(offered, id: \.lineID) { other in
+                    let on = stop.also.contains { $0.lineID == other.lineID }
+                    let color = LineBadge.color(of: other.lineID, in: stop.city)
+                    Button {
+                        Journey.shared.tap("picker.also", on ? "remove" : "add")
+                        guard var open = browsing[stop.city] else { return }
+                        if on { open.also.removeAll { $0.lineID == other.lineID } } else {
+                            open.also = offered.filter { o in o.lineID == other.lineID || open.also.contains { $0.lineID == o.lineID } }
+                        }
+                        withAnimation(.snappy(duration: 0.2)) { browsing[stop.city] = open }
+                        select(open)
+                    } label: {
+                        // A toggle you can't miss: "+ K" outlined while it's not counted, "✓ K" in the line's color once it is.
+                        let fill = Color(hex: color?.hex) ?? LineBadge.red
+                        HStack(spacing: 4) {
+                            Image(systemName: on ? "checkmark" : "plus")
+                                .font(.system(size: 13, weight: .heavy))
+                            Text(LineBadge.short(other.lineID, in: stop.city))
+                                .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                        }
+                        .foregroundStyle(on ? (color?.darkText == true ? Color.black : Color.white) : Color.white)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 34)
+                        .background(Capsule().fill(on ? fill : Color.white.opacity(0.12)))
+                        .overlay(Capsule().strokeBorder(on ? Color.clear : Color.white.opacity(0.8), lineWidth: 1.5))
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(other.lineID), \(on ? "counted" : "not counted")")
+                }
+            }
+            .padding(.leading, 14)
+            .padding(.trailing, 6)
+            .background(Capsule().fill(.black.opacity(0.55)))
+            .environment(\.colorScheme, .dark)
         }
     }
 
@@ -1568,10 +1640,12 @@ struct ContentView: View {
         Journey.shared.tap("stop.open", Journey.from("picker"))
         searchingLines = false
         if isFavorite(picked) { addingIn = nil; return show(picked) }
+        // From the + below the favorites, kept at once (its lines chosen on the picker's card).
         if addingIn == picked.city {
             addingIn = nil
             return addFavorite(picked, from: "side")
         }
+        browsingOffered[picked.city] = []
         withAnimation(.smooth(duration: 0.35)) { browsing[picked.city] = picked }
         select(picked)
         withAnimation(.smooth(duration: 0.4)) { page = picked.city.rawValue }

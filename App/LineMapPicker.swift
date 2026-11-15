@@ -61,6 +61,12 @@ struct HomeMap: View {
     /// A stop's name tapped: the circle's list is just its lines (its stops on either side, by name or code),
     /// until the map's moved away; with only one line there, it's picked at once.
     @State private var focus: (name: String, codes: Set<String>, at: Date)?
+    /// A way picked from the list with other lines at its stop going its way: the card asks which of them are
+    /// also fine (`pendingAlso`, by line), before "That's my stop".
+    @State private var pendingWay: CircleWay?
+    @State private var pendingAlso: Set<String> = []
+    /// The next departures of each way out of the circle's stops, by `CircleWay.id`.
+    @State private var wayTimes: [String: [Departure]] = [:]
     /// Stop dots blending in or out (see `StopDotsLayer.DotFade`).
     @State private var dotFades: [String: StopDotsLayer.DotFade] = [:]
     /// Where those buttons are on screen: a tap on them isn't the map's.
@@ -458,7 +464,7 @@ struct HomeMap: View {
                 heading = context.camera.heading
                 if mapSize.width > 0 {
                     let metersPerPoint = context.rect.width * MKMetersPerMapPointAtLatitude(context.rect.origin.coordinate.latitude) / mapSize.width
-                    motion.circleDiameter = 2 * Self.cornerMeters / metersPerPoint
+                    motion.circleDiameter = 2 * Self.circleMeters(at: metersPerPoint) / metersPerPoint
                 }
                 if let middle = proxy.convert(circleSpot, from: .local) { gather(around: middle) }
                 // The stops follow a pinch or pan as it happens, not just once it's let go. The badges go along
@@ -485,6 +491,7 @@ struct HomeMap: View {
                 placeNames(proxy)
                 // Moved by hand, not by the tap on the name: all the circle's stops again.
                 if let focus, Date.now.timeIntervalSince(focus.at) > 1.2 { self.focus = nil }
+                if pendingWay != nil, focus == nil, !circleCodes.contains(pendingWay!.stop) { pendingWay = nil }
             }
             // Once the list is up, the circle's middle moves up with it.
             .onChange(of: circleSpot) {
@@ -783,7 +790,7 @@ struct HomeMap: View {
 
     private var tuckedTitle: String {
         if let selected { return corner.first?.stop.name ?? selected.name }
-        if isCircling { return focus.map { "Lines at \($0.name)" } ?? (circleCodes.isEmpty ? "Slide the circle over where you wait" : "What stops around here") }
+        if isCircling { return focus.map { "From \($0.name)" } ?? (circleCodes.isEmpty ? "Slide the circle over where you wait" : "Where are you going?") }
         return recent.isEmpty ? "Tap where you wait" : "Looked at before"
     }
 
@@ -1097,7 +1104,14 @@ struct HomeMap: View {
         if let name = nameHit(at: point, proxy: proxy) {
             Journey.shared.tap("picker.name")
             let here = MKMapPoint(name.coordinate)
-            let codes = Set(allStops.filter { $0.name == name.name && here.distance(to: MKMapPoint($0.coordinate)) < 150 }.map(\.code))
+            // Those by its name close by (the other side, a station's platforms), and any at the same spot
+            // whatever their name (Castro's subway platforms under the Market St bus stop).
+            let named = allStops.filter { $0.name == name.name && here.distance(to: MKMapPoint($0.coordinate)) < 150 }
+            let spots = named.map { MKMapPoint($0.coordinate) } + [here]
+            let codes = Set(allStops.filter { stop in
+                let at = MKMapPoint(stop.coordinate)
+                return stop.name == name.name && here.distance(to: at) < 150 || spots.contains { $0.distance(to: at) < 25 }
+            }.map(\.code))
             focus = (name.name, codes.union([name.code]), .now)
             tapCoordinate = name.coordinate
             circle(on: name.coordinate, proxy: proxy)
@@ -1188,7 +1202,7 @@ struct HomeMap: View {
         guard mapSize.width > 0 else { return }
         let meters = rect.width * MKMetersPerMapPointAtLatitude(rect.origin.coordinate.latitude) / mapSize.width
         if settled { metersPerPoint = meters }
-        motion.circleDiameter = 2 * Self.cornerMeters / meters
+        motion.circleDiameter = 2 * Self.circleMeters(at: meters) / meters
         showStops(in: rect, metersPerPoint: meters)
     }
 
@@ -1208,7 +1222,7 @@ struct HomeMap: View {
     private func gather(around middle: CLLocationCoordinate2D) {
         let codes = stopsAround
             .map { ($0.code, meters($0.coordinate, middle)) }
-            .filter { $0.1 <= Self.cornerMeters }
+            .filter { $0.1 <= Self.circleMeters(at: motion.circleDiameter > 0 ? Self.cornerMeters * 2 / motion.circleDiameter : metersPerPoint) }
             .sorted { $0.1 < $1.1 }
             .map(\.0)
         if codes != circleCodes { circleCodes = codes }
@@ -1344,39 +1358,90 @@ struct HomeMap: View {
     /// (Muni's "Castro Station/Downtown" and "/Outbound"), and which way comes next anyway, on the
     /// stop's card, with an arrow and the minutes for each (or right away, for a line going only one
     /// way from here).
-    private var circleList: some View {
-        let lines = circleLines
+    @ViewBuilder private var circleList: some View {
+        if let pendingWay { wayCard(pendingWay) } else { waysList }
+    }
+
+    /// A way picked, with the other lines at its stop going its way to count too, and the button that keeps it.
+    private func wayCard(_ way: CircleWay) -> some View {
+        let others = companions(of: way)
+        return VStack(alignment: .leading, spacing: 10) {
+            if !others.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Also fine with").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(others, id: \.lineID) { other in
+                                let on = pendingAlso.contains(other.lineID)
+                                let line = lines.first { $0.id == other.lineID }
+                                Button {
+                                    Journey.shared.tap("picker.also", on ? "remove" : "add")
+                                    withAnimation(.snappy(duration: 0.15)) {
+                                        if on { pendingAlso.remove(other.lineID) } else { pendingAlso.insert(other.lineID) }
+                                    }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: on ? "checkmark.circle.fill" : "plus.circle")
+                                            .font(.caption)
+                                        LineBadge(line: LineBadge.short(other.lineID, in: city), font: .system(.subheadline, design: .rounded).weight(.heavy),
+                                                  color: line?.mapColor ?? LineBadge.red, textColor: line?.badgeTextColor ?? .white,
+                                                  round: LineBadge.isRound([other.lineID], in: city), spoken: other.lineID)
+                                    }
+                                    .padding(.horizontal, 6).padding(.vertical, 3)
+                                    .background(on ? Color.primary.opacity(0.15) : .clear, in: Capsule())
+                                    .opacity(on ? 1 : 0.7)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Also take line \(other.lineID)")
+                                .accessibilityAddTraits(on ? .isSelected : [])
+                            }
+                        }
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                Button {
+                    Journey.shared.tap("picker.way.back")
+                    withAnimation(.snappy(duration: 0.2)) { pendingWay = nil }
+                } label: {
+                    Image(systemName: "chevron.left").font(.subheadline.weight(.semibold)).frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to the list")
+                wayRow(way)
+            }
+            Button { keep(way) } label: {
+                Text("That's my stop").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(LineBadge.red)
+        }
+    }
+
+    /// The way kept, with the lines ticked on its card.
+    private func keep(_ way: CircleWay) {
+        var picked = selection(of: way)
+        picked.also = companions(of: way).filter { pendingAlso.contains($0.lineID) }
+        Journey.shared.tap("picker.choose", picked.also.isEmpty ? "way" : "way with \(picked.also.count) more")
+        pendingWay = nil
+        pendingAlso = []
+        focus = nil
+        onPick(picked)
+    }
+
+    private var waysList: some View {
+        let ways = circleWays
         return VStack(alignment: .leading, spacing: 8) {
-            Text(focus.map { "Lines at \($0.name)" } ?? (circleCodes.isEmpty ? "Slide the circle over where you wait." : "What stops around here"))
+            Text(focus.map { "From \($0.name)" } ?? (circleCodes.isEmpty ? "Slide the circle over where you wait." : "Where are you going?"))
                 .font(.subheadline).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(lines, id: \.first!.line.id) { ways in
-                        let line = ways[0].line
-                        let ends = ways.map(\.direction.destination).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-                        Button { pick(ways) } label: {
-                            HStack(spacing: 10) {
-                                LineBadge(line: LineBadge.short(line.id, in: city), font: .system(.subheadline, design: .rounded).weight(.heavy),
-                                          color: line.mapColor, textColor: line.badgeTextColor,
-                                          round: LineBadge.isRound([line.id], in: city), spoken: line.id)
-                                    .fixedSize()
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(ends.count == 1 ? "To \(ends[0])" : ends.prefix(2).joined(separator: " ↔ "))
-                                        .font(.subheadline.weight(.semibold)).lineLimit(1)
-                                    Text(ways[0].stopName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                                Spacer(minLength: 4)
-                                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                            }
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 10)
-                            .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Line \(line.id) to \(ends.joined(separator: " or ")), at \(ways[0].stopName)")
+                    ForEach(ways) { way in
+                        Button { choose(way) } label: { wayRow(way) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Line \(way.line.id) to \(way.direction.destination), from \(way.stopName)")
                     }
-                    if !circleCodes.isEmpty, lines.isEmpty {
+                    if !circleCodes.isEmpty, ways.isEmpty {
                         ProgressView().frame(maxWidth: .infinity)
                     }
                 }
@@ -1387,24 +1452,139 @@ struct HomeMap: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .animation(.snappy(duration: 0.2), value: circleRowsHeight)
+        // The next ones for each way, as they're listed.
+        .task(id: ways.map(\.id)) { await loadWayTimes(ways) }
+    }
+
+    /// A way out of a stop: its line, where it goes, from which stop, and when the next ones come.
+    private func wayRow(_ way: CircleWay) -> some View {
+        let line = way.line
+        let upcoming = (wayTimes[way.id] ?? []).filter { $0.time > .now.addingTimeInterval(-30) }
+        return HStack(spacing: 10) {
+            LineBadge(line: LineBadge.short(line.id, in: city), font: .system(.subheadline, design: .rounded).weight(.heavy),
+                      color: line.mapColor, textColor: line.badgeTextColor,
+                      round: LineBadge.isRound([line.id], in: city), spoken: line.id)
+                .fixedSize()
+            // Which way it goes from there, on the map as it's turned: the two ways from one stop tell apart.
+            if let bearing = bearing(of: way) {
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(line.mapColor.legible(on: colorScheme))
+                    .rotationEffect(.degrees(bearing - heading))
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text("To \(way.direction.destination)").font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(way.stopName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Text(wayTimes[way.id] == nil ? "…" : Departure.waits(upcoming, from: .now, count: 2) ?? "none")
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(upcoming.isEmpty ? Color.secondary : Color.green)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    /// The way `way` leaves its stop, as a compass bearing: toward its next stop (from the one before, at the end).
+    private func bearing(of way: CircleWay) -> Double? {
+        let stops = way.direction.stops
+        guard let i = stops.firstIndex(where: { $0.code == way.stop }) else { return nil }
+        let point = { (stop: Stop) in stop.lat.flatMap { lat in stop.lon.map { CLLocationCoordinate2D(latitude: lat, longitude: $0) } } }
+        if i + 1 < stops.count, let a = point(stops[i]), let b = point(stops[i + 1]) { return bearingBetween(a, b) }
+        if i > 0, let a = point(stops[i - 1]), let b = point(stops[i]) { return bearingBetween(a, b) }
+        return nil
+    }
+
+    /// Live times for `ways`, those not had yet; kept, so coming back to a stop shows them at once.
+    private func loadWayTimes(_ ways: [CircleWay]) async {
+        let wanted = ways.filter { wayTimes[$0.id] == nil }.prefix(12)
+        await withTaskGroup(of: (String, [Departure]?).self) { group in
+            for way in wanted {
+                let selection = selection(of: way)
+                group.addTask { (way.id, try? await TransitService.departures(for: selection, client: .map)) }
+            }
+            for await (id, departures) in group where !Task.isCancelled {
+                wayTimes[id] = departures ?? []
+            }
+        }
+    }
+
+    private func selection(of way: CircleWay) -> Selection {
+        Selection(lineID: way.line.id, lineName: way.line.name, directionID: way.direction.id,
+                  destination: way.direction.destination, stopCode: way.stop, stopName: way.stopName, city: city)
+    }
+
+    /// A way picked: that line from that stop, opened (or, changing a favorite, kept in its place).
+    private func choose(_ way: CircleWay) {
+        Journey.shared.tap("picker.way", editing == nil ? nil : "edit")
+        // Other lines there going its way (the K and M with the L at Castro inbound): a card to tick them first.
+        // Changing a favorite keeps its own lines.
+        if editing == nil, !companions(of: way).isEmpty {
+            pendingAlso = []
+            withAnimation(.snappy(duration: 0.2)) { pendingWay = way }
+            return
+        }
+        focus = nil
+        onPick(selection(of: way))
+    }
+
+    /// The other lines from `way`'s stop going its way: at the stop itself, or at another by its name close by
+    /// heading the same way (Seattle's platforms), one per line.
+    private func companions(of way: CircleWay) -> [Selection.OtherLine] {
+        let heading = bearing(of: way)
+        var seen: Set<String> = [way.line.id]
+        return circleStops.flatMap(\.ways).compactMap { other in
+            guard kindShows(other.line.id), !seen.contains(other.line.id) else { return nil }
+            let sameStop = other.stop == way.stop
+            if !sameStop {
+                guard other.stopName == way.stopName, let heading, let theirs = bearing(of: other),
+                      abs(((theirs - heading + 540).truncatingRemainder(dividingBy: 360)) - 180) < 60 else { return nil }
+            } else if other.direction.id != way.direction.id, let heading, let theirs = bearing(of: other),
+                      abs(((theirs - heading + 540).truncatingRemainder(dividingBy: 360)) - 180) >= 60 {
+                return nil
+            }
+            seen.insert(other.line.id)
+            return Selection.OtherLine(lineID: other.line.id, directionID: other.direction.id, stopCode: sameStop ? nil : other.stop)
+        }
     }
 
     /// The ways from the stops in the circle, a group per line, in the order of their nearest stop.
-    private var circleLines: [[CircleWay]] {
-        circleStops.filter { !$0.codes.isDisjoint(with: circleCodes) }.flatMap(\.ways).filter { kindShows($0.line.id) }
-            .filter { way in focus.map { $0.codes.contains(way.stop) || way.stopName == $0.name } ?? true }
-            .reduce(into: [[CircleWay]]()) { groups, way in
-                if let i = groups.firstIndex(where: { $0[0].line.id == way.line.id }) { groups[i].append(way) } else { groups.append([way]) }
-            }
+    private var circleWays: [CircleWay] {
+        var seen = Set<String>()
+        return circleStops.filter { !$0.codes.isDisjoint(with: circleCodes) }.flatMap(\.ways).filter { kindShows($0.line.id) }
+            .filter { way in focus.map { $0.codes.contains(way.stop) } ?? true }
+            // One row a way: from its stop nearest the middle.
+            .filter { seen.insert("\($0.line.id)|\($0.direction.destination)").inserted }
+            .enumerated().sorted { a, b in
+                let ra = relevance(a.element), rb = relevance(b.element)
+                return ra != rb ? ra < rb : a.offset < b.offset
+            }.map(\.element)
     }
 
-    /// Picks a line from the circle's list, at its stop there: going one way, that way too.
-    private func pick(_ ways: [CircleWay]) {
-        guard let first = ways.first else { return }
-        Journey.shared.tap("picker.circle.line", ways.count == 1 ? "one way" : "both ways")
-        tapCoordinate = first.coordinate
-        select(first.line, among: [first.line], way: ways.count == 1 ? (first.direction.id, first.stop) : nil)
+    /// How far down the list a way goes: trains and the like first, then buses, then those coming soon before
+    /// those not, and last the stand-ins running only at night or instead of a train (Muni's OWL and BUS).
+    private func relevance(_ way: CircleWay) -> Int {
+        let id = way.line.id
+        if id.wholeMatch(of: /.+(BUS|OWL)/) != nil { return 3 }
+        let soon = wayTimes[way.id].map { times in times.contains { $0.time > .now.addingTimeInterval(-30) } } ?? true
+        let kind = lineKinds[id] ?? .bus
+        return (kind == .bus ? 1 : 0) + (soon ? 0 : 2)
     }
+
+    /// The lines among the ways, for drawing them up on the map.
+    private var circleLines: [[CircleWay]] {
+        circleWays.reduce(into: [[CircleWay]]()) { groups, way in
+            if let i = groups.firstIndex(where: { $0[0].line.id == way.line.id }) { groups[i].append(way) } else { groups.append([way]) }
+        }
+    }
+
 
     /// The stops in (and just around) `rect`. On the map, those closer together on screen than a dot or
     /// so as one: the map split into squares about that size, one stop for each square with any. The
@@ -1533,10 +1713,9 @@ struct HomeMap: View {
     /// A tapped name's stop with one line there: that line, at that stop (going one way, that way too).
     private func resolveFocus() {
         guard focus != nil, selectedID == nil else { return }
-        let lines = circleLines
-        guard lines.count == 1 else { return }
-        focus = nil
-        pick(lines[0])
+        let ways = circleWays
+        guard ways.count == 1 else { return }
+        choose(ways[0])
     }
 
     /// Where the map shows `coordinate` in `rect` (mid-pinch, MapKit may not say).
@@ -1593,6 +1772,13 @@ struct HomeMap: View {
     /// How far the circle reaches from its middle: as far as "Also fine with" looks (the proxy's
     /// NEARBY_METERS), a minute or two on foot.
     private static let cornerMeters = 150.0
+    /// The circle's radius on screen, closer in: what it gathers shrinks as the map zooms in, to what's in sight.
+    private static let circlePoints = 60.0
+
+    /// How far the circle reaches at a zoom of `metersPerPoint`: as far as it shows, at most `cornerMeters`.
+    private static func circleMeters(at metersPerPoint: Double) -> Double {
+        min(cornerMeters, circlePoints * metersPerPoint)
+    }
 
     /// Stops along a line are a few hundred meters apart; this far in, that's a fingertip or more.
     private static let dotsBelowMetersPerPoint = 6.0
