@@ -113,6 +113,10 @@ struct HomeMap: View {
     @State private var visibleRect: MKMapRect?
     @State private var cameraBeforeAlso: MapCameraPosition?
     @State private var heading: CLLocationDirection = 0
+    /// Bumped, from a task, for the badges to be placed again, or the layers due shown, as the view next
+    /// updates: asking the map's proxy after an await, MapKit may be mid-update, and that brings the app down.
+    @State private var relabelDue = 0
+    @State private var layersDue = 0
     /// Where the map's camera is, to slide it without zooming.
     @State private var camera: MapCamera?
     /// Where each line's name badge may go (worked out once per line map), and the badges shown now.
@@ -287,6 +291,9 @@ struct HomeMap: View {
 
     /// Whether the circle is out: zoomed in to the stops, with no line picked yet.
     private var isCircling: Bool { selectedID == nil && !stopsAround.isEmpty }
+    /// Nothing picked, nothing around, nothing looked at before: the card would have nothing to say, so the
+    /// whole map is the map's.
+    private var cardEmpty: Bool { selected == nil && stopsAround.isEmpty && !lines.isEmpty && recent.isEmpty }
 
     /// The lines stopping inside the circle, drawn up on the map while it's out.
     private var circleLineIDs: Set<String> {
@@ -524,8 +531,11 @@ struct HomeMap: View {
                 let spots = await Task.detached(priority: .userInitiated) { LineLabels.spots(for: paths) }.value
                 guard !Task.isCancelled else { return }
                 labelSpots = spots
-                relabel(proxy)
+                // Not here, after an await: the map's proxy is only to be asked as the view updates.
+                relabelDue += 1
             }
+            .onChange(of: relabelDue) { relabel(proxy) }
+            .onChange(of: layersDue) { show(wantedLayers, proxy) }
             .onChange(of: selectedID) {
                 relabel(proxy)
                 // A line picked on the map: its card comes up, tucked away or not.
@@ -564,7 +574,7 @@ struct HomeMap: View {
         // the Apple Maps logo, with the close button on top of it, in reach of a thumb. Pulled down, the
         // open map goes back as a sheet would.
         .overlay(alignment: .bottom) {
-            if picking {
+            if picking, !cardEmpty {
                 VStack(alignment: .trailing, spacing: 0) {
                     if tucked {
                         tuckedBar
@@ -607,7 +617,7 @@ struct HomeMap: View {
                     cardFrame = frame
                     if tucked || !isCircling { cardRoom = frame.height }
                 }
-                .onDisappear { cardFrame = .null }
+                .onDisappear { cardFrame = .null; cardRoom = 0 }
                 // At the bottom of what shows: on the home screen, the map's bottom is out of sight.
                 .padding(.bottom, max(fullHeight - mapHeight, 0))
             }
@@ -881,11 +891,6 @@ struct HomeMap: View {
                     .foregroundStyle(.secondary)
             } else if !recent.isEmpty {
                 recentStops
-            } else {
-                Label(stopsAround.isEmpty ? "Tap where you wait to zoom in." : "Tap your stop, or your line.", systemImage: "hand.tap")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding()
@@ -1939,7 +1944,8 @@ struct HomeMap: View {
         switching = Task {
             try? await Task.sleep(for: .seconds(0.45))
             guard !Task.isCancelled else { return }
-            show(wanted, proxy)
+            // Shown as the view updates (see `relabelDue`).
+            layersDue += 1
         }
     }
 
@@ -3061,7 +3067,7 @@ struct KindButtons: View {
 
     var body: some View {
         if kinds.count > 1 {
-            VStack(spacing: 8) {
+            VStack(spacing: ContentView.columnSpacing) {
                 ForEach(kinds, id: \.kind) { look in
                     let on = !hidden.contains(look.kind)
                     Button {

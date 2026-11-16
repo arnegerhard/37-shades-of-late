@@ -311,6 +311,16 @@ struct StalkTip: Tip {
     }
 }
 
+/// Over the + by a stop just found on the map: it can be kept, and so can more, which the widgets show
+/// in order. Once, until the first one's kept.
+struct FavoritesTip: Tip {
+    var title: Text { Text("Keep the ones you wait at") }
+    var message: Text? {
+        Text("Tap + to make it a favorite. Keep as many as you like: the app remembers them, and your widgets show them in your order.")
+    }
+    var image: Image? { Image(systemName: "star") }
+}
+
 /// Once a city first has two favorites: they can be put in order, which is the widgets' order too.
 struct ReorderTip: Tip {
     /// Whether any city has had two favorites yet.
