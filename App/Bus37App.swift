@@ -1677,6 +1677,8 @@ struct ContentView: View {
         Journey.shared.tap("stop.open", Journey.from("picker"))
         searchingLines = false
         if isFavorite(picked) { return show(picked) }
+        // Looked at: offered again on the picker ("Looked at before") until it's kept.
+        Selection.remember(picked)
         browsingOffered[picked.city] = []
         withAnimation(.smooth(duration: 0.35)) { browsing[picked.city] = picked }
         select(picked)
