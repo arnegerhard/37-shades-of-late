@@ -37,6 +37,8 @@ export interface Card {
   lines?: string[];
   quip: string;
   map?: CardMap;
+  /** The first line's color, for its route and buses on the map ("#RRGGBB"); the app's red without one. */
+  color?: string;
 }
 
 /** The map half: its picture (MAP_WIDTH × HEIGHT) and what goes on it, in its points. */
@@ -161,9 +163,11 @@ function withMap(card: Card, map: CardMap): string {
   const badge = badges(card, left, 56, 76, 52, width);
   const quip = wrap(`“${card.quip}”`, 30, width, 2);
   const at = (p: { x: number; y: number }) => `${(mapLeft + p.x).toFixed(1)},${p.y.toFixed(1)}`;
-  const route = map.route.filter((line) => line.length > 1)
-    .map((line) => `<polyline points="${line.map(at).join(" ")}" fill="none" stroke="${red}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>`).join("\n    ");
-  const buses = map.buses.map((bus) => `<circle cx="${mapLeft + bus.x}" cy="${bus.y}" r="27" fill="#1c1c1e" stroke="${red}" stroke-width="4"/>
+  // In the line's color, as the app draws its route and buses.
+  const line = card.color ?? red;
+  const route = map.route.filter((points) => points.length > 1)
+    .map((points) => `<polyline points="${points.map(at).join(" ")}" fill="none" stroke="${line}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>`).join("\n    ");
+  const buses = map.buses.map((bus) => `<circle cx="${mapLeft + bus.x}" cy="${bus.y}" r="27" fill="#1c1c1e" stroke="${line}" stroke-width="4"/>
     <text x="${mapLeft + bus.x}" y="${bus.y + (bus.label.length > 2 ? 7 : 9)}" font-size="${bus.label.length > 2 ? 18 : 25}" font-weight="900" fill="${bus.live ? "#4cd964" : "#fff"}" text-anchor="middle">${escape(bus.label)}</text>`).join("\n    ");
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   ${background}

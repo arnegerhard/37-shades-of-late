@@ -52,6 +52,13 @@ export default {
       .on('meta[property="og:image"]', set(image))
       .on('meta[name="twitter:image"]', set(image))
       .on("title", { element: (tag) => { tag.setInnerContent(`${title} · 37 Shades of Late`); } })
+      // The link's lines' colors, as the card has them, for the page's badges and map (pages/s.html).
+      .on("head", { element: (tag) => {
+        const city = url.searchParams.get("c") ?? "sf";
+        const ids = (url.searchParams.get("l") ?? "").split(",").filter(Boolean);
+        const colors = Object.fromEntries(ids.flatMap((id) => { const c = colorOf(id, city, ride.published); return c ? [[id, c]] : []; }));
+        tag.append(`<meta name="line-colors" content="${JSON.stringify(colors).replaceAll("&", "&amp;").replaceAll('"', "&quot;")}">`, { html: true });
+      } })
       .transform(page);
   },
 };
@@ -87,7 +94,7 @@ async function card(request: Request, url: URL, env: Env, ctx: ExecutionContext)
     round: ride.round,
     parts: ride.parts,
     lineBadges: ride.combined ? Object.fromEntries(upcoming.map((d) => d.line ?? "").filter(Boolean)
-      .map((id) => [id, lineBadge(id, url.searchParams.get("c") ?? "sf")])) : undefined,
+      .map((id) => [id, lineBadge(id, url.searchParams.get("c") ?? "sf", ride.published)])) : undefined,
     destination: ride.destination,
     stop: ride.stop,
     minutes,
@@ -95,6 +102,7 @@ async function card(request: Request, url: URL, env: Env, ctx: ExecutionContext)
     lines: ride.combined ? upcoming.map((d) => d.line ?? "") : undefined,
     quip: minutes.length ? quip(minutes[0], said(upcoming[0].line || ride.first, url.searchParams.get("c") ?? "sf")) : `Schrödinger's ${ride.line}: both coming and not coming.`,
     map,
+    color: ride.color?.[0],
   });
   const response = new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=60" } });
   ctx.waitUntil(cache.put(request, response.clone()));
@@ -166,6 +174,9 @@ interface Ride {
   /** See `badgeParts`. */
   parts: BadgePart[];
   combined: boolean;
+  /** The colors of the city's lines (see `colorOf`), the first line's for its route and buses. */
+  published: Colors;
+  color?: [string, boolean];
   stop: string;
   destination: string;
   /** Where the stop is, and the first line's route (its shape, or its stops in order). */
@@ -240,7 +251,35 @@ const COLORS: Record<string, Record<string, [string, boolean]>> = {
              ...Object.fromEntries("ABCDEFGH".split("").map((l) => [`${l} Line`, ["#9C182F", false] as [string, boolean]])) },
 };
 
-function colorOf(id: string, city: string): [string, boolean] | undefined {
+/** A line's colors, as the app's (LineBadge.color): those picked by hand above, else those its agency
+ * publishes (Muni's buses navy, Seattle's Metro yellow; see `publishedColors`), else none: the app's red. */
+function colorOf(id: string, city: string, published?: Colors): [string, boolean] | undefined {
+  return chosenColor(id, city) ?? published?.[id];
+}
+
+type Colors = Record<string, [string, boolean]>;
+
+/** The colors each city's agencies publish for their lines (GTFS route colors), from the proxy's line
+ * map, as the app's (PublishedColors): none, nor white (a blank on the map), left out. */
+async function publishedColors(city: string): Promise<Colors> {
+  const response = await fetch(`${API}${city === "sf" ? "" : city + "/"}map?v=2&client=web`, { cf: { cacheTtl: 86400 } })
+    .catch(() => undefined);
+  if (!response?.ok) return {};
+  const data: { lines?: { id: string; color?: string; textColor?: string }[] } = await response.json();
+  const luminance = (hex: string) => {
+    const value = parseInt(hex.slice(1), 16);
+    return (0.299 * ((value >> 16) & 255) + 0.587 * ((value >> 8) & 255) + 0.114 * (value & 255)) / 255;
+  };
+  const colors: Colors = {};
+  for (const line of data.lines ?? []) {
+    const hex = line.color?.toUpperCase();
+    if (!hex || !/^#[0-9A-F]{6}$/.test(hex) || hex === "#FFFFFF") continue;
+    colors[line.id] = [hex, line.textColor ? luminance(line.textColor) < 0.5 : luminance(hex) > 0.6];
+  }
+  return colors;
+}
+
+function chosenColor(id: string, city: string): [string, boolean] | undefined {
   if (city === "chicago") return CHICAGO_L[id] ? [CHICAGO_L[id][1], id === "Yellow"] : undefined;
   if (city === "dc") return DC_METRO[id] ? [DC_METRO[id][1], id === "Yellow" || id === "Silver"] : undefined;
   if (city === "la") return LA_METRO[id];
@@ -259,14 +298,21 @@ function colorOf(id: string, city: string): [string, boolean] | undefined {
  * circle each, those sharing a color next to each other (the A, C and E in three blue circles), and
  * RapidRide in its dark red. Any others with them share
  * a red rectangle (the K, L and M in their circles, then a 24). */
-function badgeParts(ids: string[], city: string): BadgePart[] {
+function badgeParts(ids: string[], city: string, published?: Colors): BadgePart[] {
   const join = (group: string[]) => group.join(group.every((id) => id.length === 1) ? "" : "·");
-  if (!ids.some((id) => colorOf(id, city))) return [{ label: join(ids) }];
-  const groups: { color?: [string, boolean]; round: boolean; ids: string[] }[] = [];
+  if (!ids.some((id) => colorOf(id, city, published))) return [{ label: join(ids) }];
+  let groups: { color?: [string, boolean]; round: boolean; ids: string[] }[] = [];
   for (const id of ids) {
-    const color = colorOf(id, city), round = isRound([id], city);
+    const color = colorOf(id, city, published), round = isRound([id], city);
     const group = groups.find((g) => g.color?.[0] === color?.[0] && g.round === round);
     if (group) group.ids.push(id); else groups.push({ color, round, ids: [id] });
+  }
+  // The lines in rectangles (buses, mostly) share one, in the color most of them have (the 14 and 49 in
+  // Muni's navy, the 14R with them): split by color, they'd be too small to read.
+  const plain = groups.filter((g) => !g.round);
+  if (plain.length > 1) {
+    const main = plain.reduce((a, b) => (b.ids.length > a.ids.length ? b : a)).color;
+    groups = [...groups.filter((g) => g.round), { color: main, round: false, ids: ids.filter((id) => plain.some((g) => g.ids.includes(id))) }];
   }
   return groups.flatMap((g) => g.round
     ? g.ids.map((id) => ({ label: short(id, city), color: g.color?.[0], dark: g.color?.[1], round: true }))
@@ -275,8 +321,8 @@ function badgeParts(ids: string[], city: string): BadgePart[] {
 
 /** One line's badge, as on the line map: round and in its color where it has one, else a rectangle
  * in its color or red. */
-function lineBadge(id: string, city: string): BadgePart & { round: boolean } {
-  const color = colorOf(id, city), round = isRound([id], city);
+function lineBadge(id: string, city: string, published?: Colors): BadgePart & { round: boolean } {
+  const color = colorOf(id, city, published), round = isRound([id], city);
   return { label: round ? short(id, city) : id, color: color?.[0], dark: color?.[1], round };
 }
 
@@ -301,11 +347,13 @@ async function lookUp(params: URLSearchParams): Promise<Ride | undefined> {
   // As the app's badges: "37", "KLM", "5·21".
   const badge = ids.join(ids.every((id) => id.length === 1) ? "" : "·");
   if (!direction || !name || here?.lat === undefined || here.lon === undefined) return undefined;
+  const published = await publishedColors(city);
   const route = direction.shapes?.length
     ? direction.shapes.map((shape) => shape.map(([lat, lon]) => ({ lat, lon })))
     : [direction.stops.filter((s) => s.lat !== undefined && s.lon !== undefined).map((s) => ({ lat: s.lat!, lon: s.lon! }))];
   return { line: spoken, first: line, badge, round: isRound(ids, params.get("c") ?? "sf"),
-           parts: badgeParts(ids, params.get("c") ?? "sf"), combined: ids.length > 1, stop: name, destination: direction.destination,
+           parts: badgeParts(ids, city, published), combined: ids.length > 1, published, color: colorOf(line, city, published),
+           stop: name, destination: direction.destination,
            at: { lat: here.lat, lon: here.lon }, route };
 }
 

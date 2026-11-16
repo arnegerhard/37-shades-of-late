@@ -47,7 +47,7 @@
   /* The live map: the route, the stop and the buses on their way, like the app's. */
   .map { height: 340px; margin-top: 16px; border-radius: 28px; overflow: hidden; border: 1px solid var(--line); background: #15172c; }
   .map[hidden] { display: none; }
-  .bus { width: 46px; height: 46px; border-radius: 50%; background: #1c1c1e; border: 3px solid var(--red); box-sizing: border-box;
+  .bus { width: 46px; height: 46px; border-radius: 50%; background: #1c1c1e; border: 3px solid var(--line-color, var(--red)); box-sizing: border-box;
          display: grid; place-items: center; color: #fff; font: 900 16px/1 var(--round); }
   .bus.live { color: var(--green); }
   .here { width: 22px; height: 22px; border-radius: 50%; background: #0a84ff; border: 3px solid #fff; box-sizing: border-box; }
@@ -122,15 +122,28 @@
   const roundLine = (id) => city === "nyc" ? id.length === 1 || id.startsWith("S ")
     : city === "sf" ? /^[EFJKLMNT]$/.test(id) || id in BART : city === "seattle" ? /^[12TNS] Line$/.test(id)
     : city === "boston" ? id in BOSTON : city === "chicago" ? id in CHICAGO : city === "dc" ? id in DC : city === "la" && id in LA;
-  const colorOf = (id) => city === "chicago" ? (CHICAGO[id] || [])[1] : city === "dc" ? (DC[id] || [])[1] : city === "la" ? LA[id] : city === "boston"
+  // The link's lines' colors from the server (src/worker.ts colorOf): those picked by hand, else those the
+  // agency publishes (Muni's buses navy). Without them, the hand-picked ones below.
+  const SERVED = (() => { try { return JSON.parse(document.querySelector('meta[name="line-colors"]')?.content || "{}"); } catch { return {}; } })();
+  const darkText = (color) => Object.values(SERVED).some(([hex, dark]) => hex === color && dark) || DARK_TEXT.includes(color);
+  const colorOf = (id) => SERVED[id] ? SERVED[id][0] : city === "chicago" ? (CHICAGO[id] || [])[1] : city === "dc" ? (DC[id] || [])[1] : city === "la" ? LA[id] : city === "boston"
     ? (BOSTON[id] || [])[1] || (id.startsWith("SL") ? "#7C878E" : /^(\d|CT)/.test(id) ? "#FFC72C" : undefined)
     : (COLORS[city] || {})[id] || (city === "nyc" && id.startsWith("S ") ? "#7C858C" : undefined);
-  const groups = [];
+  let groups = [];
   for (const id of ids.some(colorOf) ? ids : []) {
     const color = colorOf(id), round = roundLine(id);
     const group = groups.find((g) => g.color === color && g.round === round);
     if (group) group.ids.push(id); else groups.push({ color, round, ids: [id] });
   }
+  // The lines in rectangles (buses, mostly) share one, in the color most of them have, as the app's.
+  const plain = groups.filter((g) => !g.round);
+  if (plain.length > 1) {
+    const main = plain.reduce((a, b) => (b.ids.length > a.ids.length ? b : a)).color;
+    groups = [...groups.filter((g) => g.round), { color: main, round: false, ids: ids.filter((id) => plain.some((g) => g.ids.includes(id))) }];
+  }
+  // The first line's color for its route and buses on the map, as the app draws them.
+  const lineColor = colorOf(ids[0]) || "#bf1a26";
+  document.documentElement.style.setProperty("--line-color", lineColor);
   // A circle per line, those sharing a color next to each other (the A, C and E in three blue circles).
   const parts = groups.flatMap((g) => (g.round ? g.ids.map((id) => ({ ...g, ids: [id] })) : [g]));
   $("badges").replaceChildren(...(parts.length ? parts : [{ ids }]).map((group) => {
@@ -144,7 +157,7 @@
     span.textContent = labels.join(labels.every((id) => id.length === 1) ? "" : "·");
     if (group.color) {
       span.style.background = group.color;
-      if (DARK_TEXT.includes(group.color)) span.style.color = "#000";
+      if (darkText(group.color)) span.style.color = "#000";
     }
     return span;
   }));
@@ -192,7 +205,7 @@
       showsZoomControl: false,
       isRotationEnabled: false,
     });
-    const style = new mapkit.Style({ strokeColor: "#bf1a26", lineWidth: 5, lineCap: "round", lineJoin: "round" });
+    const style = new mapkit.Style({ strokeColor: lineColor, lineWidth: 5, lineCap: "round", lineJoin: "round" });
     for (const shapes of routes) for (const shape of shapes) {
       map.addOverlay(new mapkit.PolylineOverlay(shape.map(([lat, lon]) => new mapkit.Coordinate(lat, lon)), { style }));
     }
