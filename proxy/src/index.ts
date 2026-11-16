@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { handleActivity, type ActivityEnv } from "./activities";
 import { handleWidget, type WidgetEnv } from "./widgets";
 import { BART_STOP, bartLines, bartMap, bartStops, handleBart, isBartLine } from "./bart";
-import { ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop, type FerryCity } from "./ferries";
+import { ferriesWhole, ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop, type FerryCity } from "./ferries";
 import { handleNYC } from "./nyc";
 import { handleSeattle } from "./seattle";
 import { handleBoston } from "./boston";
@@ -142,11 +142,20 @@ export default {
       const body: any = await response.json();
       const ferries = await (list === "map" ? ferryMap(city) : ferryLines(city)).catch(() => []);
       body.lines = [...body.lines, ...(city === "sf" ? (list === "map" ? bartMap() : bartLines()) : []), ...ferries];
+      // Some ferries missing: the app doesn't keep this one (it would for a day), and asks again soon.
+      if (!(await ferriesWhole(city))) {
+        body.complete = false;
+        return json(body, 200, 300);
+      }
       return json(body, 200, 3600);
     }
     if (response.ok && list === "stops") {
       const body: any = await response.json();
       body.stops = [...body.stops, ...(city === "sf" ? bartStops() : []), ...(await ferryStops(city).catch(() => []))];
+      if (!(await ferriesWhole(city))) {
+        body.complete = false;
+        return json(body, 200, 300);
+      }
       return json(body, 200, 3600);
     }
     return response;

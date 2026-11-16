@@ -24,7 +24,7 @@
 
 import network from "./nyc-subway.json";
 import { NYC_BUS } from "./nyc-bus";
-import { ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop } from "./ferries";
+import { ferriesWhole, ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop } from "./ferries";
 import { handleOBA, type SeattleDeps } from "./seattle";
 import { closestPerLine, linePairs, metersBetween, NEARBY_METERS, stopsOfLines, type NearbyLine, type Polyline } from "./geo";
 
@@ -82,9 +82,15 @@ export async function handleNYC(parts: string[], url: URL, bus?: SeattleDeps): P
   const result = await handleNYCWithoutFerries(parts, url, bus);
   // The ferries join the lists and maps, unless they can't be had today.
   const body = result.body as any;
+  const listed = !result.status && ((parts[0] === "lines" && parts.length === 1) || parts[0] === "map" || parts[0] === "stops");
   if (!result.status && parts[0] === "lines" && parts.length === 1) body.lines = [...body.lines, ...(await ferryLines("nyc").catch(() => []))];
   if (!result.status && parts[0] === "map") body.lines = [...body.lines, ...(await ferryMap("nyc").catch(() => []))];
   if (!result.status && parts[0] === "stops") body.stops = [...body.stops, ...(await ferryStops("nyc").catch(() => []))];
+  // Some ferries missing: the app doesn't keep this one (it would for a day), and asks again soon.
+  if (listed && !(await ferriesWhole("nyc"))) {
+    body.complete = false;
+    return { ...result, maxAge: Math.min(result.maxAge ?? 300, 300) };
+  }
   return result;
 }
 

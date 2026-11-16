@@ -183,6 +183,8 @@ interface Network {
   lines: Line[];
   trips: ScheduledTrip[];
   calendars: Map<string, Calendar>;
+  /** Whether every operator's GTFS came in: without one, its boats are missing until the next try. */
+  whole: boolean;
 }
 
 // MARK: - Requests
@@ -262,6 +264,11 @@ export async function ferryStops(city: FerryCity) {
   return stopsOfLines((await loadNetwork(city)).lines);
 }
 
+/** Whether all the city's ferries are in: a list or map without some isn't to be kept by the app. */
+export async function ferriesWhole(city: FerryCity) {
+  return (await loadNetwork(city).catch(() => undefined))?.whole ?? false;
+}
+
 export async function ferryLineIds(city: FerryCity) {
   return new Set((await loadNetwork(city)).lines.map((l) => l.id));
 }
@@ -324,10 +331,22 @@ const networks = new Map<FerryCity, { value: Promise<Network>; at: number }>();
 function loadNetwork(city: FerryCity): Promise<Network> {
   const network = networks.get(city);
   if (network && Date.now() - network.at < NETWORK_TTL_MS) return network.value;
-  const value = buildNetwork(city).catch((error) => {
+  const retrySoon = () => Date.now() - NETWORK_TTL_MS + 300_000;
+  const value = buildNetwork(city).then(async (built) => {
+    if (built.whole) return built;
+    // An operator missing: try again in a few minutes, and meanwhile keep yesterday's whole network if
+    // there is one rather than lose its boats.
+    networks.set(city, { value: Promise.resolve(built), at: retrySoon() });
+    const old = network && (await network.value.catch(() => undefined));
+    if (old?.whole) {
+      networks.set(city, { value: network!.value, at: retrySoon() });
+      return old;
+    }
+    return built;
+  }).catch((error) => {
     // Keep serving yesterday's network on a hiccup; try again in a few minutes.
     if (network) {
-      networks.set(city, { value: network.value, at: Date.now() - NETWORK_TTL_MS + 300_000 });
+      networks.set(city, { value: network.value, at: retrySoon() });
       return network.value;
     }
     networks.delete(city);
@@ -339,11 +358,16 @@ function loadNetwork(city: FerryCity): Promise<Network> {
 
 async function buildNetwork(city: FerryCity): Promise<Network> {
   const operators = CITIES[city].operators;
-  const built = await Promise.all(operators.map(readOperator));
+  // Each on its own: one operator's feed down (nyc.gov's, say) leaves the others' boats.
+  const settled = await Promise.allSettled(operators.map(readOperator));
+  const built = settled.flatMap((r, i) => (r.status === "fulfilled" ? [{ ...r.value, key: operators[i].key }] : []));
+  for (const [i, r] of settled.entries()) if (r.status === "rejected") console.warn(`ferries ${city}: ${operators[i].key} failed: ${r.reason}`);
+  if (!built.length) throw new Error(`ferries ${city}: no operator's GTFS`);
   return {
     lines: built.flatMap((b) => b.lines),
     trips: built.flatMap((b) => b.trips),
-    calendars: new Map(built.map((b, i) => [operators[i].key, b.calendar])),
+    calendars: new Map(built.map((b) => [b.key, b.calendar])),
+    whole: built.length === operators.length,
   };
 }
 
