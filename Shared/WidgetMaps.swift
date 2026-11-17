@@ -343,44 +343,50 @@ struct MapWidgetView: View {
         ._widgetBackground(inApp) { Color(.systemBackground) }
     }
 
-    /// A favorite's row: its line (with where it goes, if there's room) and its next times; tapped, it
-    /// goes on the map.
-    private func switchRow(_ row: WidgetRow, shown: Bool, destination: Bool) -> some View {
-        let next = entry.upcoming(row).first
-        return Button(intent: ShowOnMapIntent(row.selection)) {
-            HStack(spacing: 6) {
-                if let tag = entry.cityTag(for: row, visible: maxRows) { CityTag(code: tag) }
-                LineBadges(parts: row.selection.badgeParts, font: .system(.subheadline, design: .rounded).weight(.heavy),
-                           round: row.selection.roundBadge)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .layoutPriority(2)
-                if destination {
-                    Text(row.selection.destination).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer(minLength: 2)
-                Group {
-                    if entry.upcoming(row).isEmpty {
-                        Text(row.failed ? "–" : "none")
-                    } else {
-                        WaitsLabel(departures: entry.upcoming(row), date: entry.date,
-                                   count: (destination ? 3 : 2) - (row.selection.isMultiLine ? 1 : 0), selection: row.selection,
-                                   badgeFont: .system(size: 10, weight: .heavy, design: .rounded))
-                    }
-                }
-                .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .layoutPriority(1)
-                .foregroundStyle(next?.isLive == true ? .green : .secondary)
-            }
-            .padding(.horizontal, 6)
-            .frame(maxWidth: .infinity, minHeight: destination ? 34 : 30)
-            .background(shown ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .contentShape(Rectangle())
+    /// A favorite's row: its line (with where it goes, if there's room) and its next times. Tapped, it goes
+    /// on the map; the one already there opens the app at its stop.
+    @ViewBuilder private func switchRow(_ row: WidgetRow, shown: Bool, destination: Bool) -> some View {
+        if shown {
+            Link(destination: row.selection.openURL.tapped(on: "home")) { rowLabel(row, shown: true, destination: destination) }
+        } else {
+            Button(intent: ShowOnMapIntent(row.selection)) { rowLabel(row, shown: false, destination: destination) }
+                .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    private func rowLabel(_ row: WidgetRow, shown: Bool, destination: Bool) -> some View {
+        let next = entry.upcoming(row).first
+        return HStack(spacing: 6) {
+            if let tag = entry.cityTag(for: row, visible: maxRows) { CityTag(code: tag) }
+            LineBadges(parts: row.selection.badgeParts, font: .system(.subheadline, design: .rounded).weight(.heavy),
+                       round: row.selection.roundBadge)
+                .lineLimit(1)
+                .fixedSize()
+                .layoutPriority(2)
+            if destination {
+                Text(row.selection.destination).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 2)
+            Group {
+                if entry.upcoming(row).isEmpty {
+                    Text(row.failed ? "–" : "none")
+                } else {
+                    WaitsLabel(departures: entry.upcoming(row), date: entry.date,
+                               count: (destination ? 3 : 2) - (row.selection.isMultiLine ? 1 : 0), selection: row.selection,
+                               badgeFont: .system(size: 10, weight: .heavy, design: .rounded))
+                }
+            }
+            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .layoutPriority(1)
+            .foregroundStyle(next?.isLive == true ? .green : .secondary)
+        }
+        .padding(.horizontal, 6)
+        .frame(maxWidth: .infinity, minHeight: destination ? 34 : 30)
+        .background(shown ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(Rectangle())
     }
 }
 
