@@ -1,13 +1,14 @@
 # App Store listing — 37 Shades of Late
 
-Paste these into App Store Connect → your app → App Information / the 1.0 version page.
+Paste these into App Store Connect → your app → App Information / the 1.1 version page (the first release:
+1.0 was never released, its version page renamed 1.1).
 
 ## App Information
 
 | Field | Value |
 | --- | --- |
 | Name (≤30) | 37 Shades of Late |
-| Subtitle (≤30) | SF, Seattle, NYC & Boston |
+| Subtitle (≤30) | Next bus & train, at a glance |
 | Bundle ID | info.jetsons.bus37 |
 | SKU | 37shadesoflate-1 |
 | Primary category | Navigation |
@@ -19,8 +20,9 @@ Paste these into App Store Connect → your app → App Information / the 1.0 ve
 \* The departure times come from public transit data feeds, credited in the description and on the
 privacy page: 511.org's open data API (Muni), OneBusAway Puget Sound (Seattle), MTA's GTFS-realtime
 feeds and MTA Bus Time (New York subway and buses), BART's GTFS-realtime feed, the MBTA's V3 API and
-GTFS-realtime feeds (Boston), the ferry operators' GTFS feeds, and the Port Authority's
-RidePATH feed (PATH). All but the last are published open-data services for developers. The RidePATH
+GTFS-realtime feeds (Boston), the CTA's Train Tracker and Bus Tracker (Chicago), WMATA's GTFS-realtime
+feeds (Washington), LA Metro's real-time feeds via Swiftly (Los Angeles), the ferry operators' GTFS
+feeds, and the Port Authority's RidePATH feed (PATH). All but the last are published open-data services for developers. The RidePATH
 feed is the one the Port Authority's own app uses, not a published developer service, so if App Review
 asks specifically about PATH, that's the weak spot (see "Data sources" below).
 
@@ -34,54 +36,57 @@ asks specifically about PATH, that's the weak spot (see "Data sources" below).
 
 ## App Privacy ("nutrition label")
 
-Data used to track you: **none**. Answer the questionnaire like this:
+Data used to track you: **none** (a label that said otherwise got 1.0 rejected under 5.1.2(i) on Nov 7).
+As published in App Store Connect since Nov 9, all "Data Not Linked to You":
 
 | Data type | Collected | Linked to the user | Used for tracking | Purpose |
 | --- | --- | --- | --- | --- |
+| Location → Coarse Location | Yes | **No** | No | App Functionality |
 | Usage Data → Product Interaction | Yes | **No** | No | Analytics |
-| Identifiers → Device ID | Yes | **No** | No | Analytics |
+| Diagnostics → Crash Data | Yes | **No** | No | Analytics |
 
-The "Device ID" is the random install ID the app generates itself (not the IDFA or IDFV), sent
-with each request together with which screen made it and the line/stop viewed. Nothing ties it
-to a person, so it is "Not Linked to You", and it never leaves this app, so it isn't tracking
-and no App Tracking Transparency prompt is needed. Everything else: not collected.
+Coarse location is the server's rough guess from the network address (which city, how far from it),
+not stored; the app asks for no location permission. Product interaction comes with a random install ID
+the app makes itself (not the IDFA or IDFV), which nothing ties to a person, and which never leaves this
+app, so it isn't tracking and no App Tracking Transparency prompt is needed.
 
-## Version 1.0
+## Version 1.1
 
 **Promotional text (≤170)**
 
-> Your bus, train or ferry, at a glance. San Francisco, Seattle, New York and Boston departures on your Lock Screen, live, with an honest opinion about the wait.
+> Your bus, train or ferry at a glance, live on your Lock Screen, in San Francisco, Seattle, New York, Boston, Chicago, Washington and LA. With opinions.
 
 **Description (≤4000)**
 
 > 37 Shades of Late puts the next departures where you'll actually see them: on your Lock Screen and Home Screen. Raise your phone, see the minutes, put it back.
 >
-> Tap your line on a map of the whole city, tap the arrow at your stop, done. It's saved as a favorite, and your widgets show your favorites in the order you choose.
+> Finding your stop takes seconds: the city's lines on a map, a circle you slide over the corner where you wait, and every line that stops there with its next departures. Pick yours and which way, tap +, done. Keep as many as you like; your widgets show them in the order you choose.
 >
-> • San Francisco: every Muni bus, streetcar and Metro line, plus BART
-> • Seattle: King County Metro (including RapidRide), Sound Transit Link and ST Express, and the Seattle Streetcar
-> • New York: every subway line, the Staten Island Railway, PATH, and MTA buses
-> • Boston: the MBTA's Red, Orange, Blue and Green Lines, the Silver Line, buses, commuter rail and ferries
-> • Ferries in every city: Golden Gate and SF Bay Ferry, Washington State Ferries, NYC Ferry, NY Waterway and the Staten Island Ferry
-> • A favorites list per city; swipe between cities
-> • Widgets show the favorites of the city you're in, no location permission needed
+> Every stop you keep gets the whole screen: a live map of its route and the actual buses and trains on their way to you. Swipe up for the next one.
+>
+> • San Francisco: every Muni bus, streetcar and Metro line, BART, and the Golden Gate and San Francisco Bay ferries
+> • Seattle: King County Metro (including RapidRide), Sound Transit Link and ST Express, the Seattle Streetcar and Washington State Ferries
+> • New York: every subway line, the Staten Island Railway, PATH, MTA buses, NYC Ferry, NY Waterway and the Staten Island Ferry
+> • Boston: the MBTA's subway, Silver Line, buses, commuter rail and ferries
+> • Chicago: the CTA's 'L' and buses
+> • Washington, D.C.: Metrorail and Metrobus
+> • Los Angeles: LA Metro's rail lines, busways and buses
+> • Pick the cities you ride in; the city button switches between them, and the app notices when you're in another one, no location permission needed
+> • Widgets show the stops of the city you're in
 > • Minutes, not clock times: "4 min" beats "10:52" when you're deciding whether to run
 > • Live predictions in green, scheduled times in grey
-> • A map of the route and where your bus is right now
+> • Watch your stop from the Dynamic Island and Lock Screen while you finish your coffee
 > • "Also fine with": add the other lines at your stop, or one a short walk away, and see them all as one
 > • Lock Screen widgets: under the clock, above it, or a single countdown in a circle; Home Screen widgets in two sizes
+> • Share a stop as a link that shows its live wait to anyone, app or not
 > • Comments on every wait, from "Holy shit, the 37 is real" to "Walking is starting to look attractive"
 > • No account, no ads, no tracking
 >
-> Departure data from 511.org, OneBusAway, the MTA, BART, the MBTA, the Port Authority of New York and New Jersey, and the ferry operators. 37 Shades of Late is an independent app and is not affiliated with or endorsed by SFMTA, the Metropolitan Transportation Commission, BART, King County Metro, Sound Transit, the MTA, the MBTA, the Port Authority of New York and New Jersey, or any ferry operator.
+> Departure data from 511.org, OneBusAway, the MTA, BART, the MBTA, the CTA, WMATA, LA Metro, the Port Authority of New York and New Jersey, and the ferry operators. 37 Shades of Late is an independent app and is not affiliated with or endorsed by SFMTA, the Metropolitan Transportation Commission, BART, King County Metro, Sound Transit, the MTA, the MBTA, the CTA, WMATA, LA Metro, the Port Authority of New York and New Jersey, or any ferry operator.
 
 **Keywords (≤100, comma-separated, no space after commas)**
 
-> muni,bart,seattle,nyc,boston,mbta,subway,bus,transit,ferry,mta,widget,lock screen,departures,sf
-
-**What's New**
-
-> Now in Boston: the MBTA's subway, Silver Line, buses, commuter rail and ferries. Plus ferries in every city, the island and Lock Screen watching your stop live, and a circle on the map to pick your stop.
+> muni,bart,nyc,mbta,cta,wmata,metro,subway,bus,ferry,transit,widget,lock screen,departures
 
 **Copyright**
 
@@ -89,13 +94,13 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 
 ## App Review notes
 
-> 37 Shades of Late shows when the next buses and trains leave a stop the user picks, in San Francisco (Muni and BART), Seattle, New York (subway, PATH and MTA buses) and Boston (MBTA), in the app and in Home Screen and Lock Screen widgets. There's no login, account or purchase inside the app.
+> 37 Shades of Late shows when the next buses, trains and ferries leave the stops the user picks, in San Francisco, Seattle, New York, Boston, Chicago, Washington D.C. and Los Angeles: in the app, in Home Screen and Lock Screen widgets, and in a Live Activity. There's no login, account or in-app purchase.
 >
-> To try it: the app opens on the main screen with a map of a stop near the top. Tap the map, or Find a stop on it (to try a stop, with a + by it to keep it), or + next to Favorites (to keep it right away): the map opens out over the screen to show every line in the city (× goes back). Tap a line, then tap the white arrow at a stop for that stop and direction (or use the list button to pick by name), then Choose. The stop is saved as a favorite and shown on the map, with its route and the vehicles on their way (pinch to zoom, two fingers to move it), and in the Favorites list with the next departures. Swipe left or right to switch city; each city has its own favorites. Holding a favorite offers Share and Delete; holding its handle on the right drags it to reorder.
+> To try it: on first launch a short walkthrough explains the Lock Screen widget (Skip is top right), then a map of the cities, with the nearest one picked from a rough guess of the network address (the app asks for no location permission); tap Start suffering. The city's lines open on a map. Tap the map or pinch to zoom in until stops appear, slide the map so a corner sits in the blue circle, and pick a line and direction from the list at the bottom. The stop opens full screen with its route and the vehicles on their way; tap + next to its name to keep it as a favorite.
 >
-> The widgets show the favorites of the city the device is in. The app has no location permission: the city is a rough guess from the network address, made by our server and not stored. On first launch the app starts in the nearest city at a default stop (line 37 at 14th St & Church St in San Francisco, route 8 at Denny Way & Fairview Ave in Seattle, the G at Metropolitan Av in New York, the Red Line at Park Street in Boston) and offers a 30-second walkthrough for adding the Lock Screen widget.
+> Favorites line up in the column on the left: tap one to open it, swipe up and down between them, or hold one to reorder it or drop it on the bin. The magnifying glass at the top of the column finds another stop. The round button under the ? switches city; its pencil chooses cities. Tap the pill with the line and minutes to watch the stop on the Dynamic Island and Lock Screen (a Live Activity), and tap it again to stop. The paper plane shares the stop as a web link. The ? explains adding the widgets.
 >
-> Departure times come from our caching server in front of public transit data feeds: 511.org (Muni), OneBusAway Puget Sound (Seattle), the MTA's real-time feeds and MTA Bus Time (New York), BART's real-time feed, the MBTA's API and real-time feeds (Boston), the ferry operators' published schedules and feeds, and the Port Authority's RidePATH feed (PATH). The short comments on each wait ("Stay put, lazy bastard.") are the app's tone; they are the reason for the mild crude-humor age rating.
+> The widgets show the favorites of the city the device is in, guessed by our server from the network address and not stored. Departure times come from our caching server in front of public transit data feeds: 511.org (Muni), BART's real-time feed, OneBusAway Puget Sound (Seattle), the MTA's real-time feeds and MTA Bus Time (New York), the Port Authority's RidePATH feed (PATH), the MBTA's API and feeds (Boston), the CTA's Train Tracker and Bus Tracker (Chicago), WMATA's feeds (Washington), LA Metro's feeds (Los Angeles), and the ferry operators' schedules and feeds. The short comments on each wait ("Stay put, lazy bastard.") are the app's tone; they are the reason for the mild crude-humor age rating.
 >
 > A screen recording of these steps is attached.
 
@@ -113,6 +118,10 @@ and no App Tracking Transparency prompt is needed. Everything else: not collecte
 | Boston | Subway, buses, commuter rail, ferries | MBTA GTFS-realtime (cdn.mbta.com) and V3 API (api-v3.mbta.com) | optional `MBTA_API_KEY` secret |
 | San Francisco | Golden Gate Ferry, SF Bay Ferry | Operators' GTFS and GTFS-realtime | none |
 | Seattle | Washington State Ferries | WSDOT GTFS | none |
+| Chicago | 'L' trains | CTA Train Tracker | `CTA_API_KEY` secret |
+| Chicago | Buses | CTA Bus Tracker | `CTA_BUS_KEY` secret |
+| Washington | Metrorail, Metrobus | WMATA GTFS-realtime | `WMATA_API_KEY` secret |
+| Los Angeles | Metro rail, busways, buses | LA Metro GTFS-realtime via Swiftly (else Metro's WebSockets) | optional `SWIFTLY_API_KEY` secret |
 
 Each agency's open-data terms ask for credit, given in the description and on the privacy page. The PATH
 feed isn't a published developer service; if App Review questions it, PATH can be left out of a release
@@ -125,7 +134,9 @@ field under App Review Information.
 
 ## Screenshots
 
-In `AppStore/screenshots/`, from `AppStore/capture.sh` (it seeds the same favorites in every city each run; the
-seventh shot is New York). App Store Connect's "iPhone with Dynamic Island (medium display)" tab takes the
-`iphone-6.3` set (1206×2622); "iPad 13\" display" takes the `ipad-13` set (2064×2752). The `iphone-6.9` set
-(1320×2868) is for a large-display tab if Apple asks for one.
+In `AppStore/screenshots/`, from `AppStore/capture.sh <simulator-udid> <prefix>` (it seeds the same favorites in
+every city, hides the tips, and shoots home, the lines map, a line's stops, the widgets, the Lock Screen and New
+York). Run it while the 37 is running (not before 6 AM in San Francisco), so the shots have real minutes.
+App Store Connect's "iPhone with Dynamic Island (medium display)" tab takes the `iphone-6.3` set (1206×2622,
+iPhone 17); "iPad 13\" display" takes the `ipad-13` set (2064×2752, iPad Pro 13-inch). Smaller devices are
+scaled from these.

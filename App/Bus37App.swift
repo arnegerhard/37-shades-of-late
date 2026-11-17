@@ -16,6 +16,8 @@ struct Bus37App: App {
         // whatever its rules say.
         if UserDefaults.standard.bool(forKey: "resetTips") { try? Tips.resetDatastore() }
         if UserDefaults.standard.bool(forKey: "showTips") { Tips.showAllTipsForTesting() }
+        // `-hideTips YES`: none, for screenshots (see AppStore/capture.sh).
+        if UserDefaults.standard.bool(forKey: "hideTips") { Tips.hideAllTipsForTesting() }
         // `-fakeAway YES`: the Lock Screen widgets asleep, as far from every city (see WidgetPlace.debug).
         WidgetPlace.setDebugFromLaunchArguments()
         WidgetCenter.shared.reloadAllTimelines()
@@ -280,7 +282,10 @@ struct ContentView: View {
             case .guide: showingGuide = true
             case .share:
                 Task { try? await Task.sleep(for: .seconds(1.5)); sharingFrom = "map"; sharing = selection }
-            case .lines: reels[selection.city] = Self.pickerPage
+            case .lines:
+                // Once the pages are laid out, as the search button goes there (set at once, they stay put).
+                let city = selection.city
+                Task { try? await Task.sleep(for: .seconds(1)); go(to: Self.pickerPage, in: city) }
             case .cities: page = Self.citiesPage
             case .stops:
                 reels[selection.city] = Self.pickerPage

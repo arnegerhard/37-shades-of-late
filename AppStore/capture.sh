@@ -12,7 +12,7 @@ sleep 4
 i=1
 for screen in home lines stops widgets lock; do
   xcrun simctl terminate $device info.jetsons.bus37 2>/dev/null || true
-  xcrun simctl launch $device info.jetsons.bus37 -screen $screen >/dev/null
+  xcrun simctl launch $device info.jetsons.bus37 -screen $screen -hideTips YES -here sf >/dev/null
   # Long enough for live data and any opening animation.
   sleep 10
   xcrun simctl io $device screenshot --type=png "${prefix}-$i-$screen.png" >/dev/null 2>&1
@@ -21,7 +21,7 @@ for screen in home lines stops widgets lock; do
 done
 # New York, the newest city.
 xcrun simctl terminate $device info.jetsons.bus37 2>/dev/null || true
-xcrun simctl launch $device info.jetsons.bus37 -seedCity nyc -screen home >/dev/null
+xcrun simctl launch $device info.jetsons.bus37 -seedCity nyc -screen home -hideTips YES -here nyc >/dev/null
 sleep 8
 xcrun simctl io $device screenshot --type=png "${prefix}-$i-home-nyc.png" >/dev/null 2>&1
 echo "${prefix}-$i-home-nyc.png"
