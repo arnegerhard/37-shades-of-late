@@ -148,7 +148,7 @@
      you scroll; the words change with it, and the other cities pop in one by one. The section is tall and
      the map stays pinned on screen while you scroll through it. ---------- */
   .story { padding: 0; height: calc(100vh + 11.6 * 45vh); }
-  .story .pin { position: sticky; top: 0; height: 100vh; height: 100svh; padding: 48px 0 16px; }
+  .story .pin { position: sticky; top: 0; height: 100vh; height: 100svh; padding: 48px 0 66px; }
   .story .pin .wrap { display: flex; flex-direction: column; height: 100%; }
   /* The beats share one spot and blend into each other; it's as tall as the longest. */
   .story .beats { display: grid; margin-top: 12px; }
@@ -186,6 +186,19 @@
   /* Room for two lines, so the map doesn't change size as captions come and go. */
   .story .caption { flex: none; min-height: 3.6em; margin: 8px auto 0; max-width: 36ch; text-align: center; font: 800 clamp(18px, 2.4vw, 24px)/1.25 var(--round); }
   .story .caption small { display: block; margin-top: 6px; color: var(--muted); font-size: .7em; font-weight: 700; }
+  /* There's more below: a chevron that blends in while the story rests on a step with more after it, and
+     out as soon as it moves. */
+  .story .next {
+    position: absolute; left: 50%; bottom: 12px; width: 44px; height: 44px; margin-left: -22px;
+    display: grid; place-items: center; border: 0; padding: 0; border-radius: 50%;
+    background: #ffffff10; color: var(--ink); cursor: pointer;
+    opacity: 0; transform: translateY(-6px); pointer-events: none;
+    transition: opacity .5s ease, transform .5s ease;
+  }
+  .story .next.show { opacity: .8; transform: none; pointer-events: auto; }
+  .story .next.show svg { animation: nudge 1.8s ease-in-out .6s infinite; }
+  .story .next:hover { opacity: 1; background: #ffffff1c; }
+  @keyframes nudge { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(4px); } }
 
   /* ---------- Sharing: the 37's share card, live, as a friend would get it ---------- */
   .live {
@@ -459,7 +472,11 @@
       </div>
       {{CITIES_SVG}}
       <p class="caption" id="city-caption" aria-live="polite"></p>
-    </div></div>
+    </div>
+    <button class="next" type="button" aria-label="Next part of the story">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 9l7 7 7-7"/></svg>
+    </button></div>
   </section>
 
   <section class="lock" id="lockscreen">
@@ -756,6 +773,46 @@
   addEventListener("scroll", () => requestAnimationFrame(playStory), { passive: true });
   addEventListener("resize", playStory);
   playStory();
+
+  // The story comes to rest on whole steps: scrolling stopped between two, it glides on to the nearer, and
+  // a chevron blends in to say there's more (out again as soon as it moves, and for good at the punchline).
+  // The steps, in the story's own time: the 37, San Francisco, each city as it pops in, the punchline.
+  const STEPS = [0, 2.3, ...cities.map((_, i) => FIRST_CITY + i * PER_CITY + PER_CITY / 2), FINALE + 0.5];
+  const nextButton = story.querySelector(".next");
+  const storyTop = () => story.getBoundingClientRect().top + scrollY;
+  const storyRun = () => Math.max(1, story.offsetHeight - innerHeight);
+  const yOf = (t) => storyTop() + (t / LENGTH) * storyRun();
+  const storyTime = () => clamp01((scrollY - storyTop()) / storyRun()) * LENGTH;
+  const inStory = () => { const r = story.getBoundingClientRect(); return r.top <= 1 && r.bottom >= innerHeight - 1; };
+  let gliding = false, restTimer = 0;
+
+  function rest() {
+    gliding = false;
+    if (!inStory()) return nextButton.classList.remove("show");
+    const t = storyTime();
+    const nearest = STEPS.reduce((a, b) => (Math.abs(b - t) < Math.abs(a - t) ? b : a));
+    // Between steps (and not past the last, on the way into the page below): on to the nearer, smoothly.
+    if (!reducedMotion && t < STEPS[STEPS.length - 1] && Math.abs(nearest - t) > 0.02) {
+      gliding = true;
+      scrollTo({ top: yOf(nearest), behavior: "smooth" });
+      return;
+    }
+    nextButton.classList.toggle("show", t < FINALE);
+  }
+  function moved() {
+    if (!gliding) nextButton.classList.remove("show");
+    clearTimeout(restTimer);
+    // Once it's still: `scrollend` where there is one, else a moment without scrolling.
+    restTimer = setTimeout(rest, "onscrollend" in window ? 900 : 160);
+  }
+  addEventListener("scroll", moved, { passive: true });
+  if ("onscrollend" in window) addEventListener("scrollend", () => { clearTimeout(restTimer); rest(); });
+  // A tap on the chevron goes on to the next step.
+  nextButton.addEventListener("click", () => {
+    const t = storyTime();
+    const next = STEPS.find((step) => step > t + 0.05);
+    if (next !== undefined) { gliding = true; nextButton.classList.remove("show"); scrollTo({ top: yOf(next), behavior: reducedMotion ? "auto" : "smooth" }); }
+  });
 
   // ---------- The departure board follows the active shade ----------
   const digits = document.getElementById("digits");
