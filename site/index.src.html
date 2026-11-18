@@ -193,10 +193,10 @@
     display: grid; place-items: center; border: 0; padding: 0; border-radius: 50%;
     background: #ffffff10; color: var(--ink); cursor: pointer;
     opacity: 0; transform: translateY(-6px); pointer-events: none;
-    transition: opacity .5s ease, transform .5s ease;
+    transition: opacity .25s ease, transform .25s ease;
   }
   .story .next.show { opacity: .8; transform: none; pointer-events: auto; }
-  .story .next.show svg { animation: nudge 1.8s ease-in-out .6s infinite; }
+  .story .next.show svg { animation: nudge 1.8s ease-in-out .3s infinite; }
   .story .next:hover { opacity: 1; background: #ffffff1c; }
   @keyframes nudge { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(4px); } }
 
@@ -792,8 +792,10 @@
     const t = storyTime();
     const nearest = STEPS.reduce((a, b) => (Math.abs(b - t) < Math.abs(a - t) ? b : a));
     // Between steps (and not past the last, on the way into the page below): on to the nearer, smoothly.
+    // The chevron comes in as it sets off, not once it's there.
     if (!reducedMotion && t < STEPS[STEPS.length - 1] && Math.abs(nearest - t) > 0.02) {
       gliding = true;
+      nextButton.classList.toggle("show", nearest < FINALE);
       scrollTo({ top: yOf(nearest), behavior: "smooth" });
       return;
     }
@@ -811,7 +813,11 @@
   nextButton.addEventListener("click", () => {
     const t = storyTime();
     const next = STEPS.find((step) => step > t + 0.05);
-    if (next !== undefined) { gliding = true; nextButton.classList.remove("show"); scrollTo({ top: yOf(next), behavior: reducedMotion ? "auto" : "smooth" }); }
+    if (next !== undefined) {
+      gliding = true;
+      nextButton.classList.toggle("show", next < FINALE);
+      scrollTo({ top: yOf(next), behavior: reducedMotion ? "auto" : "smooth" });
+    }
   });
 
   // ---------- The departure board follows the active shade ----------
