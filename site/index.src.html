@@ -775,7 +775,8 @@
   playStory();
 
   // The story comes to rest on whole steps: scrolling stopped between two, it glides on to the nearer, and
-  // a chevron blends in to say there's more (out again as soon as it moves, and for good at the punchline).
+  // a chevron blends in to say there's more (out again as soon as it moves; at the punchline, it leads on
+  // to the rest of the page).
   // The steps, in the story's own time: the 37, San Francisco, each city as it pops in, the punchline.
   const STEPS = [0, 2.3, ...cities.map((_, i) => FIRST_CITY + i * PER_CITY + PER_CITY / 2), FINALE + 0.5];
   const nextButton = story.querySelector(".next");
@@ -795,11 +796,12 @@
     // The chevron comes in as it sets off, not once it's there.
     if (!reducedMotion && t < STEPS[STEPS.length - 1] && Math.abs(nearest - t) > 0.02) {
       gliding = true;
-      nextButton.classList.toggle("show", nearest < FINALE);
+      nextButton.classList.add("show");
       scrollTo({ top: yOf(nearest), behavior: "smooth" });
       return;
     }
-    nextButton.classList.toggle("show", t < FINALE);
+    // Every step has more after it: the punchline, the rest of the page.
+    nextButton.classList.add("show");
   }
   function moved() {
     if (!gliding) nextButton.classList.remove("show");
@@ -809,15 +811,14 @@
   }
   addEventListener("scroll", moved, { passive: true });
   if ("onscrollend" in window) addEventListener("scrollend", () => { clearTimeout(restTimer); rest(); });
-  // A tap on the chevron goes on to the next step.
+  // A tap on the chevron goes on to the next step; from the punchline, on to the page past the story.
   nextButton.addEventListener("click", () => {
     const t = storyTime();
     const next = STEPS.find((step) => step > t + 0.05);
-    if (next !== undefined) {
-      gliding = true;
-      nextButton.classList.toggle("show", next < FINALE);
-      scrollTo({ top: yOf(next), behavior: reducedMotion ? "auto" : "smooth" });
-    }
+    gliding = true;
+    if (next === undefined) nextButton.classList.remove("show");
+    const top = next === undefined ? storyTop() + story.offsetHeight : yOf(next);
+    scrollTo({ top, behavior: reducedMotion ? "auto" : "smooth" });
   });
 
   // ---------- The departure board follows the active shade ----------
