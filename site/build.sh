@@ -4,7 +4,7 @@ set -e
 cd "${0:A:h}"
 # The worker's card renderer (src/card.ts).
 [ -d node_modules ] || npm install --no-audit --no-fund
-APP_STORE_URL="https://apps.apple.com/app/id6825789256"
+APP_STORE_URL="https://apps.apple.com/us/app/37-shades-of-late/id6825789256"
 API_URL="https://bus37-proxy.arne-5c1.workers.dev"
 mkdir -p public
 python3 -I - "$APP_STORE_URL" "$API_URL" <<'PY'
@@ -22,6 +22,9 @@ for key, value in {
     "{{IMG_LOCKWIDGET}}": data_uri("images/lockwidget.jpg"),
     "{{IMG_PICKER}}": data_uri("images/picker.jpg"),
     "{{IMG_GRID}}": data_uri("images/grid.jpg"),
+    # Apple's own "Download on the App Store" badge, the white one for the dark page
+    # (toolbox.marketingtools.apple.com, linked from developer.apple.com/app-store/marketing/guidelines).
+    "{{IMG_BADGE}}": "data:image/svg+xml;base64," + base64.b64encode(open("images/app-store-badge-white.svg", "rb").read()).decode(),
     # The map of the cities (scripts/cities.mjs draws it).
     "{{CITIES_SVG}}": open("images/cities.svg").read(),
 }.items():

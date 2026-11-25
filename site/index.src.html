@@ -112,14 +112,6 @@
   @keyframes wobble { 0%, 86%, 100% { transform: rotate(0); } 90% { transform: rotate(-4deg); } 95% { transform: rotate(3deg); } }
   .tagline { font-size: clamp(18px, 2.4vw, 24px); color: var(--fog); max-width: 34ch; margin: 22px 0 30px; }
 
-  .cta {
-    display: inline-flex; align-items: center; gap: 12px;
-    background: var(--ink); color: var(--night); text-decoration: none;
-    padding: 14px 22px; border-radius: 16px; font: 800 18px/1 var(--round);
-    box-shadow: 0 10px 30px #0008; transition: transform .2s ease, box-shadow .2s ease;
-  }
-  .cta:hover { transform: translateY(-2px) rotate(-1deg); box-shadow: 0 16px 40px #000a; }
-  .cta svg { width: 22px; height: 22px; }
   .cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
 
   /* "$0.99?!" — jumps to the plan for anyone outraged by the price */
@@ -135,7 +127,11 @@
   }
   .why-price:hover { background: #ffb02014; border-color: #ffb020; }
   .why-price:hover .tag { transform: rotate(4deg) scale(1.06); }
-  .cta small { display: block; font: 600 12px/1 system-ui; opacity: .6; margin-bottom: 3px; }
+  /* Apple's badge as they ship it: no recolor or outline, at least 40px tall, a quarter of its height clear around it */
+  .app-store { display: inline-block; line-height: 0; border-radius: 9px; transition: transform .2s ease; }
+  .app-store img { display: block; height: 50px; width: auto; }
+  .app-store:hover { transform: translateY(-2px); }
+  .app-store:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
 
   .scroll-hint {
     position: absolute; z-index: 2; left: 50%; bottom: 12%; transform: translateX(-50%);
@@ -340,7 +336,7 @@
   /* ---------- Final CTA + footer ---------- */
   .final { text-align: center; padding-bottom: 80px; }
   .final h2 { max-width: 16ch; margin-inline: auto; }
-  .final .cta { margin-top: 18px; }
+  .final .app-store { margin-top: 18px; }
   footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; }
   footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; }
   footer nav { display: flex; gap: 18px; }
@@ -432,10 +428,7 @@
     <h1 aria-label="37 Shades of Late"><span class="logo">37</span> Shades<br>of <span class="late">Late</span></h1>
     <p class="tagline">Minutes until your bus or train, right on your Lock Screen, in seven cities and counting. Emotional support included.</p>
     <div class="cta-row">
-      <a class="cta app-store" href="{{APP_STORE_URL}}">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
-        <span><small>$0.99 on the</small>App Store</span>
-      </a>
+      <a class="app-store" href="{{APP_STORE_URL}}"><img src="{{IMG_BADGE}}" alt="Download on the App Store" width="150" height="50"></a>
       <a class="why-price" href="#plan">
         <span class="tag">$0.99?!</span>
         <span>Where your money goes</span>
@@ -660,10 +653,7 @@
     <div class="wrap">
       <div class="kicker">Get it</div>
       <h2>99 cents. Less than the fare, and it actually shows up.</h2>
-      <a class="cta app-store" href="{{APP_STORE_URL}}">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
-        <span><small>$0.99 on the</small>App Store</span>
-      </a>
+      <a class="app-store" href="{{APP_STORE_URL}}"><img src="{{IMG_BADGE}}" alt="Download on the App Store" width="150" height="50"></a>
     </div>
   </section>
 </main>
