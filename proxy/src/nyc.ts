@@ -23,8 +23,9 @@
  */
 
 import network from "./nyc-subway.json";
+import pathSchedule from "./path-schedule.json";
 import { NYC_BUS } from "./nyc-bus";
-import { ferriesWhole, ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop } from "./ferries";
+import { ferriesWhole, ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop, localDate, localMidnight } from "./ferries";
 import { handleOBA, type SeattleDeps } from "./seattle";
 import { closestPerLine, linePairs, metersBetween, NEARBY_METERS, stopsOfLines, type NearbyLine, type Polyline } from "./geo";
 
@@ -193,7 +194,7 @@ async function handleRail(parts: string[], url: URL) {
     if (!wanted.length) return { body: { error: "unknown line" }, status: 404 };
     const feeds = await Promise.all([...new Set(wanted.map((w) => w.line.feed))].map(loadFeed));
     const now = Date.now();
-    const departures = feeds
+    const departures: { line: string; time: string; live: boolean; destination: string; vehicle?: { lat: number; lon: number; bearing?: number } }[] = feeds
       .flatMap((feed) => feed.trips.flatMap((trip) => {
         const line = ROUTES.get(trip.routeId);
         return trip.stops.flatMap((s) => {
@@ -209,9 +210,13 @@ async function handleRail(parts: string[], url: URL) {
           }];
         });
       }))
-      .filter((d) => Date.parse(d.time) > now - 30_000)
-      .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))
-      .slice(0, 20);
+      .filter((d) => Date.parse(d.time) > now - 30_000);
+    // RidePATH lists only the next train or two of each line: the ones after, from the timetable (not live).
+    for (const w of wanted.filter((w) => w.line.feed === "path")) {
+      const live = departures.filter((d) => d.line === w.line.id && d.live).map((d) => Date.parse(d.time));
+      departures.push(...scheduledPath(w.line, w.stop, Math.max(now, ...live.map((t) => t + 90_000)), now));
+    }
+    departures.sort((a, b) => Date.parse(a.time) - Date.parse(b.time)).splice(20);
     const fetchedAt = Math.min(...feeds.map((f) => f.fetchedAt));
     const first = wanted[0].stop;
     return {
@@ -227,6 +232,30 @@ async function handleRail(parts: string[], url: URL) {
   }
 
   return { body: { error: "not found" }, status: 404 };
+}
+
+/** PATH's timetable (scripts/path-schedule.py): per day type, each line's departures from each platform, as
+ *  seconds after midnight with the platform it ends at. Last year's while no newer one can be had. */
+const PATH_DAYS = (pathSchedule as any).days as Record<"weekday" | "saturday" | "sunday", Record<string, [number, string][]>>;
+const PATH_HORIZON_MS = 2 * 3600_000;
+
+/** `line`'s timetabled trains from `stop` after `after` (and before a couple of hours past `now`): today's, and
+ *  yesterday's running past midnight. */
+function scheduledPath(line: Line, stop: string, after: number, now: number) {
+  const found: { line: string; time: string; live: boolean; destination: string }[] = [];
+  for (const days of [-1, 0]) {
+    const date = localDate(now + days * 86400_000, "America/New_York");
+    const midnight = localMidnight(date, "America/New_York");
+    const weekday = new Date(Date.UTC(+date.slice(0, 4), +date.slice(4, 6) - 1, +date.slice(6))).getUTCDay();
+    const day = weekday === 0 ? "sunday" : weekday === 6 ? "saturday" : "weekday";
+    for (const [seconds, end] of PATH_DAYS[day]?.[`${line.routeId}|${stop}`] ?? []) {
+      const time = midnight + seconds * 1000;
+      if (time > after && time < now + PATH_HORIZON_MS) {
+        found.push({ line: line.id, time: iso(time), live: false, destination: STOPS.get(end)?.name ?? "" });
+      }
+    }
+  }
+  return found;
 }
 
 /** The lines that stop at a platform, each with the way it goes from there. */
