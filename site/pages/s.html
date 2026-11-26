@@ -39,9 +39,12 @@
   .mins small { font-size: .32em; margin-left: 8px; letter-spacing: 0; }
   .later { color: var(--muted); font: 600 17px/1.3 var(--round); }
   .quip { font-style: italic; color: #dcdae3; margin-top: 18px; font-size: 19px; }
-  .cta { display: inline-flex; align-items: center; gap: 10px; margin-top: 30px; padding: 13px 20px; border-radius: 14px;
-         background: var(--ink); color: #111; text-decoration: none; font: 800 17px/1.1 var(--round); }
-  .cta small { display: block; font: 600 11px/1 system-ui; opacity: .7; margin-bottom: 3px; }
+  /* Apple's badge as they ship it (the white one, for the dark page): no recolor, at least 40px tall, a quarter of
+     its height clear around it. */
+  .cta { display: inline-block; margin-top: 30px; line-height: 0; border-radius: 9px; transition: transform .2s ease; }
+  .cta img { display: block; height: 50px; width: auto; }
+  .cta:hover { transform: translateY(-2px); }
+  .cta:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
   .pitch { color: var(--muted); margin-top: 26px; }
   .pitch a { color: #ff8a93; }
   /* The live map: the route, the stop and the buses on their way, like the app's. */
@@ -65,11 +68,8 @@
     <div class="quip" id="quip">&nbsp;</div>
   </div>
   <div class="map" id="map" aria-label="Map of the buses on their way" hidden></div>
-  <a class="cta" id="cta" href="https://apps.apple.com/app/id6825789256">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.9-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.2 5.8c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/></svg>
-    <span><small>Get it on your Lock Screen</small>37 Shades of Late</span>
-  </a>
-  <p class="pitch">Minutes until your bus or train, right on your Lock Screen, in San Francisco, Seattle, New York and Boston.
+  <a class="cta" id="cta" href="https://apps.apple.com/us/app/37-shades-of-late/id6825789256"><img src="/app-store-badge.svg" alt="Download 37 Shades of Late on the App Store" width="150" height="50"></a>
+  <p class="pitch">Minutes until your bus or train, right on your Lock Screen, in San Francisco, Seattle, New York, Boston, Chicago, Washington and LA.
     Already have the app? This link opens this stop in it. <a href="/">What is this?</a></p>
 </main>
 </div>

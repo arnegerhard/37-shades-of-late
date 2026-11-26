@@ -35,6 +35,8 @@ print(f"public/index.html: {len(html) // 1024} KB")
 PY
 # Privacy, support and the shared-stop page (/s) are plain static files.
 cp pages/privacy.html pages/support.html pages/s.html public/
+# Apple's App Store badge, for the shared-stop page's button (the homepage has it inline).
+cp images/app-store-badge-white.svg public/app-store-badge.svg
 # The homepage's link preview (scripts/preview.mjs draws it).
 cp images/preview.png public/
 # Lets 37shadesoflate.com/s links open the app when it's installed (universal links). Apple reads it
