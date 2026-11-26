@@ -1,14 +1,13 @@
 #!/usr/bin/env python3 -I
 """
-Builds proxy/src/path-schedule.json: PATH's regular timetable, for the trains after the ones the RidePATH feed
-lists (it has only the next train of each line at each station; see src/nyc.ts). For each day type (weekday,
+Builds proxy/src/path-schedule.json: PATH's regular timetable from its GTFS, the stand-in for the one src/path-timetable.ts
+reads each day from the Port Authority's schedule pages, while those can't be had. For each day type (weekday,
 Saturday, Sunday), each line's departures from each platform, coded as nyc-subway.json's ("PATH-862" from
 "PGRVY"), as seconds after midnight with the platform the train ends at.
 
 Only the three year-round services are read, not the feed's construction and holiday specials. The Port Authority
 publishes the feed about every six months (www.panynj.gov/path/download-schedules.html); its mirrors' copy ran out
-on June 1, 2026, so until a newer one turns up these are last year's times, shown as scheduled (grey). Runs by
-hand, from the mirror or a feed already downloaded:
+on June 1, 2026, so these are last year's times. Runs by hand, from the mirror or a feed already downloaded:
 
     python3 -I proxy/scripts/path-schedule.py [path-gtfs.zip]
 """

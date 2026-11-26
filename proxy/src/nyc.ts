@@ -23,7 +23,7 @@
  */
 
 import network from "./nyc-subway.json";
-import pathSchedule from "./path-schedule.json";
+import { pathTimetable, type PathTimetable } from "./path-timetable";
 import { NYC_BUS } from "./nyc-bus";
 import { ferriesWhole, ferryLineIds, ferryLines, ferryMap, ferryStops, handleFerry, isFerryStop, localDate, localMidnight } from "./ferries";
 import { handleOBA, type SeattleDeps } from "./seattle";
@@ -212,9 +212,11 @@ async function handleRail(parts: string[], url: URL) {
       }))
       .filter((d) => Date.parse(d.time) > now - 30_000);
     // RidePATH lists only the next train or two of each line: the ones after, from the timetable (not live).
-    for (const w of wanted.filter((w) => w.line.feed === "path")) {
+    const paths = wanted.filter((w) => w.line.feed === "path");
+    const timetable = paths.length ? await pathTimetable() : undefined;
+    for (const w of paths) {
       const live = departures.filter((d) => d.line === w.line.id && d.live).map((d) => Date.parse(d.time));
-      departures.push(...scheduledPath(w.line, w.stop, Math.max(now, ...live.map((t) => t + 90_000)), now));
+      departures.push(...scheduledPath(timetable!, w.line, w.stop, Math.max(now, ...live.map((t) => t + 90_000)), now));
     }
     departures.sort((a, b) => Date.parse(a.time) - Date.parse(b.time)).splice(20);
     const fetchedAt = Math.min(...feeds.map((f) => f.fetchedAt));
@@ -234,21 +236,18 @@ async function handleRail(parts: string[], url: URL) {
   return { body: { error: "not found" }, status: 404 };
 }
 
-/** PATH's timetable (scripts/path-schedule.py): per day type, each line's departures from each platform, as
- *  seconds after midnight with the platform it ends at. Last year's while no newer one can be had. */
-const PATH_DAYS = (pathSchedule as any).days as Record<"weekday" | "saturday" | "sunday", Record<string, [number, string][]>>;
 const PATH_HORIZON_MS = 2 * 3600_000;
 
-/** `line`'s timetabled trains from `stop` after `after` (and before a couple of hours past `now`): today's, and
+/** `line`'s timetabled trains (path-timetable.ts) from `stop` after `after` (and before a couple of hours past `now`): today's, and
  *  yesterday's running past midnight. */
-function scheduledPath(line: Line, stop: string, after: number, now: number) {
+function scheduledPath(timetable: PathTimetable, line: Line, stop: string, after: number, now: number) {
   const found: { line: string; time: string; live: boolean; destination: string }[] = [];
   for (const days of [-1, 0]) {
     const date = localDate(now + days * 86400_000, "America/New_York");
     const midnight = localMidnight(date, "America/New_York");
     const weekday = new Date(Date.UTC(+date.slice(0, 4), +date.slice(4, 6) - 1, +date.slice(6))).getUTCDay();
     const day = weekday === 0 ? "sunday" : weekday === 6 ? "saturday" : "weekday";
-    for (const [seconds, end] of PATH_DAYS[day]?.[`${line.routeId}|${stop}`] ?? []) {
+    for (const [seconds, end] of timetable[day]?.[`${line.routeId}|${stop}`] ?? []) {
       const time = midnight + seconds * 1000;
       if (time > after && time < now + PATH_HORIZON_MS) {
         found.push({ line: line.id, time: iso(time), live: false, destination: STOPS.get(end)?.name ?? "" });
