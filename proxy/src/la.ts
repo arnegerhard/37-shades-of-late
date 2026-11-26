@@ -9,12 +9,15 @@
  * JSON, so a connection is held just long enough for one round. Served under /v1/la/... like Boston
  * (see boston.ts, which serves both).
  *
- * Stop codes are GTFS stops: a rail station ("80203", Hollywood / Highland, both ways) or a bus stop.
+ * Stop codes are GTFS stops: a rail station ("80203", Hollywood / Highland, both ways) or a bus stop. The county's
+ * other operators' lines are in la.json too, their stops with their operator's key ("BCT_1234"); their live times
+ * come from their own feeds (see la-munis.ts).
  */
 
 import { decodeTrips, serveNetwork, type Line, type LiveTrip, type Visit } from "./boston";
 import { decodePositions } from "./ferries";
 import network from "./la.json";
+import { operatorLive, operatorOf } from "./la-munis";
 
 /** Bus and rail, by Swiftly's names for them. */
 const FEEDS = ["https://api.goswift.ly/real-time/lametro/", "https://api.goswift.ly/real-time/lametro-rail/"];
@@ -46,7 +49,7 @@ const destinations = new Map(lines.map((l) => [l.routeId, new Map(l.directions.m
 
 /** The network's route for a live trip's: the same, or ("2" for "2-13201") the schedule's with its
  *  service period on the end, which the live feeds may leave off. */
-const routeIds = new Map(lines.flatMap((l) => [[l.routeId, l.routeId], [l.routeId.split("-")[0], l.routeId]]));
+const routeIds = new Map(lines.flatMap((l): [string, string][] => [[l.routeId, l.routeId], ...((l as any).operator ? [] : [[l.routeId.split("-")[0], l.routeId] as [string, string]])]));
 
 /** Which way of its line each stop is on, by route and stop: a trip's way there, should the feed not
  *  say. A stop both ways keeps the way it's not the end of. */
@@ -62,7 +65,17 @@ for (const line of lines) {
 
 export async function handleLA(parts: string[], url: URL, deps: LADeps) {
   return serveNetwork(parts, url, lines, async (stopCodes) => {
-    const live = await loadLive(deps.apiKey);
+    // Metro's feeds for its stops, each other operator's for its own: a stop and those a short walk away can be both.
+    const operators = [...new Set(stopCodes.map(operatorOf))];
+    // One operator's feed down leaves the others' times; all down is an error.
+    const settled = await Promise.allSettled(operators.map((key) => (key ? operatorLive(key) : loadLive(deps.apiKey))));
+    const feeds = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    if (!feeds.length) throw (settled[0] as PromiseRejectedResult).reason;
+    const live: Live = {
+      trips: new Map(feeds.flatMap((f) => [...f.trips])),
+      positions: new Map(feeds.flatMap((f) => [...f.positions])),
+      fetchedAt: Math.min(...feeds.map((f) => f.fetchedAt)),
+    };
     return { visits: stopCodes.map((stop) => visitsAt(stop, live)), fetchedAt: live.fetchedAt, ttl: FEED_TTL_MS };
   });
 }

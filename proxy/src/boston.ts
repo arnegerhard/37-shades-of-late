@@ -282,8 +282,9 @@ async function loadLive(): Promise<Live> {
  *  TripUpdate (1 trip: 1 trip_id, 4 schedule_relationship, 5 route_id, 6 direction_id; 2
  *  stop_time_update: 2 arrival / 3 departure (2 time), 4 stop_id, 5 schedule_relationship).
  *  `arrivals`: a feed that gives only when trips arrive (WMATA's, but where they start) leaves then,
- *  but at the last stop it has. */
-export function decodeTrips(bytes: Uint8Array, arrivals = false): Map<string, LiveTrip> {
+ *  but at the last stop it has. `routeless`: trips the feed names no route for are kept (with ""), for the
+ *  caller to find theirs from the schedule (most of LA County's smaller operators' feeds). */
+export function decodeTrips(bytes: Uint8Array, arrivals = false, routeless = false): Map<string, LiveTrip> {
   const trips = new Map<string, LiveTrip>();
   for (const entity of new Reader(bytes).fields()) {
     if (entity.field !== 2 || !entity.sub) continue;
@@ -318,7 +319,7 @@ export function decodeTrips(bytes: Uint8Array, arrivals = false): Map<string, Li
         }
       }
       if (last) stops.delete(last);
-      if (id && route && !canceled && stops.size) trips.set(id, { route, direction, stops });
+      if (id && (route || routeless) && !canceled && stops.size) trips.set(id, { route, direction, stops });
     }
   }
   return trips;

@@ -308,13 +308,13 @@ function servicesOn(calendar: Calendar, date: string): Set<string> {
 }
 
 /** "20261028": the date in `timeZone` at `ms`. */
-function localDate(ms: number, timeZone: string): string {
+export function localDate(ms: number, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
   return parts.replaceAll("-", "");
 }
 
 /** Midnight in `timeZone` at the start of `date` ("20261028"), as epoch milliseconds. */
-function localMidnight(date: string, timeZone: string): number {
+export function localMidnight(date: string, timeZone: string): number {
   const [y, m, d] = [Number(date.slice(0, 4)), Number(date.slice(4, 6)), Number(date.slice(6))];
   const noon = Date.UTC(y, m - 1, d, 12);
   // "GMT-4" in New York's summer, "GMT-5" in its winter; noon's offset is the day's (clocks change at 2 am).
